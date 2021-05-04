@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [[ -f "build/libs/AppUpdateServerGenerator.jar" ]]; then
+    java -jar build/libs/AppUpdateServerGenerator.jar "$@"
+else
+    echo "missing build/libs/AppUpdateServerGenerator.jar; need to run ./gradlew build"
+fi
+
