@@ -6,7 +6,7 @@ import java.io.IOException
 import java.nio.file.Path
 
 class ApkSignerInvoker(private val apkSignerPath: Path = Path.of("apksigner")) : Invoker(apkSignerPath) {
-    fun getSigningCerts(apkFile: File): List<HexString> {
+    fun verifyAndGetSigningCerts(apkFile: File): List<HexString> {
         val certProcess: Process = ProcessBuilder().run {
             command(apkSignerPath.toString(), "verify", "--print-certs", apkFile.absolutePath)
             start()
@@ -22,6 +22,11 @@ class ApkSignerInvoker(private val apkSignerPath: Path = Path.of("apksigner")) :
         }
         if (certificates.isEmpty()) {
             throw IOException("missing signing certificates")
+        }
+
+        certProcess.waitFor()
+        if (certProcess.exitValue() != 0) {
+            throw IOException("apksigner exited with non-zero exit code: ${certProcess.exitValue()}")
         }
 
         return certificates

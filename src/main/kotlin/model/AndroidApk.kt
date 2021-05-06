@@ -1,6 +1,5 @@
 package model
 
-import util.FileManager
 import util.invoker.AaptInvoker
 import util.invoker.ApkSignerInvoker
 import java.io.File
@@ -50,7 +49,7 @@ data class AndroidApk(
             val builder = Builder()
             builder.apkFile = apkFile
             aaptInvoker.getAndroidAppDetails(apkFile, builder)
-            builder.certificates = apkSignerInvoker.getSigningCerts(apkFile)
+            builder.certificates = apkSignerInvoker.verifyAndGetSigningCerts(apkFile)
             return builder.buildIfAllPresent() ?: error("failed to build: $builder")
         }
     }
