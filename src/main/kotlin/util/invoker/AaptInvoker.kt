@@ -21,18 +21,47 @@ class AaptInvoker(val aaptPath: Path = Path.of("aapt")) : Invoker(aaptPath) {
             start()
         }
 
+        /*
+        Sample first few lines for Auditor:
+
+        $ aapt dump xmltree Auditor-26.apk AndroidManifest.xml
+        N: android=http://schemas.android.com/apk/res/android
+          E: manifest (line=2)
+            A: android:versionCode(0x0101021b)=(type 0x10)0x1a
+            A: android:versionName(0x0101021c)="26" (Raw: "26")
+            A: android:compileSdkVersion(0x01010572)=(type 0x10)0x1e
+            A: android:compileSdkVersionCodename(0x01010573)="11" (Raw: "11")
+            A: package="app.attestation.auditor" (Raw: "app.attestation.auditor")
+            A: platformBuildVersionCode=(type 0x10)0x1e
+            A: platformBuildVersionName=(type 0x10)0xb
+            E: uses-sdk (line=7)
+              A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a
+              A: android:targetSdkVersion(0x01010270)=(type 0x10)0x1e
+         */
         manifestProcess.inputStream.bufferedReader().use { reader ->
             var line = reader.readLine()
             while (line != null) {
                 androidApkBuilder.apply {
                     versionCodeRegex.find(line)
-                        ?.let { versionCode = VersionCode(it.groupValues[1].toInt(radix = 16)) }
+                        ?.let {
+                            versionCode = try {
+                                VersionCode(it.groupValues[2].toInt(radix = 16))
+                            } catch (e: NumberFormatException) {
+                                throw IOException("failed to parse versionCode for $apkFile")
+                            }
+                        }
                         ?: versionNameRegex.find(line)
-                            ?.let { versionName = it.groupValues[1] }
+                            ?.let { versionName = it.groupValues[2] }
                         ?: packageRegex.find(line)
                             ?.let { packageName = it.groupValues[1] }
                         ?: minSdkVersionRegex.find(line)
-                            ?.let { minSdkVersion = it.groupValues[1].toInt(radix = 16) }
+                            ?.let {
+                                minSdkVersion = try {
+                                    it.groupValues[2].toInt(radix = 16)
+                                } catch (e: NumberFormatException) {
+                                    throw IOException("failed to parse minSdkVersion for $apkFile")
+                                }
+                            }
 
                     if (packageName != null && versionCode != null && versionName != null && minSdkVersion != null) {
                         return
@@ -46,9 +75,9 @@ class AaptInvoker(val aaptPath: Path = Path.of("aapt")) : Invoker(aaptPath) {
     }
 
     companion object {
-        private val versionCodeRegex = Regex("""A: android:versionCode\(0x[0-9a-f]*\)=\(type 0x10\)0x([a-e0-9]*)""")
-        private val versionNameRegex = Regex("""A: android:versionName\(0x[0-9a-f]*\)="(.*)" \(Raw: ".*"\)""")
+        private val versionCodeRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:versionCode\(0x[0-9a-f]*\)=\(type 0x10\)0x([a-e0-9]*)""")
+        private val versionNameRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:versionName\(0x[0-9a-f]*\)="(.*)" \(Raw: ".*"\)""")
         private val packageRegex = Regex(""" A: package="(.*)" \(Raw: ".*"\)""")
-        private val minSdkVersionRegex = Regex("""A: android:minSdkVersion\(0x[0-9a-f]*\)=\(type 0x10\)0x([a-e0-9]*)""")
+        private val minSdkVersionRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:minSdkVersion\(0x[0-9a-f]*\)=\(type 0x10\)0x([a-e0-9]*)""")
     }
 }
