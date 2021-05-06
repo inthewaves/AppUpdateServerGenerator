@@ -33,5 +33,4 @@ See the help option `-h` for `OPTIONS`.
 ## TODO
 * The Android app
 * Metadata signing
-* Main index
 * Unit tests

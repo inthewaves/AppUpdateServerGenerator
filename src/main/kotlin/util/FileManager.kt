@@ -34,17 +34,15 @@ class FileManager @Throws(IOException::class) constructor(
      */
     val appDirectory = File(dataRootDirectory, STANDALONE_APP_DATA_DIRNAME)
 
-
-    val latestAppsIndex = File(appDirectory, "latest.txt")
-
     init {
         attemptToCreateDirIfNotExists(dataRootDirectory)
         attemptToCreateDirIfNotExists(appDirectory)
     }
 
+    val appIndex = File(appDirectory, "latest.txt")
+
     fun getDirForApp(pkg: String) = File(appDirectory, pkg)
 
-    fun getLatestAppApk(pkg: String) = File(getDirForApp(pkg), "latest.apk")
 
     fun getLatestAppVersionInfoMetadata(pkg: String) = File(getDirForApp(pkg), "latest.json")
 

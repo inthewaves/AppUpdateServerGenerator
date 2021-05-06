@@ -1,5 +1,6 @@
 package commands
 
+import api.AppVersionIndex
 import api.LatestAppVersionInfo
 import kotlinx.cli.ArgType
 import kotlinx.cli.ExperimentalCli
@@ -99,9 +100,14 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             val apksForThisPackage = groupEntry.value.sortedBy { it.second.versionCode }
             println("apksForThisPackage (${groupEntry.key}): ${apksForThisPackage.map { it.second.versionCode }}")
             apksForThisPackage.forEachIndexed { index, (file, apkInfo) ->
-                insertApk(file, apkInfo, index >= apksForThisPackage.size - 1)
+                // only regenerate deltas when at the latest apk
+                insertApk(file, apkInfo, regenerateDeltas = index >= apksForThisPackage.size - 1)
             }
         }
+
+        val index = AppVersionIndex.create(fileManager)
+        println("index: $index")
+        index.writeToFile(fileManager.appIndex)
     }
 
     private fun insertApk(apkFile: File, infoOfApkToInsert: AndroidApk, regenerateDeltas: Boolean) {
@@ -141,6 +147,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             println("failed to write metadata: ${e.message}")
             exitProcess(1)
         }
+        println("")
     }
 
     private fun deleteAllDeltas(appDir: File) {
