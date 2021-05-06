@@ -239,7 +239,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
                 val previousApkInfo = AndroidApk.buildFromApkFile(previousVersionApkFile, aaptInvoker, apkSignerInvoker)
                 val deltaName = DELTA_FILE_FORMAT.format(previousApkInfo.versionCode.code, newApkInfo.versionCode.code)
-                println("generating delta $deltaName")
+                println("generating delta: $deltaName")
                 ArchivePatcherUtil.generateDelta(
                     previousVersionApkFile,
                     newApkFile,
