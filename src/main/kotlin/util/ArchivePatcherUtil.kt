@@ -4,8 +4,10 @@ import com.google.archivepatcher.applier.FileByFileV1DeltaApplier
 import com.google.archivepatcher.generator.FileByFileV1DeltaGenerator
 import java.io.File
 import java.io.FileInputStream
+import java.io.IOException
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
+import kotlin.jvm.Throws
 
 /**
  * Utilities for archive-patcher
@@ -28,6 +30,7 @@ object ArchivePatcherUtil {
         }
     }
 
+    @Throws(IOException::class, InterruptedException::class)
     fun generateDelta(oldFile: File, newFile: File, outputDeltaFile: File, outputGzip: Boolean) {
         val outputStream = if (outputGzip) {
             GZIPOutputStream(outputDeltaFile.outputStream())

@@ -26,6 +26,7 @@ import java.lang.Integer.min
 import java.security.MessageDigest
 import java.util.zip.ZipException
 import java.util.zip.ZipFile
+import kotlin.math.max
 import kotlin.system.exitProcess
 
 /**
@@ -78,7 +79,9 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             exitProcess(1)
         }
 
-        val packageGroups: Map<String, List<Pair<File, AndroidApk>>> = apkFilePaths
+        println("parsing ${apkFilePaths.size} APKs")
+
+        val apkGroupsByPackage = apkFilePaths.asSequence()
             .map { apkFilePathString ->
                 val apkFile = File(apkFilePathString)
                 if (!apkFile.exists() || !apkFile.canRead()) {
@@ -93,41 +96,58 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                     exitProcess(1)
                 }
 
-                apkFile to infoOfApkToInsert
+                infoOfApkToInsert
             }
-            .groupBy { it.second.packageName }
-        packageGroups.forEach { groupEntry ->
-            val apksForThisPackage = groupEntry.value.sortedBy { it.second.versionCode }
-            println("apksForThisPackage (${groupEntry.key}): ${apksForThisPackage.map { it.second.versionCode }}")
-            apksForThisPackage.forEachIndexed { index, (file, apkInfo) ->
+            .groupBy { it.packageName }
+
+        println("found the following packages: ${apkGroupsByPackage.keys}")
+
+        apkGroupsByPackage.forEach { (packageName, apks) ->
+            val apksForThisPackage = apks.sortedBy { it.versionCode }
+
+            val nowInsertingString = "Now inserting $packageName"
+            val versionCodeString = "Version codes: ${apksForThisPackage.map { it.versionCode.code }}"
+            val width = max(versionCodeString.length, nowInsertingString.length)
+            println("""
+                ${"=".repeat(width)}
+                $nowInsertingString
+                $versionCodeString
+                ${"=".repeat(width)}
+            """.trimIndent())
+
+            apksForThisPackage.forEachIndexed { index, apkInfo ->
                 // only regenerate deltas when at the latest apk
-                insertApk(file, apkInfo, regenerateDeltas = index >= apksForThisPackage.size - 1)
+                insertApk(apkInfo, regenerateDeltas = index >= apksForThisPackage.size - 1)
             }
+            println()
         }
 
         val index = AppVersionIndex.create(fileManager)
-        println("index: $index")
+        println("new index: $index")
         index.writeToFile(fileManager.appIndex)
     }
 
-    private fun insertApk(apkFile: File, infoOfApkToInsert: AndroidApk, regenerateDeltas: Boolean) {
-        println("App details for ${apkFile.name}: $infoOfApkToInsert")
+    private fun insertApk(infoOfApkToInsert: AndroidApk, regenerateDeltas: Boolean) {
+        println("Inserting ${infoOfApkToInsert.apkFile.name}, with details $infoOfApkToInsert")
 
         val appDir = fileManager.getDirForApp(infoOfApkToInsert.packageName)
-        val latestAppMetadata = fileManager.getLatestAppVersionInfoMetadata(infoOfApkToInsert.packageName)
-        validateOrCreateDirectories(appDir, infoOfApkToInsert, latestAppMetadata)
+        val latestAppMetadataFile = fileManager.getLatestAppVersionInfoMetadata(infoOfApkToInsert.packageName)
+        validateOrCreateDirectories(appDir, infoOfApkToInsert, latestAppMetadataFile)
 
-        val previousApksMap = getPreviousApkFileToInfoMap(appDir, apkFile)
+        val previousApksMap = getPreviousApks(appDir, infoOfApkToInsert.apkFile)
         if (!doPreviousApksHaveSameSigningCerts(infoOfApkToInsert, previousApksMap)) {
             println("some apks don't have the same signing certificates")
+            println("dumping details: this apk: $infoOfApkToInsert")
+            println("previous apks: $previousApksMap")
             exitProcess(1)
         }
 
         val newApkFile = File(appDir, "${infoOfApkToInsert.versionCode.code}.apk")
-        apkFile.copyTo(newApkFile)
-        println("copied ${apkFile.absolutePath} to ${newApkFile.absolutePath}")
+        infoOfApkToInsert.apkFile.copyTo(newApkFile)
+        println("copied ${infoOfApkToInsert.apkFile.absolutePath} to ${newApkFile.absolutePath}")
 
         val deltaAvailableVersions: List<VersionCode> = if (regenerateDeltas) {
+            println()
             deleteAllDeltas(appDir)
             generateDeltas(appDir, newApkFile, infoOfApkToInsert, previousApksMap)
         } else {
@@ -135,13 +155,14 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         }
 
         try {
+            println()
             val newAppMetadata = LatestAppVersionInfo(
                 latestVersionCode = infoOfApkToInsert.versionCode,
                 sha256Checksum = Base64String.fromBytes(newApkFile.digest(MessageDigest.getInstance("SHA-256"))),
                 deltaAvailableVersions = deltaAvailableVersions,
                 lastUpdateTimestamp = UnixTimestamp.now()
             )
-            latestAppMetadata.writeText(Json.encodeToString(newAppMetadata))
+            latestAppMetadataFile.writeText(Json.encodeToString(newAppMetadata))
             println("metadata updated: $newAppMetadata")
         } catch (e: IOException) {
             println("failed to write metadata: ${e.message}")
@@ -150,6 +171,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         println("")
     }
 
+    @Throws(IOException::class)
     private fun deleteAllDeltas(appDir: File) {
         appDir.listFiles(FileFilter { it.name.matches(DELTA_REGEX) })?.forEach { oldDelta ->
             println("deleting outdated delta ${oldDelta.name}")
@@ -159,23 +181,18 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         }
     }
 
-    private fun getPreviousApkFileToInfoMap(appDir: File, newApkFile: File): Map<File, AndroidApk> {
-        val previousApks: List<File> = appDir.listFiles(
-            FileFilter {
-                it.isFile && it.name.matches(APK_REGEX) && it.nameWithoutExtension != newApkFile.nameWithoutExtension
-                        && isZipFile(it)
-            }
-        )?.asSequence()
+    @Throws(IOException::class)
+    private fun getPreviousApks(appDir: File, newApkFile: File): List<AndroidApk> =
+        appDir
+            .listFiles(
+                FileFilter {
+                    it.isFile && it.name.matches(APK_REGEX) &&
+                            it.nameWithoutExtension != newApkFile.nameWithoutExtension && isZipFile(it)
+                }
+            )
             ?.sortedWith { a, b -> -a.nameWithoutExtension.toInt().compareTo(b.nameWithoutExtension.toInt()) }
-            ?.toList()
+            ?.map { AndroidApk.buildFromApkFile(it, aaptInvoker, apkSignerInvoker) }
             ?: throw IOException("failed to get previous apks")
-
-        return if (previousApks.isEmpty()) {
-            emptyMap()
-        } else {
-            previousApks.associateWith { AndroidApk.buildFromApkFile(it, aaptInvoker, apkSignerInvoker) }
-        }
-    }
 
     @Throws(IOException::class)
     private fun isZipFile(file: File): Boolean = try {
@@ -216,9 +233,9 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
     private fun doPreviousApksHaveSameSigningCerts(
         infoOfApkToInsert: AndroidApk,
-        previousApks: Map<File, AndroidApk>
+        previousApks: List<AndroidApk>
     ): Boolean {
-        previousApks.values.forEach { previousApkInfo ->
+        previousApks.forEach { previousApkInfo ->
             // TODO: verify using same or similar way as frameworks/base
             if (previousApkInfo.certificates.intersect(infoOfApkToInsert.certificates).isEmpty()) {
                 return false
@@ -232,31 +249,31 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         appDir: File,
         newApkFile: File,
         newApkInfo: AndroidApk,
-        previousApks: Map<File, AndroidApk>,
+        previousApks: List<AndroidApk>,
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS
     ): List<VersionCode> {
-        val versionCodes = ArrayList<VersionCode>(min(previousApks.size, maxPreviousVersions))
-        var numDeltas = 0
-        previousApks.iterator()
-            .forEach { entry ->
-                val previousVersionApkFile = entry.key
-                if (numDeltas >= maxPreviousVersions) {
-                    return versionCodes
-                }
-
+        val numberOfDeltasToGenerate = min(previousApks.size, maxPreviousVersions)
+        return previousApks.asSequence()
+            .take(numberOfDeltasToGenerate)
+            .mapTo(ArrayList(numberOfDeltasToGenerate)) { previousApk ->
+                val previousVersionApkFile = previousApk.apkFile
+                
                 val previousApkInfo = AndroidApk.buildFromApkFile(previousVersionApkFile, aaptInvoker, apkSignerInvoker)
                 val deltaName = DELTA_FILE_FORMAT.format(previousApkInfo.versionCode.code, newApkInfo.versionCode.code)
                 println("generating delta: $deltaName")
+
+                val outputDeltaFile = File(appDir, deltaName)
                 ArchivePatcherUtil.generateDelta(
                     previousVersionApkFile,
                     newApkFile,
-                    File(appDir, deltaName),
+                    outputDeltaFile,
                     outputGzip = true
                 )
 
-                versionCodes.add(previousApkInfo.versionCode)
-                numDeltas++
+                println(" generated delta ${outputDeltaFile.name} is " +
+                        "${outputDeltaFile.length().toDouble() / (0x1 shl 20)} MiB")
+
+                previousApkInfo.versionCode
             }
-        return versionCodes
     }
 }

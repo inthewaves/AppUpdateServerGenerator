@@ -22,6 +22,11 @@ class GenerateDeltaCommand : Subcommand("generate-delta", "Generate deltas direc
     )
 
     override fun execute() {
-        ArchivePatcherUtil.generateDelta(File(oldFile), File(newFile), File(outputDelta), outputGzip = !(noGzip ?: false))
+        ArchivePatcherUtil.generateDelta(
+            File(oldFile),
+            File(newFile),
+            File(outputDelta),
+            outputGzip = !(noGzip ?: false)
+        )
     }
 }

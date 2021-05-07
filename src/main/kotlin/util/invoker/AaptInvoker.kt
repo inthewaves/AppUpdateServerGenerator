@@ -11,7 +11,7 @@ import java.nio.file.Path
  */
 class AaptInvoker(val aaptPath: Path = Path.of("aapt")) : Invoker(aaptPath) {
     /**
-     * Reads the [apkFile] and populates the given [androidApkBuilder] from AndroidManifest.xml.
+     * Reads the [apkFile] and populates the given [androidApkBuilder] using the values in the APK's AndroidManifest.xml
      * @throws IOException if the APK file can't be processed by aapt
      */
     @Throws(IOException::class)

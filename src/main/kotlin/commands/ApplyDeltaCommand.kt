@@ -27,6 +27,7 @@ class ApplyDeltaCommand : Subcommand("apply-delta", "Apply deltas directly") {
             File(oldFile),
             File(deltaFile),
             File(newFileName),
-            isDeltaGzipped = !(notGzipped ?: false))
+            isDeltaGzipped = !(notGzipped ?: false)
+        )
     }
 }
