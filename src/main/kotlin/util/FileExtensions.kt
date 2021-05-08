@@ -1,9 +1,7 @@
 package util
 
-import java.io.File
-import java.io.FileInputStream
-import java.io.IOException
-import java.io.InputStream
+import java.io.*
+import java.nio.file.Files
 import java.security.DigestInputStream
 import java.security.MessageDigest
 
@@ -16,5 +14,31 @@ fun File.digest(messageDigest: MessageDigest): ByteArray {
             bytes = read(unusedBuffer)
         }
         return messageDigest.digest()
+    }
+}
+
+@Throws(IOException::class)
+fun File.prependLine(line: String) {
+    val tempFile = Files.createTempFile(
+        "temp-${line.hashCode()}-${System.currentTimeMillis()}",
+        null
+    ).toFile().apply { deleteOnExit() }
+    try {
+        // Prepend the line
+        tempFile.outputStream().bufferedWriter().use {
+            it.appendLine(line)
+            it.flush()
+        }
+        // Add the rest of the file
+        FileOutputStream(tempFile, true).buffered().use { output ->
+            this.inputStream().use { it.copyTo(output) }
+        }
+        tempFile.copyTo(this, overwrite = true)
+    } finally {
+        try {
+            tempFile.delete()
+        } catch (e: SecurityException) {
+            println("failed to delete tempfile $tempFile")
+        }
     }
 }

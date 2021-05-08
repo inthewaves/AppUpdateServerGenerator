@@ -5,13 +5,13 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Path
 
-class ApkSignerInvoker(private val apkSignerPath: Path = Path.of("apksigner")) : Invoker(apkSignerPath) {
+class ApkSignerInvoker(apkSignerPath: Path = Path.of("apksigner")) : Invoker(executablePath = apkSignerPath) {
     fun verifyAndGetSigningCerts(apkFile: File): List<HexString> {
         val certProcess: Process = ProcessBuilder().run {
-            command(apkSignerPath.toString(), "verify", "--print-certs", apkFile.absolutePath)
+            command(executablePath.toString(), "verify", "--print-certs", apkFile.absolutePath)
             start()
         }
-        val certificateSha256Regex = Regex("^Signer #[0-9]* certificate SHA-256 digest: ([0-9a-f]*)$")
+
         val certificates = mutableListOf<HexString>()
         certProcess.inputStream.bufferedReader().use { reader ->
             reader.forEachLine { line ->
@@ -30,5 +30,9 @@ class ApkSignerInvoker(private val apkSignerPath: Path = Path.of("apksigner")) :
         }
 
         return certificates
+    }
+
+    companion object {
+        private val certificateSha256Regex = Regex("^Signer #[0-9]* certificate SHA-256 digest: ([0-9a-f]*)$")
     }
 }

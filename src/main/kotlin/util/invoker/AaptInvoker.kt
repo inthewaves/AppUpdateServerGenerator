@@ -9,7 +9,7 @@ import java.nio.file.Path
 /**
  * Wrapper class for the aapt tool.
  */
-class AaptInvoker(val aaptPath: Path = Path.of("aapt")) : Invoker(aaptPath) {
+class AaptInvoker(aaptPath: Path = Path.of("aapt")) : Invoker(executablePath = aaptPath) {
     /**
      * Reads the [apkFile] and populates the given [androidApkBuilder] using the values in the APK's AndroidManifest.xml
      * @throws IOException if the APK file can't be processed by aapt
@@ -17,7 +17,7 @@ class AaptInvoker(val aaptPath: Path = Path.of("aapt")) : Invoker(aaptPath) {
     @Throws(IOException::class)
     fun getAndroidAppDetails(apkFile: File, androidApkBuilder: AndroidApk.Builder) {
         val manifestProcess: Process = ProcessBuilder().run {
-            command(aaptPath.toString(), "dump", "xmltree", apkFile.absolutePath, "AndroidManifest.xml")
+            command(executablePath.toString(), "dump", "xmltree", apkFile.absolutePath, "AndroidManifest.xml")
             start()
         }
 

@@ -2,10 +2,7 @@ package commands
 
 import api.AppVersionIndex
 import api.LatestAppVersionInfo
-import kotlinx.cli.ArgType
-import kotlinx.cli.ExperimentalCli
-import kotlinx.cli.Subcommand
-import kotlinx.cli.vararg
+import kotlinx.cli.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -19,6 +16,7 @@ import util.FileManager
 import util.digest
 import util.invoker.AaptInvoker
 import util.invoker.ApkSignerInvoker
+import util.invoker.OpenSSLInvoker
 import java.io.File
 import java.io.FileFilter
 import java.io.IOException
@@ -47,6 +45,12 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         )
     }
 
+    private val keyFile: String by option(
+        ArgType.String,
+        description = "A decrypted key in PKCS8 format used to sign the metadata",
+        fullName = "key-file",
+        shortName = "k"
+    ).required()
     private val userSpecifiedRepoDirectory: String? by option(
         ArgType.String,
         description = "The directory to use for the app repo. Defaults to working directory.",
@@ -67,17 +71,29 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
     }
     private val aaptInvoker = AaptInvoker()
     private val apkSignerInvoker = ApkSignerInvoker()
+    private val openSSLInvoker = OpenSSLInvoker()
 
     override fun execute() = runBlocking {
         if (!aaptInvoker.isExecutablePresent()) {
-            println("unable to locate aapt at ${aaptInvoker.aaptPath}; please add it to your PATH variable")
+            println("unable to locate aapt at ${aaptInvoker.executablePath}; please add it to your PATH variable")
+            exitProcess(1)
+        }
+        if (!apkSignerInvoker.isExecutablePresent()) {
+            println("unable to locate apksigner at ${aaptInvoker.executablePath}; please add it to your PATH variable")
+            exitProcess(1)
+        }
+        if (!openSSLInvoker.isExecutablePresent()) {
+            println("unable to locate openssl at ${openSSLInvoker.executablePath}")
             exitProcess(1)
         }
 
-        if (!apkSignerInvoker.isExecutablePresent()) {
-            println("unable to locate apksigner at ${aaptInvoker.aaptPath}; please add it to your PATH variable")
+        val key: OpenSSLInvoker.Key = try {
+            openSSLInvoker.getKeyType(File(keyFile))
+        } catch (e: IOException) {
+            println("failed to parse key type from provided key file: $e")
             exitProcess(1)
         }
+        println("input key is of type $key")
 
         println("parsing ${apkFilePaths.size} APKs")
 
@@ -125,6 +141,10 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         val index = AppVersionIndex.create(fileManager)
         println("new index: $index")
         index.writeToFile(fileManager.appIndex)
+        println("wrote new index at ${fileManager.appIndex}")
+
+        openSSLInvoker.signFileAndPrependToFile(key, fileManager.appIndex)
+        println("signed the index file")
     }
 
     private fun insertApk(infoOfApkToInsert: AndroidApk, regenerateDeltas: Boolean) {
