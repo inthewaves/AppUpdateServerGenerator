@@ -143,7 +143,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         index.writeToFile(fileManager.appIndex)
         println("wrote new index at ${fileManager.appIndex}")
 
-        openSSLInvoker.signFileAndPrependToFile(key, fileManager.appIndex)
+        openSSLInvoker.signFileAndPrependSignatureToFile(key, fileManager.appIndex)
         println("signed the index file")
     }
 

@@ -1,6 +1,8 @@
 package util
 
-import java.io.*
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.nio.file.Files
 import java.security.DigestInputStream
 import java.security.MessageDigest
@@ -31,7 +33,7 @@ fun File.prependLine(line: String) {
         }
         // Add the rest of the file
         FileOutputStream(tempFile, true).buffered().use { output ->
-            this.inputStream().use { it.copyTo(output) }
+            this.inputStream().buffered().use { it.copyTo(output) }
         }
         tempFile.copyTo(this, overwrite = true)
     } finally {

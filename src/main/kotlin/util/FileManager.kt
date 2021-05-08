@@ -43,7 +43,5 @@ class FileManager @Throws(IOException::class) constructor(
 
     fun getDirForApp(pkg: String) = File(appDirectory, pkg)
 
-
     fun getLatestAppVersionInfoMetadata(pkg: String) = File(getDirForApp(pkg), "latest.json")
-
 }

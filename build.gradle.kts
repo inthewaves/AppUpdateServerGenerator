@@ -27,8 +27,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-cli:0.3.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0-RC")
 
+    testImplementation("org.bouncycastle:bcprov-jdk15to18:1.68")
     testImplementation(kotlin("test-junit5"))
-    testImplementation("org.junit.jupiter:junit-jupiter-api:5.6.0")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.6.0")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.6.0")
 }
 
