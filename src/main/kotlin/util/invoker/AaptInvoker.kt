@@ -16,10 +16,9 @@ class AaptInvoker(aaptPath: Path = Path.of("aapt")) : Invoker(executablePath = a
      */
     @Throws(IOException::class)
     fun getAndroidAppDetails(apkFile: File, androidApkBuilder: AndroidApk.Builder) {
-        val manifestProcess: Process = ProcessBuilder().run {
-            command(executablePath.toString(), "dump", "xmltree", apkFile.absolutePath, "AndroidManifest.xml")
-            start()
-        }
+        val manifestProcess: Process = ProcessBuilder(
+            executablePath.toString(), "dump", "xmltree", apkFile.absolutePath, "AndroidManifest.xml"
+        ).start()
 
         /*
         Sample first few lines for Auditor:

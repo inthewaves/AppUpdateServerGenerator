@@ -7,10 +7,9 @@ import java.nio.file.Path
 
 class ApkSignerInvoker(apkSignerPath: Path = Path.of("apksigner")) : Invoker(executablePath = apkSignerPath) {
     fun verifyAndGetSigningCerts(apkFile: File): List<HexString> {
-        val certProcess: Process = ProcessBuilder().run {
-            command(executablePath.toString(), "verify", "--print-certs", apkFile.absolutePath)
-            start()
-        }
+        val certProcess: Process = ProcessBuilder(
+            executablePath.toString(), "verify", "--print-certs", apkFile.absolutePath
+        ).start()
 
         val certificates = mutableListOf<HexString>()
         certProcess.inputStream.bufferedReader().use { reader ->

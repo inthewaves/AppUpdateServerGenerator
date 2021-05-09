@@ -100,7 +100,7 @@ internal class OpenSSLInvokerTest {
         null
     ).toFile()
         .apply {
-            // deleteOnExit()
+            deleteOnExit()
             writeBytes(privateKey.encoded)
         }
 

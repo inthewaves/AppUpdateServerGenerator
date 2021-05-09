@@ -46,7 +46,6 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
                 addAll(listOf("-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"))
             }
         }
-
         val signingProcess: Process = ProcessBuilder(command).start()
         fileToSign.inputStream().use { input ->
             signingProcess.outputStream.use { output -> input.copyTo(output) }
