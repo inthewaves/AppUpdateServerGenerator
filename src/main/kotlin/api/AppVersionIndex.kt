@@ -1,7 +1,5 @@
 package api
 
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 import model.VersionCode
 import util.FileManager
 import java.io.File
@@ -20,18 +18,16 @@ data class AppVersionIndex constructor(val packageToVersionMap: Map<String, Vers
         fun create(fileManager: FileManager): AppVersionIndex {
             val map = fileManager.appDirectory.listFiles()?.asSequence()
                 ?.filter { it.isDirectory }
-                ?.map {
+                ?.map { dir ->
                     try {
-                        it.name to Json.decodeFromString<LatestAppVersionInfo>(
-                            fileManager.getLatestAppVersionInfoMetadata(it.name).readText()
-                        )
+                        LatestAppVersionInfo.getInfoFromDiskForPackage(dir.name, fileManager)
                     } catch (e: IOException) {
                         null
                     }
                 }
                 ?.filterNotNull()
-                ?.sortedBy { it.first }
-                ?.associate { it.first to it.second.latestVersionCode }
+                ?.sortedBy { it.packageName }
+                ?.associate { it.packageName to it.latestVersionCode }
                 ?: throw IOException("failed to get files from app directory")
             return AppVersionIndex(map)
         }

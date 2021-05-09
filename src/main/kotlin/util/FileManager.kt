@@ -9,10 +9,7 @@ class FileManager @Throws(IOException::class) constructor(
      * Root directory for all data, including the live server data and old app data.
      * By default, it's set to the user's working directory
      */
-    val dataRootDirectory: File = File(
-        Path.of("").toAbsolutePath().toFile(),
-        REPO_ROOT_DIRNAME
-    )
+    val dataRootDirectory: File = File(Path.of("").toAbsolutePath().toFile(), REPO_ROOT_DIRNAME)
 ) {
     companion object {
         private const val REPO_ROOT_DIRNAME = "app_repo_data"
@@ -39,9 +36,9 @@ class FileManager @Throws(IOException::class) constructor(
         attemptToCreateDirIfNotExists(appDirectory)
     }
 
-    val appIndex = File(appDirectory, "latest.txt")
+    val appLatestVersionIndex = File(appDirectory, "latest.txt")
 
     fun getDirForApp(pkg: String) = File(appDirectory, pkg)
 
-    fun getLatestAppVersionInfoMetadata(pkg: String) = File(getDirForApp(pkg), "latest.json")
+    fun getLatestAppVersionInfoMetadata(pkg: String) = File(getDirForApp(pkg), "latest.txt")
 }

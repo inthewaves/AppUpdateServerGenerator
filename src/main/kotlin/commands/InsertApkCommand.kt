@@ -87,13 +87,13 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             exitProcess(1)
         }
 
-        val key: OpenSSLInvoker.Key = try {
+        val signingKey: OpenSSLInvoker.Key = try {
             openSSLInvoker.getKeyWithType(File(keyFile))
         } catch (e: IOException) {
             println("failed to parse key type from provided key file: $e")
             exitProcess(1)
         }
-        println("input key is of type $key")
+        println("input signing key is of type $signingKey")
 
         println("parsing ${apkFilePaths.size} APKs")
 
@@ -133,21 +133,21 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
             apksForThisPackage.forEachIndexed { index, apkInfo ->
                 // only regenerate deltas when at the latest apk
-                insertApk(apkInfo, regenerateDeltas = index >= apksForThisPackage.size - 1)
+                insertApk(apkInfo, signingKey, regenerateDeltas = index >= apksForThisPackage.size - 1)
             }
             println()
         }
 
         val index = AppVersionIndex.create(fileManager)
         println("new index: $index")
-        index.writeToFile(fileManager.appIndex)
-        println("wrote new index at ${fileManager.appIndex}")
+        index.writeToFile(fileManager.appLatestVersionIndex)
+        println("wrote new index at ${fileManager.appLatestVersionIndex}")
 
-        openSSLInvoker.signFileAndPrependSignatureToFile(key, fileManager.appIndex)
+        openSSLInvoker.signFileAndPrependSignatureToFile(signingKey, fileManager.appLatestVersionIndex)
         println("signed the index file")
     }
 
-    private fun insertApk(infoOfApkToInsert: AndroidApk, regenerateDeltas: Boolean) {
+    private fun insertApk(infoOfApkToInsert: AndroidApk, signingKey: OpenSSLInvoker.Key, regenerateDeltas: Boolean) {
         println("Inserting ${infoOfApkToInsert.apkFile.name}, with details $infoOfApkToInsert")
 
         val appDir = fileManager.getDirForApp(infoOfApkToInsert.packageName)
@@ -177,17 +177,20 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         try {
             println()
             val newAppMetadata = LatestAppVersionInfo(
+                packageName = infoOfApkToInsert.packageName,
                 latestVersionCode = infoOfApkToInsert.versionCode,
                 sha256Checksum = Base64String.fromBytes(newApkFile.digest(MessageDigest.getInstance("SHA-256"))),
                 deltaAvailableVersions = deltaAvailableVersions,
                 lastUpdateTimestamp = UnixTimestamp.now()
             )
             latestAppMetadataFile.writeText(Json.encodeToString(newAppMetadata))
+            openSSLInvoker.signFileAndPrependSignatureToFile(signingKey, latestAppMetadataFile)
             println("metadata updated: $newAppMetadata")
         } catch (e: IOException) {
             println("failed to write metadata: ${e.message}")
             exitProcess(1)
         }
+
         println("")
     }
 
@@ -233,7 +236,8 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                 println("error: missing metadata file despite the app directory being present")
                 exitProcess(1)
             }
-            val latestAppInfo: LatestAppVersionInfo = Json.decodeFromString(latestAppMetadata.readText())
+            // The first line contains the signature.
+            val latestAppInfo: LatestAppVersionInfo = latestAppMetadata.useLines { Json.decodeFromString(it.last()) }
             if (infoOfApkToInsert.versionCode <= latestAppInfo.latestVersionCode) {
                 println(
                     "error: trying to insert an APK with version code ${infoOfApkToInsert.versionCode.code} when the " +
