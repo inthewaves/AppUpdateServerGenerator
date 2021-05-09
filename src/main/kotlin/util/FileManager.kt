@@ -36,7 +36,7 @@ class FileManager @Throws(IOException::class) constructor(
         attemptToCreateDirIfNotExists(appDirectory)
     }
 
-    val appLatestVersionIndex = File(appDirectory, "latest.txt")
+    val latestAppVersionIndex = File(appDirectory, "latest.txt")
 
     fun getDirForApp(pkg: String) = File(appDirectory, pkg)
 

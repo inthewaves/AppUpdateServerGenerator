@@ -2,16 +2,17 @@ package api
 
 import model.VersionCode
 import util.FileManager
-import java.io.File
+import util.invoker.OpenSSLInvoker
 import java.io.IOException
 
-data class AppVersionIndex constructor(val packageToVersionMap: Map<String, VersionCode>) {
-    fun writeToFile(file: File) {
-        file.bufferedWriter().use { writer ->
-            packageToVersionMap.forEach { entry ->
-                writer.appendLine("${entry.key}:${entry.value.code}")
-            }
+@JvmInline
+value class AppVersionIndex constructor(val packageToVersionMap: Map<String, VersionCode>) {
+    fun writeToDiskAndSign(key: OpenSSLInvoker.Key, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
+        val latestAppVersionIndex = fileManager.latestAppVersionIndex
+        latestAppVersionIndex.bufferedWriter().use { writer ->
+            packageToVersionMap.forEach { entry -> writer.appendLine("${entry.key}:${entry.value.code}") }
         }
+        openSSLInvoker.signFileAndPrependSignatureToFile(key, latestAppVersionIndex)
     }
 
     companion object {

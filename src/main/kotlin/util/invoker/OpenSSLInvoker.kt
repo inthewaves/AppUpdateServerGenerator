@@ -4,6 +4,7 @@ import model.Base64String
 import util.prependLine
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -31,26 +32,13 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         return Key(file = keyFile, keyType = keyType)
     }
 
+    /**
+     * Note: It is the caller's responsibility to close the [inputStream]
+     */
     @Throws(IOException::class)
-    fun signFile(key: Key, fileToSign: File): Base64String {
-        val fileSize = Files.readAttributes(fileToSign.toPath(), "size")
-            .run { get("size") as Long }
-        if (fileSize <= 0) {
-            throw IOException("cannot sign an empty file")
-        }
-
-        val command = mutableListOf<String>(
-            executablePath.toString(), "dgst", "-sha256", "-keyform", "DER", "-sign", key.file.absolutePath
-        ).apply {
-            if (key.keyType == KeyType.RSA) {
-                addAll(listOf("-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"))
-            }
-        }
-        val signingProcess: Process = ProcessBuilder(command).start()
-        fileToSign.inputStream().use { input ->
-            signingProcess.outputStream.use { output -> input.copyTo(output) }
-        }
-
+    fun signFromInputStream(key: Key, inputStream: InputStream): Base64String {
+        val signingProcess: Process = createDgstSigningProcess(key)
+        signingProcess.outputStream.use { output -> inputStream.copyTo(output) }
         val signature: Base64String = signingProcess.inputStream.use {
             try {
                 Base64String.fromBytes(it.readBytes())
@@ -62,14 +50,41 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         if (signingProcess.exitValue() != 0) {
             throw IOException("dgst returned non-zero exit code")
         }
-
         return signature
+    }
+
+    @Throws(IOException::class)
+    fun signString(key: Key, string: String): Base64String = signFromInputStream(key, string.byteInputStream())
+
+    @Throws(IOException::class)
+    fun signFile(key: Key, fileToSign: File): Base64String {
+        val fileSize = Files.readAttributes(fileToSign.toPath(), "size")
+            .run { get("size") as Long }
+        if (fileSize <= 0) {
+            throw IOException("cannot sign an empty file")
+        }
+
+        return fileToSign.inputStream().use {
+            signFromInputStream(key, it)
+        }
     }
 
     @Throws(IOException::class)
     fun signFileAndPrependSignatureToFile(key: Key, fileToSign: File): Base64String =
         signFile(key, fileToSign)
             .also { signature -> fileToSign.prependLine(signature.s) }
+
+    private fun createDgstSigningProcess(key: Key): Process {
+        val command = mutableListOf<String>(
+            executablePath.toString(), "dgst", "-sha256", "-keyform", "DER", "-sign", key.file.absolutePath
+        ).apply {
+            if (key.keyType == KeyType.RSA) {
+                addAll(listOf("-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"))
+            }
+        }
+        val signingProcess: Process = ProcessBuilder(command).start()
+        return signingProcess
+    }
 
     data class Key(val file: File, val keyType: KeyType)
 

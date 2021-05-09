@@ -5,7 +5,6 @@ import api.LatestAppVersionInfo
 import kotlinx.cli.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import model.AndroidApk
 import model.Base64String
@@ -140,11 +139,12 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
         val index = AppVersionIndex.create(fileManager)
         println("new index: $index")
-        index.writeToFile(fileManager.appLatestVersionIndex)
-        println("wrote new index at ${fileManager.appLatestVersionIndex}")
-
-        openSSLInvoker.signFileAndPrependSignatureToFile(signingKey, fileManager.appLatestVersionIndex)
-        println("signed the index file")
+        index.writeToDiskAndSign(
+            key = signingKey,
+            openSSLInvoker = openSSLInvoker,
+            fileManager = fileManager
+        )
+        println("wrote new index at ${fileManager.latestAppVersionIndex}")
     }
 
     private fun insertApk(infoOfApkToInsert: AndroidApk, signingKey: OpenSSLInvoker.Key, regenerateDeltas: Boolean) {
@@ -183,8 +183,11 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                 deltaAvailableVersions = deltaAvailableVersions,
                 lastUpdateTimestamp = UnixTimestamp.now()
             )
-            latestAppMetadataFile.writeText(Json.encodeToString(newAppMetadata))
-            openSSLInvoker.signFileAndPrependSignatureToFile(signingKey, latestAppMetadataFile)
+            newAppMetadata.writeToDiskAndSign(
+                key = signingKey,
+                openSSLInvoker = openSSLInvoker,
+                fileManager = fileManager
+            )
             println("metadata updated: $newAppMetadata")
         } catch (e: IOException) {
             println("failed to write metadata: ${e.message}")

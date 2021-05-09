@@ -1,14 +1,12 @@
 package api
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.*
 import kotlinx.serialization.json.Json
 import model.Base64String
 import model.UnixTimestamp
 import model.VersionCode
 import util.FileManager
+import util.invoker.OpenSSLInvoker
 import java.io.IOException
 
 @Serializable
@@ -23,6 +21,16 @@ data class LatestAppVersionInfo(
     val deltaAvailableVersions: List<VersionCode>,
     val lastUpdateTimestamp: UnixTimestamp,
 ) {
+    fun writeToDiskAndSign(key: OpenSSLInvoker.Key, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
+        val latestAppVersionInfoJson = Json.encodeToString(this)
+        val signature = openSSLInvoker.signString(key, latestAppVersionInfoJson)
+        fileManager.getLatestAppVersionInfoMetadata(pkg = packageName).bufferedWriter().use { writer ->
+            writer.appendLine(signature.s)
+            writer.append(latestAppVersionInfoJson)
+            writer.flush()
+        }
+    }
+
     companion object {
         @Throws(IOException::class)
         fun getInfoFromDiskForPackage(pkg: String, fileManager: FileManager): LatestAppVersionInfo =
