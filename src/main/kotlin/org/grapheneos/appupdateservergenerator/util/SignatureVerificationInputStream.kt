@@ -23,11 +23,10 @@ constructor(
     /**
      * The signature associated with this stream.
      */
-    val signature: Signature = provider
-        ?.let { Signature.getInstance(signatureAlgorithm, it) } ?: Signature.getInstance(signatureAlgorithm)
-        .apply {
-            initVerify(publicKey)
-        }
+    val signature: Signature =
+        provider
+            ?.let { Signature.getInstance(signatureAlgorithm, it) } ?: Signature.getInstance(signatureAlgorithm)
+            .apply { initVerify(publicKey) }
 
     /**
      * Turns the signature verification function on or off. The default is on.
@@ -133,13 +132,14 @@ constructor(
         // Start verifying the rest of the stream. The BufferedReader here will
         // loading big chunks of the underlying input stream.
         on = true
-        bufferedReader().lineSequence().forEachIndexed { index, line ->
-            if (index != 0) {
-                action(index, line)
-            } else {
-                // Include the character that we read if present.
-                action(index, nextCharAfterCr?.let { it + line } ?: line)
-            }
+        bufferedReader().let { reader ->
+            // Read the first line
+            reader.readLine()
+                ?.let { firstNonSignatureLine ->
+                    action(0, nextCharAfterCr?.let { it + firstNonSignatureLine } ?: firstNonSignatureLine)
+                }
+
+            reader.lineSequence().forEachIndexed { index, line -> action(index, line) }
         }
 
         if (!signature.verify(signatureDecoded)) {

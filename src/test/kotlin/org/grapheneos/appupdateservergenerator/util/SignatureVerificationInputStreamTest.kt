@@ -135,7 +135,7 @@ internal class SignatureVerificationInputStreamTest {
             "5. This is a string: to sign.\rThere are multiple lines.\rHello there\r\r\r",
             "6. This is a string: to sign.\nThere are multiple lines.\rHello there\n\n\n",
             "app.attestation.auditor:26\norg.chromium.chrome:443009134\n",
-            "app.attestation.auditor:26\norg.chromium.chrome:443009134"
+            "app.attestation.auditor:26\norg.chromium.chrome:443009134",
         ]
     )
     fun testSuccessArbitrarySignatureVerification(stringToSign: String) {
@@ -224,9 +224,6 @@ internal class SignatureVerificationInputStreamTest {
             initVerify(publicKey)
             update(stringToSign.encodeToByteArray())
             assert(verify(signature))
-        }
-        Signature.getInstance(SIGNATURE_ALGORITHM).apply {
-            initVerify(publicKey)
             update(differentString.encodeToByteArray())
             assertFalse(verify(signature))
         }
