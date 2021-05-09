@@ -11,7 +11,7 @@ version = "0.1"
 
 tasks.jar {
     manifest {
-        attributes["Main-Class"] = "MainKt"
+        attributes["Main-Class"] = "org.grapheneos.appupdateservergenerator.MainKt"
     }
     configurations["compileClasspath"].forEach { file: File -> from(zipTree(file.absoluteFile)) }
     archiveFileName.set(project.name + ".jar")
@@ -43,5 +43,5 @@ tasks.withType<KotlinCompile> {
 }
 
 application {
-    mainClass.set("MainKt")
+    mainClass.set("org.grapheneos.appupdateservergenerator.MainKt")
 }
