@@ -1,5 +1,6 @@
 package org.grapheneos.appupdateservergenerator.util
 
+import kotlinx.coroutines.runBlocking
 import org.bouncycastle.asn1.ASN1Encoding
 import org.bouncycastle.asn1.ASN1Integer
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -12,6 +13,8 @@ import org.junit.jupiter.params.provider.CsvSource
 import java.math.BigInteger
 import java.security.KeyPairGenerator
 import java.security.Signature
+import java.security.interfaces.ECPrivateKey
+import java.security.interfaces.ECPublicKey
 import java.security.interfaces.RSAPrivateKey
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.ECGenParameterSpec
@@ -38,7 +41,7 @@ internal class CryptoKeyExtensionsTest {
             sign()!!
         }
 
-        assertEquals(signature.size, pubKey.signatureLength)
+        assertEquals(signature.size, pubKey.signatureLength())
     }
 
     class ECStdNameStringToSignArguments : ArgumentsProvider {
@@ -53,29 +56,28 @@ internal class CryptoKeyExtensionsTest {
     }
     @ParameterizedTest(name = "testECSignatureLenUpperBound: {0} EC key signing [{1}]")
     @ArgumentsSource(ECStdNameStringToSignArguments::class)
-    fun testECSignatureLenUpperBound(stdName: String, stringToSign: String) {
-        val (privateKey: java.security.interfaces.ECPrivateKey, publicKey: java.security.interfaces.ECPublicKey) =
-            KeyPairGenerator.getInstance("EC")
-                .run {
-                    initialize(ECGenParameterSpec(stdName))
-                    generateKeyPair()
-                        .run {
-                            private as java.security.interfaces.ECPrivateKey to
-                                    public as java.security.interfaces.ECPublicKey
-                        }
-                }
-
-        val signature: ByteArray = Signature.getInstance("SHA256withECDSA")
+    fun testECSignatureLenUpperBound(stdName: String, stringToSign: String) = runBlocking {
+        val (privateKey: ECPrivateKey, publicKey: ECPublicKey) = KeyPairGenerator.getInstance("EC")
             .run {
-                initSign(privateKey)
-                update(stringToSign.encodeToByteArray())
-                sign()!!
+                initialize(ECGenParameterSpec(stdName))
+                generateKeyPair().run { private as ECPrivateKey to public as ECPublicKey }
             }
 
-        val upperBound = publicKey.maxSignatureLength
-        // the signature size varies since signing involves some pseudorandom integer
-        assert(signature.size in (upperBound - 4)..upperBound ) {
-            "length check failed: got actual signature size of ${signature.size}, but upperbound was $upperBound"
+        val stringAsBytes = stringToSign.encodeToByteArray()
+        val upperBound = publicKey.maxSignatureLength()
+        val signatureInstance = Signature.getInstance("SHA256withECDSA")
+            .apply { initSign(privateKey) }
+        // check various signatures due to the variance in signature length
+        repeat(1500) {
+            val signature: ByteArray = signatureInstance
+                .run {
+                    update(stringAsBytes)
+                    sign()!!
+                }
+            // the signature size varies since signing involves some pseudorandom integer
+            assert(signature.size in (upperBound - 4)..upperBound) {
+                "length check failed: got actual signature size of ${signature.size}, but upperbound was $upperBound"
+            }
         }
     }
 
@@ -93,6 +95,8 @@ internal class CryptoKeyExtensionsTest {
             ASN1Integer(bigIntToEncode).getEncoded(ASN1Encoding.DER).size,
             1 + calculateNumOfLengthOctetsForDER(bigIntToEncode.toByteArray().size) +
                     bigIntToEncode.toByteArray().size
-        )
+        ) {
+            "failed to get correct length octets for big int $bigIntToEncode"
+        }
     }
 }

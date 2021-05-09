@@ -97,7 +97,9 @@ constructor(
     fun forEachLineIndexedThenVerify(action: (Int, String) -> Unit) {
         // Parse the signature header. Don't verify this part of the stream.
         on = false
-        val signatureStream = ByteArrayOutputStream(Base64Util.getSizeWhenEncodedAsBase64(publicKey.maxSignatureLength))
+        val signatureStream = ByteArrayOutputStream(
+            Base64Util.getSizeWhenEncodedAsBase64(publicKey.maxSignatureLength())
+        )
         var current: Int = read()
         while (
             current != -1 &&

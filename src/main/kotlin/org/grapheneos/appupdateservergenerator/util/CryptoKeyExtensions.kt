@@ -6,31 +6,31 @@ import java.security.PublicKey
 import java.security.interfaces.ECPublicKey
 import java.security.interfaces.RSAPublicKey
 
-val PublicKey.maxSignatureLength: Int
-    get() = when (this) {
-        is RSAPublicKey -> {
-            signatureLength
-        }
-        is ECPublicKey -> {
-            maxSignatureLength
-        }
-        else -> {
-            throw KeyException("unsupported key")
-        }
+/**
+ * Gets the maximum signature length for this public key.
+ * This is only supported for [RSAPublicKey] and [ECPublicKey].
+ *
+ * @throws KeyException if the [PublicKey] is not one of the supported types.
+ */
+@Throws(KeyException::class)
+fun PublicKey.maxSignatureLength(): Int =
+    when (this) {
+        is RSAPublicKey -> signatureLength()
+        is ECPublicKey -> maxSignatureLength()
+        else -> throw KeyException("unsupported key")
     }
 
 /**
  * Returns the signature length for this [RSAPublicKey].
  * (Rounding up to the nearest byte.)
  */
-val RSAPublicKey.signatureLength: Int
-    get() = (modulus.bitLength() + 7) / 8
+fun RSAPublicKey.signatureLength(): Int = (modulus.bitLength() + 7) / 8
 
 /**
  * The upper bound for the lengths of DER-encoded ECDSA signatures.
  *
- * The ECDSA algorithm has signatures using integers that are partly calculated from a
- * (pseudo)randomly generated integer, so the signature length can vary. Hence the best
+ * ECDSA has signatures using integers that are partly calculated from a
+ * (pseudo)random integer, so the signature length can vary. The best
  * we can provide is an upper bound.
  *
  * This is effectively the length of the DER encoding n concatenated twice, where n is
@@ -38,34 +38,35 @@ val RSAPublicKey.signatureLength: Int
  *
  * https://cs.android.com/android/platform/superproject/+/master:external/bouncycastle/bcprov/src/main/java/org/bouncycastle/crypto/signers/StandardDSAEncoding.java
  */
-val ECPublicKey.maxSignatureLength: Int
-    get() {
-        /*
-        The ECDSA algorithm generates signatures consisting of the concatenation of
-        integers r, s that are in the closed interval [1, n - 1], where n is the order
-        of the base point G ∈ E(GF(q)). The values of r and s partly come from a
-        (pseudo)randomly generated integer, so the signature length can vary.
+fun ECPublicKey.maxSignatureLength(): Int {
+    /*
+    ECDSA generates signatures consisting of the integers r, s that are in the
+    closed interval [1, n - 1], where n is the order of the base point G ∈ E(GF(q)).
+    The values of r and s partly come from a (pseudo)randomly generated integer, so
+    the signature length can vary.
 
-        n - 1 is the least upper bound for r and s, so the length of n - 1 concatenated with n - 1 will
-        give us an upper bound for the signature. We concatenate, because ECDSA signatures in DER format are encoded as
-        follows (https://tools.ietf.org/html/rfc3279#section-2.2.3):
-            Ecdsa-Sig-Value  ::=  SEQUENCE  {
-                r     INTEGER,
-                s     INTEGER  }
-         */
-        val maxValueForRandS = (params.order - BigInteger.ONE).toByteArray().size
+    n - 1 is the least upper bound for r and s, because r and s are calculated mod n, So, the length of n - 1
+    concatenated with n - 1 will give us an upper bound for the signature. We concatenate, because ECDSA signatures
+    in DER format are encoded as follows (https://tools.ietf.org/html/rfc3279#section-2.2.3):
+        Ecdsa-Sig-Value  ::=  SEQUENCE  {
+            r     INTEGER,
+            s     INTEGER  }
+     */
+    val lengthInBytesOfMaxValOfRandS = (params.order - BigInteger.ONE).bitLength() / 8 + 1
 
-        // DER: Using definite-length method, need to encode
-        //      [identifier octets][length octets][content octets]
-        // https://www.itu.int/rec/T-REC-X.690/en
-        val nEncodedAsASN1Integer = 1 + calculateNumOfLengthOctetsForDER(maxValueForRandS) + maxValueForRandS
+    // DER: Using definite-length method, for an ASN.1 integer, we need to encode
+    //      [identifier octets][length octets][content octets]
+    // https://www.itu.int/rec/T-REC-X.690/en
+    val lengthOfMaxAsASN1Int = 1 + // number of identifier octets
+            calculateNumOfLengthOctetsForDER(lengthInBytesOfMaxValOfRandS) + // number of length octets
+            lengthInBytesOfMaxValOfRandS // number of content octets
 
-        // A DER sequence is also encoded in the following way:
-        //      [identifier octets][length octets][content octets]
-        // The content octets are the two integers, hence there are 2 * nEncodedAsASN1Integer content octets.
-        return 1 + calculateNumOfLengthOctetsForDER(2 * nEncodedAsASN1Integer) +
-                (2 * nEncodedAsASN1Integer)
-    }
+    // A DER sequence is also encoded in the following way:
+    //      [identifier octets][length octets][content octets]
+    // The content octets are the two integers, hence there are 2 * nEncodedAsASN1Integer content octets.
+    val numContentOctetsForSequence = 2 * lengthOfMaxAsASN1Int
+    return 1 + calculateNumOfLengthOctetsForDER(numContentOctetsForSequence) + numContentOctetsForSequence
+}
 
 /**
  * For the definite form, calculates the number of length octets, where the length octets is the number of
