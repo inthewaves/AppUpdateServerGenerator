@@ -173,8 +173,8 @@ internal class SignatureVerificationInputStreamTest {
         encodedFilesToTest.forEachIndexed { index, encodedFile ->
             val processedLinesFromStream: List<String> = SignatureVerificationInputStream(
                 stream = encodedFile.byteInputStream(),
+                publicKey = publicKey,
                 signatureAlgorithm = SIGNATURE_ALGORITHM,
-                publicKey
             ).use { verificationInputStream ->
                 ArrayList<String>().also { list ->
                     assertDoesNotThrow {
@@ -254,8 +254,8 @@ internal class SignatureVerificationInputStreamTest {
         encodedFilesToTest.forEachIndexed { index, encodedFile ->
             SignatureVerificationInputStream(
                 stream = encodedFile.byteInputStream(),
+                publicKey = publicKey,
                 signatureAlgorithm = SIGNATURE_ALGORITHM,
-                publicKey
             ).use { verificationInputStream ->
                 val unusedFakeDatabase = mutableListOf<String>()
                 assertThrows(

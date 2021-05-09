@@ -88,7 +88,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         }
 
         val key: OpenSSLInvoker.Key = try {
-            openSSLInvoker.getKeyType(File(keyFile))
+            openSSLInvoker.getKeyWithType(File(keyFile))
         } catch (e: IOException) {
             println("failed to parse key type from provided key file: $e")
             exitProcess(1)

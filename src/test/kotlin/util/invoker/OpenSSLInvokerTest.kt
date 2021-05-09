@@ -3,8 +3,10 @@ package util.invoker
 import model.UnixTimestamp
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.extension.ExtensionContext
+import org.junit.jupiter.api.fail
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.ArgumentsProvider
@@ -23,6 +25,7 @@ import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.RSAPublicKeySpec
 import java.util.*
+import java.util.concurrent.TimeUnit
 import java.util.stream.Stream
 
 internal class OpenSSLInvokerTest {
@@ -117,7 +120,7 @@ internal class OpenSSLInvokerTest {
             "app.attestation.auditor:26\norg.chromium.chrome:443009134"
         ]
     )
-    fun testSignAndAppend(stringToSign: String) {
+    fun testSignAndPrepend(stringToSign: String) {
         val openSSLInvoker = OpenSSLInvoker()
         // Failing on GitHub Runners --- IOException is thrown
         // assert(openSSLInvoker.isExecutablePresent()) { "missing openssl executable" }
@@ -134,7 +137,7 @@ internal class OpenSSLInvokerTest {
         val key = OpenSSLInvoker.Key(file = keyFile, keyType = OpenSSLInvoker.KeyType.RSA)
         val signature = openSSLInvoker.signFileAndPrependSignatureToFile(key, tempFileToSign)
         // sanity check
-        Signature.getInstance(SIGNATURE_ALGORITHM).apply {
+        Signature.getInstance(SIGNATURE_ALGORITHM, PROVIDER).apply {
             initVerify(publicKey)
             update(stringToSign.encodeToByteArray())
             assert(verify(signature.bytes))
@@ -152,8 +155,8 @@ internal class OpenSSLInvokerTest {
         val actualLines = ArrayList<String>(expectedLines.size)
         SignatureVerificationInputStream(
             stream = tempFileToSign.inputStream(),
+            publicKey,
             SIGNATURE_ALGORITHM,
-            publicKey
         ).use {
             assertDoesNotThrow("failed to verify signature: contents are ${tempFileToSign.readText()}") {
                 it.forEachLineAndVerify { actualLines.add(it) }
@@ -208,7 +211,7 @@ internal class OpenSSLInvokerTest {
         tempFileToSign.prependLine(signature.s)
 
         // sanity check
-        Signature.getInstance(SIGNATURE_ALGORITHM).apply {
+        Signature.getInstance(SIGNATURE_ALGORITHM, PROVIDER).apply {
             initVerify(publicKey)
             update(stringToSign.encodeToByteArray())
             assert(verify(signature.bytes))
@@ -228,13 +231,45 @@ internal class OpenSSLInvokerTest {
         val actualLines = ArrayList<String>(expectedLines.size)
         SignatureVerificationInputStream(
             stream = tempFileToSign.inputStream(),
-            SIGNATURE_ALGORITHM,
-            publicKey
+            publicKey = publicKey,
+            signatureAlgorithm = SIGNATURE_ALGORITHM,
         ).use {
             assertThrows(GeneralSecurityException::class.java) {
                 it.forEachLineAndVerify { actualLines.add(it) }
             }
         }
         assertNotEquals(expectedLines, actualLines)
+    }
+
+    @Test
+    fun testGetKeyType() {
+        val invoker = OpenSSLInvoker()
+        val key = invoker.getKeyWithType(keyFile)
+        assertEquals(OpenSSLInvoker.KeyType.RSA, key.keyType)
+
+        val ecKeyFile = Files.createTempFile("temp-ec-key", ".pk8").toFile()
+            .apply { deleteOnExit() }
+
+        val ecKeyGeneratorProcess = ProcessBuilder(
+            "openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout"
+        ).start()
+
+        val pkcs8Process = ProcessBuilder(
+            "openssl", "pkcs8", "-topk8", "-outform", "DER", "-out", ecKeyFile.absolutePath, "-nocrypt"
+        ).start()
+
+        pkcs8Process.outputStream.buffered().use { output ->
+            ecKeyGeneratorProcess.inputStream.buffered().use { it.copyTo(output) }
+        }
+
+        if (!pkcs8Process.waitFor(15, TimeUnit.SECONDS)) {
+            fail("key generation took too long")
+        }
+        if (pkcs8Process.exitValue() != 0) {
+            fail("key generation not successful (non-zero error coe ${pkcs8Process.exitValue()}")
+        }
+
+        val parsedKey = invoker.getKeyWithType(ecKeyFile)
+        assertEquals(OpenSSLInvoker.KeyType.EC, parsedKey.keyType)
     }
 }

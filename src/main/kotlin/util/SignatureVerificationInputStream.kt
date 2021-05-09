@@ -16,13 +16,15 @@ class SignatureVerificationInputStream
 @Throws(InvalidKeyException::class)
 constructor(
     stream: InputStream,
-    signatureAlgorithm: String,
     val publicKey: PublicKey,
+    signatureAlgorithm: String,
+    provider: String? = null
 ) : FilterInputStream(stream) {
     /**
      * The signature associated with this stream.
      */
-    val signature: Signature = Signature.getInstance(signatureAlgorithm)
+    val signature: Signature = provider
+        ?.let { Signature.getInstance(signatureAlgorithm, it) } ?: Signature.getInstance(signatureAlgorithm)
         .apply {
             initVerify(publicKey)
         }

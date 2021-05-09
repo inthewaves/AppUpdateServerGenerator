@@ -84,7 +84,7 @@ internal class CryptoKeyExtensionsTest {
             Stream.iterate(Arguments.of(BigInteger.probablePrime(16, Random(5)))) {
                 val bigInt = it.get()[0] as BigInteger
                 Arguments.of(bigInt * 2.toBigInteger().pow(128))
-            }.limit(500)
+            }.limit(100)
     }
     @ParameterizedTest(name = "testAsn1NumLengthOctetsCalculation: {0} octet")
     @ArgumentsSource(BigIntArguments::class)

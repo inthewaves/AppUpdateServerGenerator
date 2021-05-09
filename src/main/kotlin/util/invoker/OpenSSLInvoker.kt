@@ -9,7 +9,7 @@ import java.nio.file.Path
 
 class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executablePath = apkSignerPath) {
     @Throws(IOException::class)
-    fun getKeyType(keyFile: File): Key {
+    fun getKeyWithType(keyFile: File): Key {
         val asn1ParseProcess: Process = ProcessBuilder().run {
             command(executablePath.toString(), "asn1parse", "-inform", "DER", "-in", keyFile.absolutePath,
                 "-item", "PKCS8_PRIV_KEY_INFO")
