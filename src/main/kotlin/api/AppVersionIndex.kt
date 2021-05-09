@@ -32,7 +32,7 @@ data class AppVersionIndex constructor(val packageToVersionMap: Map<String, Vers
                 ?.filterNotNull()
                 ?.sortedBy { it.first }
                 ?.associate { it.first to it.second.latestVersionCode }
-                ?: emptyMap()
+                ?: throw IOException("failed to get files from app directory")
             return AppVersionIndex(map)
         }
     }
