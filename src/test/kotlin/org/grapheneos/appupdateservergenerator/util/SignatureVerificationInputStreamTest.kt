@@ -171,6 +171,17 @@ internal class SignatureVerificationInputStreamTest {
         )
 
         encodedFilesToTest.forEachIndexed { index, encodedFile ->
+            // The last line from lines() can be just a blank string for some reason.
+            // The BufferedReader will not have a last line that is just a blank string, so
+            // we need to remove it.
+            val expectedLines: List<String> = stringToSign.lines().run {
+                if (last().isEmpty()) {
+                    subList(0, lastIndex)
+                } else {
+                    this
+                }
+            }
+
             val processedLinesFromStream: List<String> = SignatureVerificationInputStream(
                 stream = encodedFile.byteInputStream(),
                 publicKey = publicKey,
@@ -182,10 +193,25 @@ internal class SignatureVerificationInputStreamTest {
                     }
                 }
             }
-            assertEquals(
-                stringToSign.lines().run { if (last().isEmpty()) subList(0, lastIndex) else this },
-                processedLinesFromStream
-            ) { "line processing of encodedFile failed for #$index\nencodedFile:\n[$encodedFile]" }
+            assertEquals(expectedLines, processedLinesFromStream) {
+                "line processing of encodedFile failed for #$index\nencodedFile:\n[$encodedFile]"
+            }
+
+            val processedLinesFromStreamIndexed: Array<String?> = SignatureVerificationInputStream(
+                stream = encodedFile.byteInputStream(),
+                publicKey = publicKey,
+                signatureAlgorithm = SIGNATURE_ALGORITHM,
+            ).use { verificationInputStream ->
+                arrayOfNulls<String>(expectedLines.size)
+                    .also { array ->
+                        assertDoesNotThrow {
+                            verificationInputStream.forEachLineIndexedThenVerify { index, line -> array[index] = line }
+                        }
+                    }
+            }
+            assertEquals(expectedLines, processedLinesFromStreamIndexed.toList()) {
+                "line processing of encodedFile failed for #$index\nencodedFile:\n[$encodedFile]"
+            }
         }
     }
 

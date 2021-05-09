@@ -136,12 +136,17 @@ constructor(
         on = true
         bufferedReader().let { reader ->
             // Read the first line
+            var index = 0
             reader.readLine()
                 ?.let { firstNonSignatureLine ->
-                    action(0, nextCharAfterCr?.let { it + firstNonSignatureLine } ?: firstNonSignatureLine)
+                    action(index++, nextCharAfterCr?.let { it + firstNonSignatureLine } ?: firstNonSignatureLine)
                 }
 
-            reader.lineSequence().forEachIndexed { index, line -> action(index, line) }
+            var currentLine: String? = reader.readLine()
+            while (currentLine != null) {
+                action(index++, currentLine)
+                currentLine = reader.readLine()
+            }
         }
 
         if (!signature.verify(signatureDecoded)) {
