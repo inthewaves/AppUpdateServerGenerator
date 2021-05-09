@@ -1,15 +1,21 @@
 package api
 
+import model.UnixTimestamp
 import model.VersionCode
 import util.FileManager
 import util.invoker.OpenSSLInvoker
 import java.io.IOException
 
-@JvmInline
-value class AppVersionIndex constructor(val packageToVersionMap: Map<String, VersionCode>) {
+data class AppVersionIndex constructor(
+    val timestamp: UnixTimestamp,
+    val packageToVersionMap: Map<String, VersionCode>
+) {
+    constructor(map: Map<String, VersionCode>) : this(UnixTimestamp.now(), map)
+
     fun writeToDiskAndSign(key: OpenSSLInvoker.Key, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionIndex = fileManager.latestAppVersionIndex
         latestAppVersionIndex.bufferedWriter().use { writer ->
+            writer.appendLine(timestamp.seconds.toString())
             packageToVersionMap.forEach { entry -> writer.appendLine("${entry.key}:${entry.value.code}") }
         }
         openSSLInvoker.signFileAndPrependSignatureToFile(key, latestAppVersionIndex)
@@ -19,9 +25,9 @@ value class AppVersionIndex constructor(val packageToVersionMap: Map<String, Ver
         fun create(fileManager: FileManager): AppVersionIndex {
             val map = fileManager.appDirectory.listFiles()?.asSequence()
                 ?.filter { it.isDirectory }
-                ?.map { dir ->
+                ?.map { dirForApp ->
                     try {
-                        LatestAppVersionInfo.getInfoFromDiskForPackage(dir.name, fileManager)
+                        LatestAppVersionInfo.getInfoFromDiskForPackage(dirForApp.name, fileManager)
                     } catch (e: IOException) {
                         null
                     }
