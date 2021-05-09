@@ -13,7 +13,7 @@ import model.VersionCode
 import util.ArchivePatcherUtil
 import util.FileManager
 import util.digest
-import util.invoker.AaptInvoker
+import util.invoker.AAPT2Invoker
 import util.invoker.ApkSignerInvoker
 import util.invoker.OpenSSLInvoker
 import java.io.File
@@ -68,7 +68,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         println("failed to create root dir $userSpecifiedRepoDirectory")
         exitProcess(1)
     }
-    private val aaptInvoker = AaptInvoker()
+    private val aaptInvoker = AAPT2Invoker()
     private val apkSignerInvoker = ApkSignerInvoker()
     private val openSSLInvoker = OpenSSLInvoker()
 

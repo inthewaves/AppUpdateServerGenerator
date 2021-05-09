@@ -1,6 +1,6 @@
 package model
 
-import util.invoker.AaptInvoker
+import util.invoker.AAPT2Invoker
 import util.invoker.ApkSignerInvoker
 import java.io.File
 import java.io.IOException
@@ -45,7 +45,7 @@ data class AndroidApk(
 
     companion object {
         @Throws(IOException::class)
-        fun buildFromApkFile(apkFile: File, aaptInvoker: AaptInvoker, apkSignerInvoker: ApkSignerInvoker): AndroidApk {
+        fun buildFromApkFile(apkFile: File, aaptInvoker: AAPT2Invoker, apkSignerInvoker: ApkSignerInvoker): AndroidApk {
             val builder = Builder()
             builder.apkFile = apkFile
             aaptInvoker.getAndroidAppDetails(apkFile, builder)

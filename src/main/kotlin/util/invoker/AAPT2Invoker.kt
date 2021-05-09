@@ -9,7 +9,7 @@ import java.nio.file.Path
 /**
  * Wrapper class for the aapt tool.
  */
-class AaptInvoker(aaptPath: Path = Path.of("aapt")) : Invoker(executablePath = aaptPath) {
+class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath = aaptPath) {
     /**
      * Reads the [apkFile] and populates the given [androidApkBuilder] using the values in the APK's AndroidManifest.xml
      * @throws IOException if the APK file can't be processed by aapt
@@ -17,7 +17,7 @@ class AaptInvoker(aaptPath: Path = Path.of("aapt")) : Invoker(executablePath = a
     @Throws(IOException::class)
     fun getAndroidAppDetails(apkFile: File, androidApkBuilder: AndroidApk.Builder) {
         val manifestProcess: Process = ProcessBuilder(
-            executablePath.toString(), "dump", "xmltree", apkFile.absolutePath, "AndroidManifest.xml"
+            executablePath.toString(), "dump", "xmltree", "--file", "AndroidManifest.xml", apkFile.absolutePath,
         ).start()
 
         /*
@@ -44,7 +44,7 @@ class AaptInvoker(aaptPath: Path = Path.of("aapt")) : Invoker(executablePath = a
                     versionCodeRegex.find(line)
                         ?.let {
                             versionCode = try {
-                                VersionCode(it.groupValues[2].toInt(radix = 16))
+                                VersionCode(it.groupValues[2].toInt())
                             } catch (e: NumberFormatException) {
                                 throw IOException("failed to parse versionCode for $apkFile")
                             }
@@ -56,7 +56,7 @@ class AaptInvoker(aaptPath: Path = Path.of("aapt")) : Invoker(executablePath = a
                         ?: minSdkVersionRegex.find(line)
                             ?.let {
                                 minSdkVersion = try {
-                                    it.groupValues[2].toInt(radix = 16)
+                                    it.groupValues[2].toInt()
                                 } catch (e: NumberFormatException) {
                                     throw IOException("failed to parse minSdkVersion for $apkFile")
                                 }
@@ -74,9 +74,9 @@ class AaptInvoker(aaptPath: Path = Path.of("aapt")) : Invoker(executablePath = a
     }
 
     companion object {
-        private val versionCodeRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:versionCode\(0x[0-9a-f]*\)=\(type 0x10\)0x([a-e0-9]*)""")
+        private val versionCodeRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:versionCode\(0x[0-9a-f]*\)=([0-9]*)""")
         private val versionNameRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:versionName\(0x[0-9a-f]*\)="(.*)" \(Raw: ".*"\)""")
         private val packageRegex = Regex(""" A: package="(.*)" \(Raw: ".*"\)""")
-        private val minSdkVersionRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:minSdkVersion\(0x[0-9a-f]*\)=\(type 0x10\)0x([a-e0-9]*)""")
+        private val minSdkVersionRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:minSdkVersion\(0x[0-9a-f]*\)=([a-e0-9]*)""")
     }
 }
