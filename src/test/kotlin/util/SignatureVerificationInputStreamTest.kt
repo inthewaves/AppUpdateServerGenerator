@@ -101,7 +101,7 @@ internal class SignatureVerificationInputStreamTest {
             publicKey = publicKey
         ).use { verifiedStream ->
             assertThrows(IOException::class.java) {
-                verifiedStream.forEachLineAndVerify {  }
+                verifiedStream.forEachLineThenVerify {  }
             }
         }
     }
@@ -119,7 +119,7 @@ internal class SignatureVerificationInputStreamTest {
             publicKey = publicKey
         ).use { verifiedStream ->
             assertThrows(SignatureException::class.java) {
-                verifiedStream.forEachLineAndVerify {  }
+                verifiedStream.forEachLineThenVerify {  }
             }
         }
     }
@@ -178,7 +178,7 @@ internal class SignatureVerificationInputStreamTest {
             ).use { verificationInputStream ->
                 ArrayList<String>().also { list ->
                     assertDoesNotThrow {
-                        verificationInputStream.forEachLineAndVerify { list.add(it) }
+                        verificationInputStream.forEachLineThenVerify { list.add(it) }
                     }
                 }
             }
@@ -261,7 +261,7 @@ internal class SignatureVerificationInputStreamTest {
                 assertThrows(
                     GeneralSecurityException::class.java,
                     {
-                        verificationInputStream.forEachLineAndVerify { unusedFakeDatabase.add(it) }
+                        verificationInputStream.forEachLineThenVerify { unusedFakeDatabase.add(it) }
                     },
                     "expected encoded file[$index] to fail verification, but didn't"
                 )

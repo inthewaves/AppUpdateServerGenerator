@@ -39,9 +39,7 @@ constructor(
      * Reads a byte, and updates the signature instance if [on]
      *
      * @return the next byte of data, or -1 if the end of the stream is reached.
-     *
      * @exception IOException if an IO error occurs.
-     *
      * @see [InputStream.read]
      * @see [Signature.update]
      */
@@ -58,8 +56,9 @@ constructor(
      * Reads the input stream and updates the associated [signature] instance if the signature
      * stream is [on].
      *
+     * @return the total number of bytes read into the buffer, or -1 if there is no more data because the end of the
+     * stream has been reached.
      * @exception IOException if an IO error occurs.
-     *
      * @see [InputStream.read]
      * @see [Signature.update]
      */
@@ -73,9 +72,18 @@ constructor(
     }
 
     /**
+     * Does the same thing as [forEachLineIndexedThenVerify] but doesn't use index.
+     * @see forEachLineIndexedThenVerify
+     */
+    @Throws(GeneralSecurityException::class, IOException::class, SignatureException::class, )
+    inline fun forEachLineThenVerify(crossinline action: (String) -> Unit) =
+        forEachLineIndexedThenVerify { _, line -> action(line) }
+
+    /**
      * For a file with header containing a base64-encoded signature, this function runs the given [action]
-     * on every non-signature line in the file, and then verifies the input stream contents with the signature.
-     * The portion of the stream that is verified is after the signature header.
+     * on every non-signature line in the file, and then after all of the lines are processed, verifies
+     * the input stream byte contents with the associated [signature] instance. The portion of the stream
+     * that is verified is after the signature header.
      *
      * **Note: It's the caller's responsibility to close the stream.**
      *
@@ -87,12 +95,11 @@ constructor(
      * provided, etc.
      */
     @Throws(GeneralSecurityException::class, IOException::class, SignatureException::class, )
-    fun forEachLineAndVerify(action: (String) -> Unit) {
+    fun forEachLineIndexedThenVerify(action: (Int, String) -> Unit) {
         // Parse the signature header. Don't verify this part of the stream.
         on = false
-        val sigSizeBytes = publicKey.maxSignatureLength
-        val signatureStream = ByteArrayOutputStream(Base64Util.getSizeWhenEncodedAsBase64(sigSizeBytes))
-        var current = read()
+        val signatureStream = ByteArrayOutputStream(Base64Util.getSizeWhenEncodedAsBase64(publicKey.maxSignatureLength))
+        var current: Int = read()
         while (
             current != -1 &&
             current.toChar().let { it != '\n' && it != '\r'}
@@ -100,7 +107,7 @@ constructor(
             signatureStream.write(current)
             current = read()
         }
-        val signatureDecoded = try {
+        val signatureDecoded: ByteArray = try {
             Base64.getDecoder().decode(signatureStream.toByteArray())
         } catch (e: IllegalArgumentException) {
             throw IOException(e)
@@ -128,10 +135,10 @@ constructor(
         on = true
         bufferedReader().lineSequence().forEachIndexed { index, line ->
             if (index != 0) {
-                action(line)
+                action(index, line)
             } else {
                 // Include the character that we read if present.
-                action(nextCharAfterCr?.let { it + line } ?: line)
+                action(index, nextCharAfterCr?.let { it + line } ?: line)
             }
         }
 

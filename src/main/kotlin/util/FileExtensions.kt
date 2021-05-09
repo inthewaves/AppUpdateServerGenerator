@@ -22,7 +22,7 @@ fun File.digest(messageDigest: MessageDigest): ByteArray {
 @Throws(IOException::class)
 fun File.prependLine(line: String) {
     val tempFile = Files.createTempFile(
-        "temp-${line.hashCode()}-${System.currentTimeMillis()}",
+        "temp-prependLine-${line.hashCode()}-${System.currentTimeMillis()}",
         null
     ).toFile().apply { deleteOnExit() }
     try {
@@ -40,7 +40,7 @@ fun File.prependLine(line: String) {
         try {
             tempFile.delete()
         } catch (e: SecurityException) {
-            println("failed to delete tempfile $tempFile")
+            println("failed to delete tempfile $tempFile: $e")
         }
     }
 }

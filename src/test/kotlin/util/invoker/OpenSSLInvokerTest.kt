@@ -159,7 +159,7 @@ internal class OpenSSLInvokerTest {
             SIGNATURE_ALGORITHM,
         ).use {
             assertDoesNotThrow("failed to verify signature: contents are ${tempFileToSign.readText()}") {
-                it.forEachLineAndVerify { actualLines.add(it) }
+                it.forEachLineThenVerify { actualLines.add(it) }
             }
         }
         assertEquals(expectedLines, actualLines)
@@ -235,7 +235,7 @@ internal class OpenSSLInvokerTest {
             signatureAlgorithm = SIGNATURE_ALGORITHM,
         ).use {
             assertThrows(GeneralSecurityException::class.java) {
-                it.forEachLineAndVerify { actualLines.add(it) }
+                it.forEachLineThenVerify { actualLines.add(it) }
             }
         }
         assertNotEquals(expectedLines, actualLines)
