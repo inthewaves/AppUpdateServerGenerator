@@ -12,3 +12,7 @@ value class Base64String(val s: String) {
         fun fromBytes(bytes: ByteArray) = Base64String(Base64.getEncoder().encodeToString(bytes))
     }
 }
+
+@Serializable
+@JvmInline
+value class HexString(val hex: String)

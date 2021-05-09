@@ -75,7 +75,7 @@ constructor(
      * Does the same thing as [forEachLineIndexedThenVerify] but doesn't use index.
      * @see forEachLineIndexedThenVerify
      */
-    @Throws(GeneralSecurityException::class, IOException::class, SignatureException::class, )
+    @Throws(GeneralSecurityException::class, IOException::class, SignatureException::class)
     inline fun forEachLineThenVerify(crossinline action: (String) -> Unit) =
         forEachLineIndexedThenVerify { _, line -> action(line) }
 
@@ -94,7 +94,7 @@ constructor(
      * improperly encoded or of the wrong type, if this signature algorithm is unable to process the input data
      * provided, etc.
      */
-    @Throws(GeneralSecurityException::class, IOException::class, SignatureException::class, )
+    @Throws(GeneralSecurityException::class, IOException::class, SignatureException::class)
     fun forEachLineIndexedThenVerify(action: (Int, String) -> Unit) {
         // Parse the signature header. Don't verify this part of the stream.
         on = false
@@ -110,7 +110,7 @@ constructor(
         val signatureDecoded: ByteArray = try {
             Base64.getDecoder().decode(signatureStream.toByteArray())
         } catch (e: IllegalArgumentException) {
-            throw IOException(e)
+            throw IOException("signature header isn't valid base64", e)
         }
 
         // Account for CRLF. Not like this is expected anyway if the server generation is done

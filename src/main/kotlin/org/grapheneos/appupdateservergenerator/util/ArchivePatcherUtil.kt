@@ -12,6 +12,7 @@ import java.util.zip.GZIPOutputStream
  * Utilities for archive-patcher
  */
 object ArchivePatcherUtil {
+    @Throws(IOException::class)
     fun applyDelta(oldFile: File, deltaFile: File, outputFile: File, isDeltaGzipped: Boolean) {
         val inputStream = if (isDeltaGzipped) {
             GZIPInputStream(FileInputStream(deltaFile))
@@ -19,11 +20,11 @@ object ArchivePatcherUtil {
             FileInputStream(deltaFile)
         }
         inputStream.use { inputPatchDelta ->
-            outputFile.outputStream().use { newFileOut ->
+            outputFile.outputStream().use { newFileOutputStream ->
                 FileByFileV1DeltaApplier().applyDelta(
                     oldFile,
                     inputPatchDelta,
-                    newFileOut
+                    newFileOutputStream
                 )
             }
         }
@@ -36,9 +37,9 @@ object ArchivePatcherUtil {
         } else {
             outputDeltaFile.outputStream()
         }
-        outputStream.use { patchOut ->
-            FileByFileV1DeltaGenerator().generateDelta(oldFile, newFile, patchOut)
-            patchOut.flush()
+        outputStream.use { deltaOutputStream ->
+            FileByFileV1DeltaGenerator().generateDelta(oldFile, newFile, deltaOutputStream)
+            deltaOutputStream.flush()
         }
     }
 }

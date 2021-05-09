@@ -82,8 +82,7 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
                 addAll(listOf("-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"))
             }
         }
-        val signingProcess: Process = ProcessBuilder(command).start()
-        return signingProcess
+        return ProcessBuilder(command).start()
     }
 
     data class Key(val file: File, val keyType: KeyType)

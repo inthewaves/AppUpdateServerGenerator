@@ -20,12 +20,12 @@ class ApkSignerInvoker(apkSignerPath: Path = Path.of("apksigner")) : Invoker(exe
             }
         }
         if (certificates.isEmpty()) {
-            throw IOException("missing signing certificates")
+            throw IOException("failed to parse signing certificates for $apkFile from apksigner verify")
         }
 
         certProcess.waitFor()
         if (certProcess.exitValue() != 0) {
-            throw IOException("apksigner exited with non-zero exit code: ${certProcess.exitValue()}")
+            throw IOException("apksigner verify exited with non-zero exit code ($apkFile): ${certProcess.exitValue()}")
         }
 
         return certificates

@@ -37,16 +37,15 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
               A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a
               A: android:targetSdkVersion(0x01010270)=(type 0x10)0x1e
          */
-        manifestProcess.inputStream.bufferedReader().use { reader ->
-            var line = reader.readLine()
-            while (line != null) {
+        manifestProcess.inputStream.bufferedReader().useLines { lineSequence ->
+            lineSequence.forEach { line ->
                 androidApkBuilder.apply {
                     versionCodeRegex.find(line)
                         ?.let {
                             versionCode = try {
                                 VersionCode(it.groupValues[2].toInt())
                             } catch (e: NumberFormatException) {
-                                throw IOException("failed to parse versionCode for $apkFile")
+                                throw IOException("failed to parse versionCode for $apkFile", e)
                             }
                         }
                         ?: versionNameRegex.find(line)
@@ -58,17 +57,16 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                                 minSdkVersion = try {
                                     it.groupValues[2].toInt()
                                 } catch (e: NumberFormatException) {
-                                    throw IOException("failed to parse minSdkVersion for $apkFile")
+                                    throw IOException("failed to parse minSdkVersion for $apkFile", e)
                                 }
                             }
-
                     if (packageName != null && versionCode != null && versionName != null && minSdkVersion != null) {
                         return
                     }
                 }
-                line = reader.readLine()
             }
         }
+
         manifestProcess.waitFor()
         throw IOException("failed to read APK details from aapt")
     }
