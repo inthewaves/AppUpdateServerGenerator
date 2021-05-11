@@ -72,7 +72,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
     override fun execute() = runBlocking {
         if (!aaptInvoker.isExecutablePresent()) {
-            println("unable to locate aapt at ${aaptInvoker.executablePath}; please add it to your PATH variable")
+            println("unable to locate aapt2 at ${aaptInvoker.executablePath}; please add it to your PATH variable")
             exitProcess(1)
         }
         if (!apkSignerInvoker.isExecutablePresent()) {
