@@ -2,8 +2,6 @@ package org.grapheneos.appupdateservergenerator.commands
 
 import kotlinx.cli.*
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppVersionIndex
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
@@ -104,7 +102,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                     exitProcess(1)
                 }
 
-                val infoOfApkToInsert = try {
+                val infoOfApkToInsert: AndroidApk = try {
                     AndroidApk.buildFromApkFile(apkFile, aaptInvoker, apkSignerInvoker)
                 } catch (e: IOException) {
                     println("unable to to get Android app details for ${apkFile.path}: ${e.message}")
@@ -138,21 +136,20 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         }
 
         val index = AppVersionIndex.create(fileManager)
-        println("new index: $index")
+        println("new app version index: $index")
         index.writeToDiskAndSign(
             key = signingKey,
             openSSLInvoker = openSSLInvoker,
             fileManager = fileManager
         )
-        println("wrote new index at ${fileManager.latestAppVersionIndex}")
+        println("wrote new app version at ${fileManager.latestAppVersionIndex}")
     }
 
     private fun insertApk(infoOfApkToInsert: AndroidApk, signingKey: OpenSSLInvoker.Key, regenerateDeltas: Boolean) {
         println("Inserting ${infoOfApkToInsert.apkFile.name}, with details $infoOfApkToInsert")
 
         val appDir = fileManager.getDirForApp(infoOfApkToInsert.packageName)
-        val latestAppMetadataFile = fileManager.getLatestAppVersionInfoMetadata(infoOfApkToInsert.packageName)
-        validateOrCreateDirectories(appDir, infoOfApkToInsert, latestAppMetadataFile)
+        validateOrCreateDirectories(appDir, infoOfApkToInsert)
 
         val previousApksMap = getPreviousApks(appDir, infoOfApkToInsert.apkFile)
         if (!doPreviousApksHaveSameSigningCerts(infoOfApkToInsert, previousApksMap)) {
@@ -230,25 +227,26 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
     private fun validateOrCreateDirectories(
         appDir: File,
-        infoOfApkToInsert: AndroidApk,
-        latestAppMetadata: File
+        infoOfApkToInsert: AndroidApk
     ) {
         if (appDir.exists()) {
             println("${infoOfApkToInsert.packageName} is in repo.")
-            if (!latestAppMetadata.exists()) {
+            val latestAppMetadata = try {
+                AppMetadata.getInfoFromDiskForPackage(infoOfApkToInsert.packageName, fileManager)
+            } catch (e: IOException) {
                 println("error: missing metadata file despite the app directory being present")
+                println(" got IOException: ${e.message}")
                 exitProcess(1)
             }
             // The first line contains the signature.
-            val latestAppInfo: AppMetadata = latestAppMetadata.useLines { Json.decodeFromString(it.last()) }
-            if (infoOfApkToInsert.versionCode <= latestAppInfo.latestVersionCode) {
+            if (infoOfApkToInsert.versionCode <= latestAppMetadata.latestVersionCode) {
                 println(
                     "error: trying to insert an APK with version code ${infoOfApkToInsert.versionCode.code} when the " +
-                            "repo has latest version ${latestAppInfo.latestVersionCode.code}"
+                            "repo has latest version ${latestAppMetadata.latestVersionCode.code}"
                 )
                 exitProcess(1)
             }
-            println("previous version in repo: ${latestAppInfo.latestVersionCode.code}")
+            println("previous version in repo: ${latestAppMetadata.latestVersionCode.code}")
         } else {
             println("${infoOfApkToInsert.packageName} is not in the repo. Creating new directory and metadata")
             if (!appDir.mkdirs()) {
