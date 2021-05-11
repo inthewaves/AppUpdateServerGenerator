@@ -11,10 +11,7 @@ import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
 import org.grapheneos.appupdateservergenerator.crypto.PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.files.digest
-import org.grapheneos.appupdateservergenerator.model.AndroidApk
-import org.grapheneos.appupdateservergenerator.model.Base64String
-import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
-import org.grapheneos.appupdateservergenerator.model.VersionCode
+import org.grapheneos.appupdateservergenerator.model.*
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import java.io.File
 import java.io.FileFilter
@@ -181,11 +178,11 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         val appDir = fileManager.getDirForApp(infoOfApkToInsert.packageName)
         validateOrCreateDirectories(appDir, infoOfApkToInsert)
 
-        val previousApksMap = getPreviousApks(appDir, infoOfApkToInsert.apkFile)
-        if (!doPreviousApksHaveSameSigningCerts(infoOfApkToInsert, previousApksMap)) {
+        val previousApks = getPreviousApks(appDir, infoOfApkToInsert.apkFile)
+        if (!validateApkSigningCertChain(infoOfApkToInsert, previousApks)) {
             println("some apks don't have the same signing certificates")
             println("dumping details: this apk: $infoOfApkToInsert")
-            println("previous apks: $previousApksMap")
+            println("previous apks: $previousApks")
             exitProcess(1)
         }
 
@@ -196,7 +193,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         val deltaAvailableVersions: List<VersionCode> = if (regenerateDeltas) {
             println()
             deleteAllDeltas(appDir)
-            generateDeltas(appDir, newApkFile, infoOfApkToInsert, previousApksMap)
+            generateDeltas(appDir, newApkFile, infoOfApkToInsert, previousApks)
         } else {
             emptyList()
         }
@@ -286,13 +283,15 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         }
     }
 
-    private fun doPreviousApksHaveSameSigningCerts(
+    private fun validateApkSigningCertChain(
         infoOfApkToInsert: AndroidApk,
         previousApks: List<AndroidApk>
     ): Boolean {
+        var currentSetIntersection: Set<HexString> = infoOfApkToInsert.certificates.toSet()
         previousApks.forEach { previousApkInfo ->
+            currentSetIntersection = currentSetIntersection intersect previousApkInfo.certificates
             // TODO: verify using same or similar way as frameworks/base
-            if (previousApkInfo.certificates.intersect(infoOfApkToInsert.certificates).isEmpty()) {
+            if (currentSetIntersection.isEmpty()) {
                 return false
             }
         }
