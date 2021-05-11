@@ -71,7 +71,7 @@ internal class CryptoKeyExtensionsTest {
         val signatureInstance = Signature.getInstance("SHA256withECDSA")
             .apply { initSign(privateKey) }
         // check various signatures due to the variance in signature length
-        repeat(1500) {
+        repeat(150) {
             val signature: ByteArray = signatureInstance
                 .run {
                     update(stringAsBytes)
@@ -89,7 +89,7 @@ internal class CryptoKeyExtensionsTest {
             Stream.iterate(Arguments.of(BigInteger.probablePrime(16, Random(5)))) {
                 val bigInt = it.get()[0] as BigInteger
                 Arguments.of(bigInt * 2.toBigInteger().pow(128))
-            }.limit(100)
+            }.limit(90)
     }
     @ParameterizedTest(name = "testAsn1NumLengthOctetsCalculation: {0} octet")
     @ArgumentsSource(BigIntArguments::class)
