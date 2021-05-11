@@ -85,12 +85,11 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         }
 
         val signingKey: OpenSSLInvoker.Key = try {
-            openSSLInvoker.getKeyWithType(File(keyFile))
+            parsePrivateKeyAndValidateDiskPublicKey()
         } catch (e: IOException) {
-            println("failed to parse key type from provided key file: $e")
+            println("error: ${e.message}")
             exitProcess(1)
         }
-        println("input signing key is of type $signingKey")
 
         println("parsing ${apkFilePaths.size} APKs")
 
@@ -143,6 +142,35 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             fileManager = fileManager
         )
         println("wrote new app version at ${fileManager.latestAppVersionIndex}")
+    }
+
+    @Throws(IOException::class)
+    private fun parsePrivateKeyAndValidateDiskPublicKey(): OpenSSLInvoker.Key {
+        val signingKey: OpenSSLInvoker.Key = try {
+            openSSLInvoker.getKeyWithType(File(keyFile))
+        } catch (e: IOException) {
+            throw IOException("failed to parse key type from provided key file: $e", e)
+        }
+        println("input signing key is of type $signingKey")
+
+        val publicKey: OpenSSLInvoker.PEMPublicKey = try {
+            openSSLInvoker.getPublicKey(signingKey)
+        } catch (e: IOException) {
+            throw IOException("failed to generate public key", e)
+        }
+        val publicKeyInRepo = fileManager.publicSigningKeyPem
+        if (!publicKeyInRepo.exists()) {
+            publicKeyInRepo.writeText(publicKey.pubKey)
+        } else {
+            val existingPublicKeyPem = OpenSSLInvoker.PEMPublicKey(publicKeyInRepo.readText())
+            if (existingPublicKeyPem != publicKey) {
+                throw IOException(
+                    "the key passed to command (${signingKey.file.absolutePath}) differs from the one " +
+                            "used before (${publicKeyInRepo.absolutePath})"
+                )
+            }
+        }
+        return signingKey
     }
 
     private fun insertApk(infoOfApkToInsert: AndroidApk, signingKey: OpenSSLInvoker.Key, regenerateDeltas: Boolean) {

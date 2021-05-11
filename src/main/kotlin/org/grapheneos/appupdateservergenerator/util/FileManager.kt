@@ -36,6 +36,12 @@ class FileManager @Throws(IOException::class) constructor(
         attemptToCreateDirIfNotExists(appDirectory)
     }
 
+    /**
+     * Stores the public key used to sign the metadata in the repo. This is stored here for checks during local repo
+     * generation / validation; it is **not** meant to be consumed by the apps.
+     */
+    val publicSigningKeyPem = File(dataRootDirectory, "public-signing-key.pem")
+
     val latestAppVersionIndex = File(appDirectory, "latest-index.txt")
 
     fun getDirForApp(pkg: String) = File(appDirectory, pkg)

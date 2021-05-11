@@ -11,11 +11,11 @@ import java.nio.file.Path
 class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executablePath = apkSignerPath) {
     @Throws(IOException::class)
     fun getKeyWithType(keyFile: File): Key {
-        val asn1ParseProcess: Process = ProcessBuilder().run {
-            command(executablePath.toString(), "asn1parse", "-inform", "DER", "-in", keyFile.absolutePath,
-                "-item", "PKCS8_PRIV_KEY_INFO")
-            start()
-        }
+        val asn1ParseProcess: Process =
+            ProcessBuilder(
+                executablePath.toString(), "asn1parse", "-inform", "DER", "-in", keyFile.absolutePath,
+                "-item", "PKCS8_PRIV_KEY_INFO"
+            ).start()
 
         val asn1Stuff = asn1ParseProcess.inputStream.bufferedReader().use { it.readText() }
         asn1ParseProcess.waitFor()
@@ -30,6 +30,30 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
             ?: throw IOException("only supported key types are ${KeyType.values().toList()}, but got $algorithmLine")
 
         return Key(file = keyFile, keyType = keyType)
+    }
+
+    @Throws(IOException::class)
+    fun getPublicKey(key: Key): PEMPublicKey {
+        val pkcs8Process = ProcessBuilder(
+            executablePath.toString(), "pkcs8", "-inform", "DER", "-in", key.file.absolutePath, "-nocrypt"
+        ).start()
+        val pubKeyCreatorProcess: Process = if (key.keyType == KeyType.RSA) {
+            ProcessBuilder(executablePath.toString(), "rsa", "-pubout").start()
+        } else {
+            ProcessBuilder(executablePath.toString(), "ec", "-pubout").start()
+        }
+        pubKeyCreatorProcess.outputStream.use { output ->
+            pkcs8Process.inputStream.use { it.copyTo(output) }
+        }
+        val pubKey = PEMPublicKey(pubKeyCreatorProcess.inputStream.bufferedReader().use { it.readText() })
+
+        pubKeyCreatorProcess.waitFor()
+        if (pubKeyCreatorProcess.exitValue() != 0) {
+            val errorInfo = pubKeyCreatorProcess.errorStream.bufferedReader().use { it.readText() }
+            throw IOException("failed to generate public key: $errorInfo")
+        }
+
+        return pubKey
     }
 
     /**
@@ -86,6 +110,9 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
     }
 
     data class Key(val file: File, val keyType: KeyType)
+
+    @JvmInline
+    value class PEMPublicKey(val pubKey: String)
 
     enum class KeyType(val algorithmIdentifier: String) {
         RSA("rsaEncryption"), EC("id-ecPublicKey")
