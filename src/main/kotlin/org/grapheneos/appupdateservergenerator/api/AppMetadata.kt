@@ -14,6 +14,7 @@ import java.io.IOException
 data class AppMetadata(
     @SerialName("package")
     val packageName: String,
+    val label: String,
     val latestVersionCode: VersionCode,
     val sha256Checksum: Base64String,
     /**
@@ -24,11 +25,19 @@ data class AppMetadata(
 ) {
     constructor(
         packageName: String,
+        label: String,
         latestVersionCode: VersionCode,
         sha256Checksum: Base64String,
         deltaAvailableVersions: List<VersionCode>,
         lastUpdateTimestamp: UnixTimestamp
-    ) : this(packageName, latestVersionCode, sha256Checksum, deltaAvailableVersions.toSet(), lastUpdateTimestamp)
+    ) : this(
+        packageName = packageName,
+        label = label,
+        latestVersionCode = latestVersionCode,
+        sha256Checksum = sha256Checksum,
+        deltaAvailableVersions = deltaAvailableVersions.toSet(),
+        lastUpdateTimestamp = lastUpdateTimestamp
+    )
 
     fun writeToDiskAndSign(privateKey: PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionInfoJson = Json.encodeToString(this)

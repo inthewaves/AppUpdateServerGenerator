@@ -202,6 +202,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             println()
             val newAppMetadata = AppMetadata(
                 packageName = infoOfApkToInsert.packageName,
+                label = infoOfApkToInsert.label,
                 latestVersionCode = infoOfApkToInsert.versionCode,
                 sha256Checksum = Base64String.fromBytes(newApkFile.digest(MessageDigest.getInstance("SHA-256"))),
                 deltaAvailableVersions = deltaAvailableVersions,

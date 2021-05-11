@@ -12,8 +12,9 @@ import java.nio.file.Path
  */
 class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath = aaptPath) {
     /**
-     * Reads the [apkFile] and populates the given [androidApkBuilder] using the values in the APK's AndroidManifest.xml
-     * @throws IOException if the APK file can't be processed by aapt
+     * Reads the [apkFile] and populates the given [androidApkBuilder] using the info extracted from the APK's manifest
+     * via `aapt2 dump badging`.
+     * @throws IOException if the APK file can't be processed by aapt2 / there is missing information
      */
     @Throws(IOException::class)
     fun getAndroidAppDetails(apkFile: File, androidApkBuilder: AndroidApk.Builder) {
@@ -60,13 +61,9 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
         manifestProcess.inputStream.bufferedReader().useLines { lineSequence ->
             lineSequence.forEach { line ->
                 androidApkBuilder.apply {
-                    if (packageName != null && versionCode != null && versionName != null && minSdkVersion != null) {
-                        return
-                    }
-
                     when {
-                        packageName == null -> {
-                            badgingFirstLineRegex.find(line)
+                        packageName == null || versionCode == null || versionName == null -> {
+                            badgingFirstLineRegex.matchEntire(line)
                                 ?.let {
                                     packageName = it.groupValues[1]
 
@@ -77,7 +74,6 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                                     }
 
                                     versionName = it.groupValues[3]
-
                                 }
                         }
                         minSdkVersion == null -> {
@@ -90,19 +86,18 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                                     }
                                 }
                         }
-                        else -> {
+                        label == null -> {
                             badgingApplicationLabelLineRegex.matchEntire(line)
-                                ?.let {
-
-                                }
+                                ?.let { label = it.groupValues[1] }
                         }
+                        else -> return
                     }
                 }
             }
         }
 
         manifestProcess.waitFor()
-        throw IOException("failed to read APK details from aapt; the builder is $androidApkBuilder")
+        throw IOException("failed to read APK details from aapt2; the builder is $androidApkBuilder")
     }
 
     companion object {
