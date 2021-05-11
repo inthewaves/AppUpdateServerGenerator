@@ -18,64 +18,96 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
     @Throws(IOException::class)
     fun getAndroidAppDetails(apkFile: File, androidApkBuilder: AndroidApk.Builder) {
         val manifestProcess: Process = ProcessBuilder(
-            executablePath.toString(), "dump", "xmltree", "--file", "AndroidManifest.xml", apkFile.absolutePath,
+            executablePath.toString(), "dump", "badging", apkFile.absolutePath,
         ).start()
 
         /*
         Sample first few lines for Auditor:
 
-        $ aapt dump xmltree Auditor-26.apk AndroidManifest.xml
-        N: android=http://schemas.android.com/apk/res/android
-          E: manifest (line=2)
-            A: android:versionCode(0x0101021b)=(type 0x10)0x1a
-            A: android:versionName(0x0101021c)="26" (Raw: "26")
-            A: android:compileSdkVersion(0x01010572)=(type 0x10)0x1e
-            A: android:compileSdkVersionCodename(0x01010573)="11" (Raw: "11")
-            A: package="app.attestation.auditor" (Raw: "app.attestation.auditor")
-            A: platformBuildVersionCode=(type 0x10)0x1e
-            A: platformBuildVersionName=(type 0x10)0xb
-            E: uses-sdk (line=7)
-              A: android:minSdkVersion(0x0101020c)=(type 0x10)0x1a
-              A: android:targetSdkVersion(0x01010270)=(type 0x10)0x1e
+        $ aapt2 dump badging Auditor-26.apk
+        package: name='app.attestation.auditor' versionCode='26' versionName='26' platformBuildVersionName='11' platformBuildVersionCode='30' compileSdkVersion='30' compileSdkVersionCodename='11'
+        sdkVersion:'26'
+        targetSdkVersion:'30'
+        uses-permission: name='android.permission.CAMERA'
+        uses-permission: name='android.permission.INTERNET'
+        uses-permission: name='android.permission.RECEIVE_BOOT_COMPLETED'
+        uses-permission: name='android.permission.USE_FINGERPRINT' maxSdkVersion='28'
+        uses-permission: name='android.permission.USE_BIOMETRIC'
+        uses-permission: name='android.permission.QUERY_ALL_PACKAGES'
+        application-label:'Auditor'
+        application-icon-120:'res/mipmap-anydpi-v21/ic_launcher.xml'
+        application-icon-160:'res/mipmap-anydpi-v21/ic_launcher.xml'
+        application-icon-240:'res/mipmap-anydpi-v21/ic_launcher.xml'
+        application-icon-320:'res/mipmap-anydpi-v21/ic_launcher.xml'
+        application-icon-480:'res/mipmap-anydpi-v21/ic_launcher.xml'
+        application-icon-640:'res/mipmap-anydpi-v21/ic_launcher.xml'
+        application-icon-65534:'res/mipmap-anydpi-v21/ic_launcher.xml'
+        application: label='Auditor' icon='res/mipmap-anydpi-v21/ic_launcher.xml'
+        launchable-activity: name='app.attestation.auditor.AttestationActivity'  label='Auditor' icon=''
+        feature-group: label=''
+          uses-feature: name='android.hardware.camera'
+          uses-implied-feature: name='android.hardware.camera' reason='requested android.permission.CAMERA permission'
+          uses-feature: name='android.hardware.faketouch'
+          uses-implied-feature: name='android.hardware.faketouch' reason='default feature for all apps'
+        main
+        other-activities
+        other-services
+        supports-screens: 'small' 'normal' 'large' 'xlarge'
+        supports-any-density: 'true'
+        locales: '--_--'
+        densities: '120' '160' '240' '320' '480' '640' '65534'
          */
         manifestProcess.inputStream.bufferedReader().useLines { lineSequence ->
             lineSequence.forEach { line ->
                 androidApkBuilder.apply {
-                    versionCodeRegex.find(line)
-                        ?.let {
-                            versionCode = try {
-                                VersionCode(it.groupValues[2].toInt())
-                            } catch (e: NumberFormatException) {
-                                throw IOException("failed to parse versionCode for $apkFile", e)
-                            }
-                        }
-                        ?: versionNameRegex.find(line)
-                            ?.let { versionName = it.groupValues[2] }
-                        ?: packageRegex.find(line)
-                            ?.let { packageName = it.groupValues[1] }
-                        ?: minSdkVersionRegex.find(line)
-                            ?.let {
-                                minSdkVersion = try {
-                                    it.groupValues[2].toInt()
-                                } catch (e: NumberFormatException) {
-                                    throw IOException("failed to parse minSdkVersion for $apkFile", e)
-                                }
-                            }
                     if (packageName != null && versionCode != null && versionName != null && minSdkVersion != null) {
                         return
+                    }
+
+                    when {
+                        packageName == null -> {
+                            badgingFirstLineRegex.find(line)
+                                ?.let {
+                                    packageName = it.groupValues[1]
+
+                                    versionCode = try {
+                                        VersionCode(it.groupValues[2].toInt())
+                                    } catch (e: NumberFormatException) {
+                                        throw IOException("failed to parse versionCode for $apkFile", e)
+                                    }
+
+                                    versionName = it.groupValues[3]
+
+                                }
+                        }
+                        minSdkVersion == null -> {
+                            badgingSdkVersionLineRegex.matchEntire(line)
+                                ?.let {
+                                    minSdkVersion = try {
+                                        it.groupValues[1].toInt()
+                                    } catch (e: NumberFormatException) {
+                                        throw IOException("failed to parse minSdkVersion for $apkFile", e)
+                                    }
+                                }
+                        }
+                        else -> {
+                            badgingApplicationLabelLineRegex.matchEntire(line)
+                                ?.let {
+
+                                }
+                        }
                     }
                 }
             }
         }
 
         manifestProcess.waitFor()
-        throw IOException("failed to read APK details from aapt")
+        throw IOException("failed to read APK details from aapt; the builder is $androidApkBuilder")
     }
 
     companion object {
-        private val versionCodeRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:versionCode\(0x[0-9a-f]*\)=([0-9]*)""")
-        private val versionNameRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:versionName\(0x[0-9a-f]*\)="(.*)" \(Raw: ".*"\)""")
-        private val packageRegex = Regex(""" A: package="(.*)" \(Raw: ".*"\)""")
-        private val minSdkVersionRegex = Regex("""A: (http://schemas.android.com/apk/res/)?android:minSdkVersion\(0x[0-9a-f]*\)=([a-e0-9]*)""")
+        private val badgingFirstLineRegex = Regex("^package: name='(.*)' versionCode='([0-9]*)' versionName='(.*)' platformBuildVersionName='(.*)' platformBuildVersionCode='[0-9]*' compileSdkVersion='[0-9]*' compileSdkVersionCodename='.*'$")
+        private val badgingSdkVersionLineRegex = Regex("^sdkVersion:'([0-9]*)'$")
+        private val badgingApplicationLabelLineRegex = Regex("^application-label:'(.*)'$")
     }
 }
