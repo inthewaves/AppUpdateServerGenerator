@@ -1,4 +1,4 @@
-package org.grapheneos.appupdateservergenerator.util
+package org.grapheneos.appupdateservergenerator.crypto
 
 import java.math.BigInteger
 import java.security.KeyException

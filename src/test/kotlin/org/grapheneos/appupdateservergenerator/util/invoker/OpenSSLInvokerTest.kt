@@ -1,9 +1,11 @@
 package org.grapheneos.appupdateservergenerator.util.invoker
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
+import org.grapheneos.appupdateservergenerator.crypto.PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.crypto.SignatureVerificationInputStream
+import org.grapheneos.appupdateservergenerator.files.prependLine
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
-import org.grapheneos.appupdateservergenerator.util.SignatureVerificationInputStream
-import org.grapheneos.appupdateservergenerator.util.prependLine
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
@@ -134,7 +136,7 @@ internal class OpenSSLInvokerTest {
                 writeText(stringToSign)
             }
 
-        val key = OpenSSLInvoker.Key(file = keyFile, keyType = OpenSSLInvoker.KeyType.RSA)
+        val key = PrivateKeyFile.RSA(file = keyFile)
         val signature = openSSLInvoker.signFileAndPrependSignatureToFile(key, tempFileToSign)
         // sanity check
         Signature.getInstance(SIGNATURE_ALGORITHM, PROVIDER).apply {
@@ -202,7 +204,7 @@ internal class OpenSSLInvokerTest {
                 writeText(stringToSign)
             }
 
-        val key = OpenSSLInvoker.Key(file = keyFile, keyType = OpenSSLInvoker.KeyType.RSA)
+        val key = PrivateKeyFile.RSA(file = keyFile)
         val signature = openSSLInvoker.signFile(key, tempFileToSign)
         // Replace the temp file contents with the different, unexpected string.
         // This function overwrites the file.
@@ -245,8 +247,9 @@ internal class OpenSSLInvokerTest {
     fun testGetKeyType() {
         val invoker = OpenSSLInvoker()
         val key = invoker.getKeyWithType(keyFile)
-        assertEquals(OpenSSLInvoker.KeyType.RSA, key.keyType)
+        assert(key is PrivateKeyFile.RSA) { "expected test key to be RSA key" }
 
+        // Now generate an EC key and try to parse the key type from that.
         val ecKeyFile = Files.createTempFile("temp-ec-key", ".pk8").toFile()
             .apply { deleteOnExit() }
 
@@ -270,6 +273,6 @@ internal class OpenSSLInvokerTest {
         }
 
         val parsedKey = invoker.getKeyWithType(ecKeyFile)
-        assertEquals(OpenSSLInvoker.KeyType.EC, parsedKey.keyType)
+        assert(parsedKey is PrivateKeyFile.EC)
     }
 }

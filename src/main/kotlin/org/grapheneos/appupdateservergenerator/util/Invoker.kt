@@ -1,4 +1,4 @@
-package org.grapheneos.appupdateservergenerator.util.invoker
+package org.grapheneos.appupdateservergenerator.util
 
 import java.io.IOException
 import java.nio.file.Path

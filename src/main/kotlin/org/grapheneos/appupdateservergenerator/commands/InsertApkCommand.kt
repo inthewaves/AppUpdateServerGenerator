@@ -4,16 +4,18 @@ import kotlinx.cli.*
 import kotlinx.coroutines.runBlocking
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppVersionIndex
+import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
+import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
+import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
+import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
+import org.grapheneos.appupdateservergenerator.crypto.PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.files.FileManager
+import org.grapheneos.appupdateservergenerator.files.digest
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
-import org.grapheneos.appupdateservergenerator.util.FileManager
-import org.grapheneos.appupdateservergenerator.util.digest
-import org.grapheneos.appupdateservergenerator.util.invoker.AAPT2Invoker
-import org.grapheneos.appupdateservergenerator.util.invoker.ApkSignerInvoker
-import org.grapheneos.appupdateservergenerator.util.invoker.OpenSSLInvoker
 import java.io.File
 import java.io.FileFilter
 import java.io.IOException
@@ -84,7 +86,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             exitProcess(1)
         }
 
-        val signingKey: OpenSSLInvoker.Key = try {
+        val signingPrivateKey: PrivateKeyFile = try {
             parsePrivateKeyAndValidateDiskPublicKey()
         } catch (e: IOException) {
             println("error: ${e.message}")
@@ -129,7 +131,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
             apksForThisPackage.forEachIndexed { index, apkInfo ->
                 // only regenerate deltas when at the latest apk
-                insertApk(apkInfo, signingKey, regenerateDeltas = index >= apksForThisPackage.size - 1)
+                insertApk(apkInfo, signingPrivateKey, regenerateDeltas = index >= apksForThisPackage.size - 1)
             }
             println()
         }
@@ -137,7 +139,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         val index = AppVersionIndex.create(fileManager)
         println("new app version index: $index")
         index.writeToDiskAndSign(
-            key = signingKey,
+            privateKey = signingPrivateKey,
             openSSLInvoker = openSSLInvoker,
             fileManager = fileManager
         )
@@ -145,16 +147,16 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
     }
 
     @Throws(IOException::class)
-    private fun parsePrivateKeyAndValidateDiskPublicKey(): OpenSSLInvoker.Key {
-        val signingKey: OpenSSLInvoker.Key = try {
+    private fun parsePrivateKeyAndValidateDiskPublicKey(): PrivateKeyFile {
+        val signingPrivateKey: PrivateKeyFile = try {
             openSSLInvoker.getKeyWithType(File(keyFile))
         } catch (e: IOException) {
             throw IOException("failed to parse key type from provided key file: $e", e)
         }
-        println("input signing key is of type $signingKey")
+        println("input signing key is of type $signingPrivateKey")
 
-        val publicKey: OpenSSLInvoker.PEMPublicKey = try {
-            openSSLInvoker.getPublicKey(signingKey)
+        val publicKey: PEMPublicKey = try {
+            openSSLInvoker.getPublicKey(signingPrivateKey)
         } catch (e: IOException) {
             throw IOException("failed to generate public key", e)
         }
@@ -162,18 +164,18 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         if (!publicKeyInRepo.exists()) {
             publicKeyInRepo.writeText(publicKey.pubKey)
         } else {
-            val existingPublicKeyPem = OpenSSLInvoker.PEMPublicKey(publicKeyInRepo.readText())
+            val existingPublicKeyPem = PEMPublicKey(publicKeyInRepo.readText())
             if (existingPublicKeyPem != publicKey) {
                 throw IOException(
-                    "the key passed to command (${signingKey.file.absolutePath}) differs from the one " +
+                    "the key passed to command (${signingPrivateKey.file.absolutePath}) differs from the one " +
                             "used before (${publicKeyInRepo.absolutePath})"
                 )
             }
         }
-        return signingKey
+        return signingPrivateKey
     }
 
-    private fun insertApk(infoOfApkToInsert: AndroidApk, signingKey: OpenSSLInvoker.Key, regenerateDeltas: Boolean) {
+    private fun insertApk(infoOfApkToInsert: AndroidApk, signingPrivateKey: PrivateKeyFile, regenerateDeltas: Boolean) {
         println("Inserting ${infoOfApkToInsert.apkFile.name}, with details $infoOfApkToInsert")
 
         val appDir = fileManager.getDirForApp(infoOfApkToInsert.packageName)
@@ -209,7 +211,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                 lastUpdateTimestamp = UnixTimestamp.now()
             )
             newAppMetadata.writeToDiskAndSign(
-                key = signingKey,
+                privateKey = signingPrivateKey,
                 openSSLInvoker = openSSLInvoker,
                 fileManager = fileManager
             )

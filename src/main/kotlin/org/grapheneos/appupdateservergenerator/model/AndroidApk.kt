@@ -1,7 +1,7 @@
 package org.grapheneos.appupdateservergenerator.model
 
-import org.grapheneos.appupdateservergenerator.util.invoker.AAPT2Invoker
-import org.grapheneos.appupdateservergenerator.util.invoker.ApkSignerInvoker
+import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
+import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import java.io.File
 import java.io.IOException
 

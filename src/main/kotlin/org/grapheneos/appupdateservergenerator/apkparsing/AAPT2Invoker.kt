@@ -1,13 +1,14 @@
-package org.grapheneos.appupdateservergenerator.util.invoker
+package org.grapheneos.appupdateservergenerator.apkparsing
 
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.VersionCode
+import org.grapheneos.appupdateservergenerator.util.Invoker
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
 
 /**
- * Wrapper class for the aapt tool.
+ * Wrapper class for the aapt2 tool.
  */
 class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath = aaptPath) {
     /**

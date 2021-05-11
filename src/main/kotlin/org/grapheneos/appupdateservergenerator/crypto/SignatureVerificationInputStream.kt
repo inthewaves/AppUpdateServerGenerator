@@ -1,5 +1,6 @@
-package org.grapheneos.appupdateservergenerator.util
+package org.grapheneos.appupdateservergenerator.crypto
 
+import org.grapheneos.appupdateservergenerator.util.Base64Util
 import java.io.ByteArrayOutputStream
 import java.io.FilterInputStream
 import java.io.IOException

@@ -1,6 +1,7 @@
-package org.grapheneos.appupdateservergenerator.util.invoker
+package org.grapheneos.appupdateservergenerator.apkparsing
 
 import org.grapheneos.appupdateservergenerator.model.HexString
+import org.grapheneos.appupdateservergenerator.util.Invoker
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path

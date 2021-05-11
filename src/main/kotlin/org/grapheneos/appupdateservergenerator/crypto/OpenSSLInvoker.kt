@@ -1,7 +1,8 @@
-package org.grapheneos.appupdateservergenerator.util.invoker
+package org.grapheneos.appupdateservergenerator.crypto
 
+import org.grapheneos.appupdateservergenerator.files.prependLine
 import org.grapheneos.appupdateservergenerator.model.Base64String
-import org.grapheneos.appupdateservergenerator.util.prependLine
+import org.grapheneos.appupdateservergenerator.util.Invoker
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -10,7 +11,7 @@ import java.nio.file.Path
 
 class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executablePath = apkSignerPath) {
     @Throws(IOException::class)
-    fun getKeyWithType(keyFile: File): Key {
+    fun getKeyWithType(keyFile: File): PrivateKeyFile {
         val asn1ParseProcess: Process =
             ProcessBuilder(
                 executablePath.toString(), "asn1parse", "-inform", "DER", "-in", keyFile.absolutePath,
@@ -26,18 +27,19 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         val algorithmLine = algorithmLineRegex.find(asn1Stuff)?.groupValues?.get(2)
             ?: throw IOException("failed to find algorithm line")
 
-        val keyType = KeyType.values().find { algorithmLine.startsWith(it.algorithmIdentifier) }
-            ?: throw IOException("only supported key types are ${KeyType.values().toList()}, but got $algorithmLine")
-
-        return Key(file = keyFile, keyType = keyType)
+        return try {
+            PrivateKeyFile.fromAlgorithmLine(keyFile, algorithmLine)
+        } catch (e: IllegalArgumentException) {
+            throw IOException(e)
+        }
     }
 
     @Throws(IOException::class)
-    fun getPublicKey(key: Key): PEMPublicKey {
+    fun getPublicKey(privateKey: PrivateKeyFile): PEMPublicKey {
         val pkcs8Process = ProcessBuilder(
-            executablePath.toString(), "pkcs8", "-inform", "DER", "-in", key.file.absolutePath, "-nocrypt"
+            executablePath.toString(), "pkcs8", "-inform", "DER", "-in", privateKey.file.absolutePath, "-nocrypt"
         ).start()
-        val pubKeyCreatorProcess: Process = if (key.keyType == KeyType.RSA) {
+        val pubKeyCreatorProcess: Process = if (privateKey is PrivateKeyFile.RSA) {
             ProcessBuilder(executablePath.toString(), "rsa", "-pubout").start()
         } else {
             ProcessBuilder(executablePath.toString(), "ec", "-pubout").start()
@@ -60,8 +62,8 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
      * Note: It is the caller's responsibility to close the [inputStream]
      */
     @Throws(IOException::class)
-    fun signFromInputStream(key: Key, inputStream: InputStream): Base64String {
-        val signingProcess: Process = createDgstSigningProcess(key)
+    fun signFromInputStream(privateKey: PrivateKeyFile, inputStream: InputStream): Base64String {
+        val signingProcess: Process = createDgstSigningProcess(privateKey)
         signingProcess.outputStream.use { output -> inputStream.copyTo(output) }
         val signature: Base64String = signingProcess.inputStream.use {
             try {
@@ -78,10 +80,11 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
     }
 
     @Throws(IOException::class)
-    fun signString(key: Key, string: String): Base64String = signFromInputStream(key, string.byteInputStream())
+    fun signString(privateKey: PrivateKeyFile, string: String): Base64String =
+        signFromInputStream(privateKey, string.byteInputStream())
 
     @Throws(IOException::class)
-    fun signFile(key: Key, fileToSign: File): Base64String {
+    fun signFile(privateKey: PrivateKeyFile, fileToSign: File): Base64String {
         val fileSize = Files.readAttributes(fileToSign.toPath(), "size")
             .run { get("size") as Long }
         if (fileSize <= 0) {
@@ -89,33 +92,24 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         }
 
         return fileToSign.inputStream().use {
-            signFromInputStream(key, it)
+            signFromInputStream(privateKey, it)
         }
     }
 
     @Throws(IOException::class)
-    fun signFileAndPrependSignatureToFile(key: Key, fileToSign: File): Base64String =
-        signFile(key, fileToSign)
+    fun signFileAndPrependSignatureToFile(privateKey: PrivateKeyFile, fileToSign: File): Base64String =
+        signFile(privateKey, fileToSign)
             .also { signature -> fileToSign.prependLine(signature.s) }
 
-    private fun createDgstSigningProcess(key: Key): Process {
+    private fun createDgstSigningProcess(privateKey: PrivateKeyFile): Process {
         val command = mutableListOf<String>(
-            executablePath.toString(), "dgst", "-sha256", "-keyform", "DER", "-sign", key.file.absolutePath
+            executablePath.toString(), "dgst", "-sha256", "-keyform", "DER", "-sign", privateKey.file.absolutePath
         ).apply {
-            if (key.keyType == KeyType.RSA) {
+            if (privateKey is PrivateKeyFile.RSA) {
                 addAll(listOf("-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"))
             }
         }
         return ProcessBuilder(command).start()
-    }
-
-    data class Key(val file: File, val keyType: KeyType)
-
-    @JvmInline
-    value class PEMPublicKey(val pubKey: String)
-
-    enum class KeyType(val algorithmIdentifier: String) {
-        RSA("rsaEncryption"), EC("id-ecPublicKey")
     }
 
     companion object {

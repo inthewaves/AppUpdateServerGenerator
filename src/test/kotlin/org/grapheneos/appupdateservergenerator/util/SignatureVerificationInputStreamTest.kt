@@ -1,5 +1,6 @@
 package org.grapheneos.appupdateservergenerator.util
 
+import org.grapheneos.appupdateservergenerator.crypto.SignatureVerificationInputStream
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.params.ParameterizedTest
