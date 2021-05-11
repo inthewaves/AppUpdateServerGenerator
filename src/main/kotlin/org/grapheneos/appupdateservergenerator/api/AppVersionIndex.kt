@@ -27,7 +27,7 @@ data class AppVersionIndex constructor(
                 ?.filter { it.isDirectory }
                 ?.map { dirForApp ->
                     try {
-                        LatestAppVersionInfo.getInfoFromDiskForPackage(dirForApp.name, fileManager)
+                        AppMetadata.getInfoFromDiskForPackage(dirForApp.name, fileManager)
                     } catch (e: IOException) {
                         null
                     }

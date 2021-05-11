@@ -10,7 +10,7 @@ import org.grapheneos.appupdateservergenerator.util.invoker.OpenSSLInvoker
 import java.io.IOException
 
 @Serializable
-data class LatestAppVersionInfo(
+data class AppMetadata(
     @SerialName("package")
     val packageName: String,
     val latestVersionCode: VersionCode,
@@ -18,9 +18,17 @@ data class LatestAppVersionInfo(
     /**
      * The versions that have a delta available
      */
-    val deltaAvailableVersions: List<VersionCode>,
+    val deltaAvailableVersions: Set<VersionCode>,
     val lastUpdateTimestamp: UnixTimestamp,
 ) {
+    constructor(
+        packageName: String,
+        latestVersionCode: VersionCode,
+        sha256Checksum: Base64String,
+        deltaAvailableVersions: List<VersionCode>,
+        lastUpdateTimestamp: UnixTimestamp
+    ) : this(packageName, latestVersionCode, sha256Checksum, deltaAvailableVersions.toSet(), lastUpdateTimestamp)
+
     fun writeToDiskAndSign(key: OpenSSLInvoker.Key, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionInfoJson = Json.encodeToString(this)
         val signature = openSSLInvoker.signString(key, latestAppVersionInfoJson)
@@ -33,7 +41,7 @@ data class LatestAppVersionInfo(
 
     companion object {
         @Throws(IOException::class)
-        fun getInfoFromDiskForPackage(pkg: String, fileManager: FileManager): LatestAppVersionInfo =
+        fun getInfoFromDiskForPackage(pkg: String, fileManager: FileManager): AppMetadata =
             try {
                 Json.decodeFromString(fileManager.getLatestAppVersionInfoMetadata(pkg).useLines { it.last() })
             } catch (e: SerializationException) {

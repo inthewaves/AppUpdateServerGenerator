@@ -4,8 +4,8 @@ import kotlinx.cli.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppVersionIndex
-import org.grapheneos.appupdateservergenerator.api.LatestAppVersionInfo
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
@@ -176,7 +176,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
         try {
             println()
-            val newAppMetadata = LatestAppVersionInfo(
+            val newAppMetadata = AppMetadata(
                 packageName = infoOfApkToInsert.packageName,
                 latestVersionCode = infoOfApkToInsert.versionCode,
                 sha256Checksum = Base64String.fromBytes(newApkFile.digest(MessageDigest.getInstance("SHA-256"))),
@@ -240,7 +240,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                 exitProcess(1)
             }
             // The first line contains the signature.
-            val latestAppInfo: LatestAppVersionInfo = latestAppMetadata.useLines { Json.decodeFromString(it.last()) }
+            val latestAppInfo: AppMetadata = latestAppMetadata.useLines { Json.decodeFromString(it.last()) }
             if (infoOfApkToInsert.versionCode <= latestAppInfo.latestVersionCode) {
                 println(
                     "error: trying to insert an APK with version code ${infoOfApkToInsert.versionCode.code} when the " +
