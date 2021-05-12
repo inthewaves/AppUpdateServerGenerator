@@ -12,7 +12,6 @@ import java.security.interfaces.RSAPublicKey
  *
  * @throws KeyException if the [PublicKey] is not one of the supported types.
  */
-@Throws(KeyException::class)
 fun PublicKey.maxSignatureLength(): Int =
     when (this) {
         is RSAPublicKey -> signatureLength()

@@ -11,11 +11,16 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executablePath = apkSignerPath) {
-    @Throws(IOException::class)
-    fun getKeyWithType(keyFile: File): PKCS8PrivateKeyFile {
+    /**
+     * Parses the [unencryptedPKCS8KeyFile] to return a type-safe [PKCS8PrivateKeyFile] instance
+     *
+     * @throws IOException if an I/O error occurs, openssl fails to parse the key, or an unsupported key algorithm
+     * is being passed in.
+     */
+    fun getKeyWithType(unencryptedPKCS8KeyFile: File): PKCS8PrivateKeyFile {
         val asn1ParseProcess: Process =
             ProcessBuilder(
-                executablePath.toString(), "asn1parse", "-inform", "DER", "-in", keyFile.absolutePath,
+                executablePath.toString(), "asn1parse", "-inform", "DER", "-in", unencryptedPKCS8KeyFile.absolutePath,
                 "-item", "PKCS8_PRIV_KEY_INFO"
             ).start()
 
@@ -29,13 +34,17 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
             ?: throw IOException("failed to find algorithm line")
 
         return try {
-            PKCS8PrivateKeyFile.fromAlgorithmLine(keyFile, algorithmLine)
+            PKCS8PrivateKeyFile.fromAlgorithmLine(unencryptedPKCS8KeyFile, algorithmLine)
         } catch (e: IllegalArgumentException) {
             throw IOException(e)
         }
     }
 
-    @Throws(IOException::class)
+    /**
+     * Generates a public key in PEM format from the given [privateKey].
+     *
+     * @throws IOException if an I/O error occurs or openssl fails to generate a public key.
+     */
     fun getPublicKey(privateKey: PKCS8PrivateKeyFile): PEMPublicKey {
         val pkcs8Process = ProcessBuilder(
             executablePath.toString(), "pkcs8", "-inform", "DER", "-in", privateKey.file.absolutePath, "-nocrypt"
@@ -60,9 +69,13 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
 
     /**
      * Signs the bytes read from the [inputStream] using the given [privateKey].
+     * The hash algorithm is SHA256. If [PKCS8PrivateKeyFile.RSA] is being used, then PSS padding is applied.
+     *
      * Note: It is the caller's responsibility to close the [inputStream]
+     *
+     * @return a base64-encoded signature of the bytes from the [inputStream]
+     * @throws IOException if an I/O exception occurs
      */
-    @Throws(IOException::class)
     fun signFromInputStream(privateKey: PKCS8PrivateKeyFile, inputStream: InputStream): Base64String {
         val signingProcess: Process = createDgstSigningProcess(privateKey)
         signingProcess.outputStream.use { output -> inputStream.copyTo(output) }
@@ -80,11 +93,21 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         return signature
     }
 
-    @Throws(IOException::class)
+    /**
+     * @see signFromInputStream
+     * @return a base64-encoded signature of the [string]
+     * @throws IOException if an I/O exception occurs
+     */
     fun signString(privateKey: PKCS8PrivateKeyFile, string: String): Base64String =
         signFromInputStream(privateKey, string.byteInputStream())
 
-    @Throws(IOException::class)
+    /**
+     * Signs the binary contents of the [fileToSign] using the [privateKey].
+     *
+     * @see signFromInputStream
+     * @return a base64-encoded signature of the [fileToSign]
+     * @throws IOException if an I/O exception occurs
+     */
     fun signFile(privateKey: PKCS8PrivateKeyFile, fileToSign: File): Base64String {
         val fileSize = Files.readAttributes(fileToSign.toPath(), "size")
             .run { get("size") as Long }
@@ -97,7 +120,15 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         }
     }
 
-    @Throws(IOException::class)
+    /**
+     * Signs the binary contents of the [fileToSign] using the [privateKey] and then prepends the signature in the
+     * first line of the file. The [fileToSign] should be a plaintext file.
+     *
+     * @see signFromInputStream
+     * @see prependLine
+     * @return a base64-encoded signature of the [fileToSign]
+     * @throws IOException if an I/O exception occurs
+     */
     fun signFileAndPrependSignatureToFile(privateKey: PKCS8PrivateKeyFile, fileToSign: File): Base64String =
         signFile(privateKey, fileToSign)
             .also { signature -> fileToSign.prependLine(signature.s) }

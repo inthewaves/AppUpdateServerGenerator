@@ -12,9 +12,11 @@ import java.util.*
  * This InputStream allows for parsing a metadata file line-by-line without
  * needing to write the entire file to the disk, verifying the signature,
  * and then parsing it again.
+ *
+ * @throws InvalidKeyException if the [publicKey] is invalid
+ * @throws NoSuchAlgorithmException if no Provider supports a [Signature] implementation for the specified algorithm
  */
 class SignatureVerificationInputStream
-@Throws(InvalidKeyException::class)
 constructor(
     stream: InputStream,
     val publicKey: PublicKey,
@@ -43,7 +45,6 @@ constructor(
      * @see [InputStream.read]
      * @see [Signature.update]
      */
-    @Throws(IOException::class)
     override fun read(): Int {
         val ch = `in`.read()
         if (on && ch != -1) {
@@ -62,7 +63,6 @@ constructor(
      * @see [InputStream.read]
      * @see [Signature.update]
      */
-    @Throws(IOException::class)
     override fun read(b: ByteArray, off: Int, len: Int): Int {
         val result = `in`.read(b, off, len)
         if (on && result != -1) {
@@ -73,9 +73,17 @@ constructor(
 
     /**
      * Does the same thing as [forEachLineIndexedThenVerify] but doesn't use index.
+     *
+     * **Note: It's the caller's responsibility to close the stream.**
+     *
      * @see forEachLineIndexedThenVerify
+     * @throws GeneralSecurityException if the signature verification fails. This will be thrown when all the lines
+     * have been read due to the nature of this being an input stream.
+     * @throws IOException if an I/O error occurs or the signature header is malformed.
+     * @throws SignatureException if this signature object is not initialized properly, the passed-in signature is
+     * improperly encoded or of the wrong type, if this signature algorithm is unable to process the input data
+     * provided, etc.
      */
-    @Throws(GeneralSecurityException::class, IOException::class, SignatureException::class)
     inline fun forEachLineThenVerify(crossinline action: (String) -> Unit) =
         forEachLineIndexedThenVerify { _, line -> action(line) }
 
@@ -94,7 +102,6 @@ constructor(
      * improperly encoded or of the wrong type, if this signature algorithm is unable to process the input data
      * provided, etc.
      */
-    @Throws(GeneralSecurityException::class, IOException::class, SignatureException::class)
     fun forEachLineIndexedThenVerify(action: (Int, String) -> Unit) {
         // Parse the signature header. Don't verify this part of the stream.
         on = false

@@ -4,7 +4,13 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Path
 
-class FileManager @Throws(IOException::class) constructor(
+/**
+ * Manages the locations of the files for the app repository.
+ * @throws IOException if unable to create or access the [dataRootDirectory] or [appDirectory].
+ * @throws SecurityException if unable to create [dataRootDirectory] and [appDirectory] because a [SecurityManager]
+ * denied access.
+ */
+class FileManager constructor(
     /**
      * Root directory for all data, including the live server data and old app data.
      * By default, it's set to the user's working directory
@@ -15,6 +21,11 @@ class FileManager @Throws(IOException::class) constructor(
         private const val REPO_ROOT_DIRNAME = "app_repo_data"
         private const val STANDALONE_APP_DATA_DIRNAME = "apps"
     }
+
+    /**
+     * @throws IOException if unable to create the [dirToWrite]
+     * @throws SecurityException if unable to create the [dirToWrite] because a [SecurityManager] denied access.
+     */
     private fun attemptToCreateDirIfNotExists(dirToWrite: File) {
         dirToWrite.apply {
             if (!exists()) {

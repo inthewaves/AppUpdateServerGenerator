@@ -9,10 +9,15 @@ import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
 /**
- * Utilities for archive-patcher
+ * Utilities for the archive-patcher library.
  */
 object ArchivePatcherUtil {
-    @Throws(IOException::class)
+    /**
+     * Applies the [deltaFile] to the [oldFile] to create the [outputFile]. A [GZIPInputStream] will be wrapped if
+     * [isDeltaGzipped] is true.
+     *
+     * @throws IOException if an I/O error occurs
+     */
     fun applyDelta(oldFile: File, deltaFile: File, outputFile: File, isDeltaGzipped: Boolean) {
         val inputStream = if (isDeltaGzipped) {
             GZIPInputStream(FileInputStream(deltaFile))
@@ -30,7 +35,12 @@ object ArchivePatcherUtil {
         }
     }
 
-    @Throws(IOException::class, InterruptedException::class)
+    /**
+     * Generates a delta file using the [oldFile] as the base and the [newFile] as the target. The output will be
+     * GZIP-compressed if [outputGzip] is true.
+     *
+     * @throws IOException if an I/O error occurs
+     */
     fun generateDelta(oldFile: File, newFile: File, outputDeltaFile: File, outputGzip: Boolean) {
         val outputStream = if (outputGzip) {
             GZIPOutputStream(outputDeltaFile.outputStream())
