@@ -2,9 +2,9 @@ package org.grapheneos.appupdateservergenerator.crypto
 
 import java.io.File
 
-sealed class PrivateKeyFile(val file: File) {
-    class RSA(file: File) : PrivateKeyFile(file)
-    class EC(file: File) : PrivateKeyFile(file)
+sealed class PrivateKeyFile(open val file: File) {
+    data class RSA(override val file: File) : PrivateKeyFile(file)
+    data class EC(override val file: File) : PrivateKeyFile(file)
     companion object {
         @Throws(IllegalArgumentException::class)
         fun fromAlgorithmLine(file: File, algorithmLine: String) =
