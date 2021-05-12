@@ -3,7 +3,7 @@ package org.grapheneos.appupdateservergenerator.api
 import kotlinx.serialization.*
 import kotlinx.serialization.json.Json
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
-import org.grapheneos.appupdateservergenerator.crypto.PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
@@ -42,7 +42,7 @@ data class AppMetadata(
         lastUpdateTimestamp = lastUpdateTimestamp
     )
 
-    fun writeToDiskAndSign(privateKey: PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
+    fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionInfoJson = Json.encodeToString(this)
         val signature = openSSLInvoker.signString(privateKey, latestAppVersionInfoJson)
         fileManager.getLatestAppVersionInfoMetadata(pkg = packageName).bufferedWriter().use { writer ->

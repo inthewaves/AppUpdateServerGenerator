@@ -1,7 +1,7 @@
 package org.grapheneos.appupdateservergenerator.api
 
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
-import org.grapheneos.appupdateservergenerator.crypto.PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
@@ -13,7 +13,7 @@ data class AppVersionIndex constructor(
 ) {
     constructor(map: Map<String, VersionCode>) : this(UnixTimestamp.now(), map)
 
-    fun writeToDiskAndSign(privateKey: PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
+    fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionIndex = fileManager.latestAppVersionIndex
         latestAppVersionIndex.bufferedWriter().use { writer ->
             writer.appendLine(timestamp.seconds.toString())

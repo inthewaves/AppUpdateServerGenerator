@@ -133,7 +133,7 @@ internal class OpenSSLInvokerTest {
                 writeText(stringToSign)
             }
 
-        val key = PrivateKeyFile.RSA(file = keyFile)
+        val key = PKCS8PrivateKeyFile.RSA(file = keyFile)
         val signature = openSSLInvoker.signFileAndPrependSignatureToFile(key, tempFileToSign)
         // sanity check
         Signature.getInstance(SIGNATURE_ALGORITHM, PROVIDER).apply {
@@ -201,7 +201,7 @@ internal class OpenSSLInvokerTest {
                 writeText(stringToSign)
             }
 
-        val key = PrivateKeyFile.RSA(file = keyFile)
+        val key = PKCS8PrivateKeyFile.RSA(file = keyFile)
         val signature = openSSLInvoker.signFile(key, tempFileToSign)
         // Replace the temp file contents with the different, unexpected string.
         // This function overwrites the file.
@@ -244,7 +244,7 @@ internal class OpenSSLInvokerTest {
     fun testGetKeyType() {
         val invoker = OpenSSLInvoker()
         val key = invoker.getKeyWithType(keyFile)
-        assert(key is PrivateKeyFile.RSA) { "expected test key to be RSA key" }
+        assert(key is PKCS8PrivateKeyFile.RSA) { "expected test key to be RSA key" }
 
         // Now generate an EC key and try to parse the key type from that.
         val ecKeyFile = Files.createTempFile("temp-ec-key", ".pk8").toFile()
@@ -270,6 +270,6 @@ internal class OpenSSLInvokerTest {
         }
 
         val parsedKey = invoker.getKeyWithType(ecKeyFile)
-        assert(parsedKey is PrivateKeyFile.EC)
+        assert(parsedKey is PKCS8PrivateKeyFile.EC)
     }
 }

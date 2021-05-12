@@ -8,7 +8,7 @@ import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
-import org.grapheneos.appupdateservergenerator.crypto.PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.*
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
@@ -83,7 +83,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             exitProcess(1)
         }
 
-        val signingPrivateKey: PrivateKeyFile = try {
+        val signingPrivateKey: PKCS8PrivateKeyFile = try {
             parsePrivateKeyAndValidateDiskPublicKey()
         } catch (e: IOException) {
             println("error: ${e.message}")
@@ -161,8 +161,8 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
     }
 
     @Throws(IOException::class)
-    private fun parsePrivateKeyAndValidateDiskPublicKey(): PrivateKeyFile {
-        val signingPrivateKey: PrivateKeyFile = try {
+    private fun parsePrivateKeyAndValidateDiskPublicKey(): PKCS8PrivateKeyFile {
+        val signingPrivateKey: PKCS8PrivateKeyFile = try {
             openSSLInvoker.getKeyWithType(File(keyFile))
         } catch (e: IOException) {
             throw IOException("failed to parse key type from provided key file: $e", e)
@@ -189,7 +189,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         return signingPrivateKey
     }
 
-    private fun insertApk(infoOfApkToInsert: AndroidApk, signingPrivateKey: PrivateKeyFile, regenerateDeltas: Boolean) {
+    private fun insertApk(infoOfApkToInsert: AndroidApk, signingPrivateKey: PKCS8PrivateKeyFile, regenerateDeltas: Boolean) {
         println("Inserting ${infoOfApkToInsert.apkFile.name}, with details $infoOfApkToInsert")
 
         val appDir = fileManager.getDirForApp(infoOfApkToInsert.packageName)

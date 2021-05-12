@@ -12,7 +12,7 @@ import java.nio.file.Path
 
 class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executablePath = apkSignerPath) {
     @Throws(IOException::class)
-    fun getKeyWithType(keyFile: File): PrivateKeyFile {
+    fun getKeyWithType(keyFile: File): PKCS8PrivateKeyFile {
         val asn1ParseProcess: Process =
             ProcessBuilder(
                 executablePath.toString(), "asn1parse", "-inform", "DER", "-in", keyFile.absolutePath,
@@ -29,18 +29,18 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
             ?: throw IOException("failed to find algorithm line")
 
         return try {
-            PrivateKeyFile.fromAlgorithmLine(keyFile, algorithmLine)
+            PKCS8PrivateKeyFile.fromAlgorithmLine(keyFile, algorithmLine)
         } catch (e: IllegalArgumentException) {
             throw IOException(e)
         }
     }
 
     @Throws(IOException::class)
-    fun getPublicKey(privateKey: PrivateKeyFile): PEMPublicKey {
+    fun getPublicKey(privateKey: PKCS8PrivateKeyFile): PEMPublicKey {
         val pkcs8Process = ProcessBuilder(
             executablePath.toString(), "pkcs8", "-inform", "DER", "-in", privateKey.file.absolutePath, "-nocrypt"
         ).start()
-        val pubKeyCreatorProcess: Process = if (privateKey is PrivateKeyFile.RSA) {
+        val pubKeyCreatorProcess: Process = if (privateKey is PKCS8PrivateKeyFile.RSA) {
             ProcessBuilder(executablePath.toString(), "rsa", "-pubout").start()
         } else {
             ProcessBuilder(executablePath.toString(), "ec", "-pubout").start()
@@ -63,7 +63,7 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
      * Note: It is the caller's responsibility to close the [inputStream]
      */
     @Throws(IOException::class)
-    fun signFromInputStream(privateKey: PrivateKeyFile, inputStream: InputStream): Base64String {
+    fun signFromInputStream(privateKey: PKCS8PrivateKeyFile, inputStream: InputStream): Base64String {
         val signingProcess: Process = createDgstSigningProcess(privateKey)
         signingProcess.outputStream.use { output -> inputStream.copyTo(output) }
         val signature: Base64String = signingProcess.inputStream.use {
@@ -81,11 +81,11 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
     }
 
     @Throws(IOException::class)
-    fun signString(privateKey: PrivateKeyFile, string: String): Base64String =
+    fun signString(privateKey: PKCS8PrivateKeyFile, string: String): Base64String =
         signFromInputStream(privateKey, string.byteInputStream())
 
     @Throws(IOException::class)
-    fun signFile(privateKey: PrivateKeyFile, fileToSign: File): Base64String {
+    fun signFile(privateKey: PKCS8PrivateKeyFile, fileToSign: File): Base64String {
         val fileSize = Files.readAttributes(fileToSign.toPath(), "size")
             .run { get("size") as Long }
         if (fileSize <= 0) {
@@ -98,19 +98,19 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
     }
 
     @Throws(IOException::class)
-    fun signFileAndPrependSignatureToFile(privateKey: PrivateKeyFile, fileToSign: File): Base64String =
+    fun signFileAndPrependSignatureToFile(privateKey: PKCS8PrivateKeyFile, fileToSign: File): Base64String =
         signFile(privateKey, fileToSign)
             .also { signature -> fileToSign.prependLine(signature.s) }
 
     /**
      * Runs `openssl dgst` with the appropriate arguments in order to sign a file. The hash function is SHA256.
-     * If the [privateKey] is [PrivateKeyFile.RSA], SHA256withRSA/PSS is used.
+     * If the [privateKey] is [PKCS8PrivateKeyFile.RSA], SHA256withRSA/PSS is used.
      */
-    private fun createDgstSigningProcess(privateKey: PrivateKeyFile): Process {
+    private fun createDgstSigningProcess(privateKey: PKCS8PrivateKeyFile): Process {
         val command = mutableListOf<String>(
             executablePath.toString(), "dgst", "-sha256", "-keyform", "DER", "-sign", privateKey.file.absolutePath
         ).apply {
-            if (privateKey is PrivateKeyFile.RSA) {
+            if (privateKey is PKCS8PrivateKeyFile.RSA) {
                 addAll(listOf("-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:digest"))
             }
         }
