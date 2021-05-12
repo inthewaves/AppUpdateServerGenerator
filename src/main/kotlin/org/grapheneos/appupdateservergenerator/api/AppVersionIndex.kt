@@ -23,12 +23,15 @@ data class AppVersionIndex constructor(
     }
 
     companion object {
+        /**
+         * Creates a new [AppVersionIndex] instance from the files on disk in the database.
+         */
         fun create(fileManager: FileManager): AppVersionIndex {
             val map = fileManager.appDirectory.listFiles()?.asSequence()
                 ?.filter { it.isDirectory }
                 ?.map { dirForApp ->
                     try {
-                        AppMetadata.getInfoFromDiskForPackage(dirForApp.name, fileManager)
+                        AppMetadata.getMetadataFromDiskForPackage(dirForApp.name, fileManager)
                     } catch (e: IOException) {
                         null
                     }

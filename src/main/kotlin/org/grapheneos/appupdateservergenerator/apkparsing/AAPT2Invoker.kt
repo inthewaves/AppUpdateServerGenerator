@@ -7,6 +7,7 @@ import org.grapheneos.appupdateservergenerator.util.readTextFromErrorStream
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
+import java.util.zip.ZipException
 import java.util.zip.ZipFile
 
 /**
@@ -16,9 +17,9 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
     /**
      * Reads the [apkFile] and populates the given [androidApkBuilder] using the info extracted from the APK's manifest
      * via `aapt2 dump badging`.
+     *
      * @throws IOException if the APK file can't be processed by aapt2 / there is missing information
      */
-    @Throws(IOException::class)
     fun getAndroidAppDetails(apkFile: File, androidApkBuilder: AndroidApk.Builder) {
         val badgingProcess: Process = ProcessBuilder(
             executablePath.toString(), "dump", "badging", apkFile.absolutePath,
@@ -104,12 +105,14 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
 
     /**
      * Copies the launcher icon from the [apkFile] into the [outputIconFile] as long as the launcher icon's density
-     * is >= [minimumDensity]. The saved icon will the the least possible density that is >= [minimumDensity]
+     * is >= [minimumDensity]. The saved icon will the the least possible density that is >= [minimumDensity].
      *
-     * @return whether the extraction was successful
-     * @throws IOException if an I/O error occurs.
+     * In the case that the icon from the app's manifest is .xml file (e.g. adaptive icon), it will try to find an
+     * equivalent png launcher icon in the app's resources.
+     *
+     * @return whether the extraction was successful. False can be returned if unable to find a suitable icon.
+     * @throws IOException if an I/O error (or [ZipException]) occurs.
      */
-    @Throws(IOException::class)
     fun getApplicationIconFromApk(apkFile: File, minimumDensity: Density, outputIconFile: File): Boolean {
         val badgingProcess: Process = ProcessBuilder(
             executablePath.toString(), "dump", "badging", apkFile.absolutePath,
@@ -140,10 +143,15 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
     }
 
     /**
-     * The saved icon will the the least possible density that is >= [minimumDensity].
-     * @return whether extracting the entry into the output file was successful.
+     * Extracts a launcher icon from the [apkFile] using the given zip entry [path] and copies the icon into the
+     * [outputIconFile]. The extracted icon will be the least possible density that is >= [minimumDensity].
+     *
+     * In the case that the [path] is an .xml file, it will try to find an equivalent png launcher icon.
+     *
+     * @return whether extracting the entry into the output file was successful. False can be returned if unable to
+     * find a suitable icon.
+     * @throws IOException if an I/O (or [ZipException]) occurs.
      */
-    @Throws(IOException::class)
     private fun extractIconEntryFromApkIntoOutputFile(
         apkFile: File,
         path: String,
@@ -231,8 +239,8 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
             private val regex = Regex("-(l|m|tv|x{0,3}h|any)dpi")
 
             /**
-             * Maps qualifiers to [Density]. Lazy init to get around issues with this being created before the
-             * object are initialized.
+             * Maps [Density.qualifierValue] to [Density]. Lazy init to get around issues with this being created before
+             * the object are initialized.
              */
             private val qualifierToDensityMap: Map<String?, Density> by lazy {
                 Density::class.sealedSubclasses.associate {

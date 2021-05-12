@@ -18,7 +18,6 @@ import java.io.FileFilter
 import java.io.IOException
 import java.lang.Integer.min
 import java.security.MessageDigest
-import java.util.zip.ZipException
 import java.util.zip.ZipFile
 import kotlin.math.max
 import kotlin.system.exitProcess
@@ -123,7 +122,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
                     val infoOfApkToInsert: Deferred<AndroidApk> = try {
                         async(repoDispatcher) {
-                            AndroidApk.buildFromApkFile(apkFile, aaptInvoker, apkSignerInvoker)
+                            AndroidApk.verifyCertsAndBuildFromApkFile(apkFile, aaptInvoker, apkSignerInvoker)
                         }
                     } catch (e: IOException) {
                         println("unable to to get Android app details for ${apkFile.path}: ${e.message}")
@@ -141,10 +140,10 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         println("found the following packages: ${apkGroupsByPackage.keys}")
 
         apkGroupsByPackage.forEach { (packageName, apks) ->
-            val apksForThisPackage = apks.sortedBy { it.versionCode }
+            val sortedApksForThisPackage = apks.sortedBy { it.versionCode }
 
             val nowInsertingString = "Now inserting $packageName"
-            val versionCodeString = "Version codes: ${apksForThisPackage.map { it.versionCode.code }}"
+            val versionCodeString = "Version codes: ${sortedApksForThisPackage.map { it.versionCode.code }}"
             val width = max(versionCodeString.length, nowInsertingString.length)
             println(
                 """
@@ -155,12 +154,12 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                 """.trimIndent()
             )
 
-            apksForThisPackage.forEachIndexed { index, apkInfo ->
+            sortedApksForThisPackage.forEachIndexed { index, apkInfo ->
                 // only regenerate deltas when at the latest apk
-                insertApk(apkInfo, signingPrivateKey, regenerateDeltas = index >= apksForThisPackage.size - 1)
+                insertApk(apkInfo, signingPrivateKey, regenerateDeltas = index >= sortedApksForThisPackage.size - 1)
             }
 
-            val maxVersionApk = apksForThisPackage.last()
+            val maxVersionApk = sortedApksForThisPackage.last()
             val appIconFile = fileManager.getAppIconFile(maxVersionApk.packageName)
 
             val didLauncherIconExtractSucceed = try {
@@ -189,7 +188,10 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         println("wrote new app version at ${fileManager.latestAppVersionIndex}")
     }
 
-    @Throws(IOException::class)
+
+    /**
+     * @throws IOException if an I/O error occurs or parsing the key fails.
+     */
     private fun parsePrivateKeyAndValidateDiskPublicKey(): PKCS8PrivateKeyFile {
         val signingPrivateKey: PKCS8PrivateKeyFile = try {
             openSSLInvoker.getKeyWithType(File(keyFile))
@@ -246,7 +248,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             deltaAvailableVersions = if (regenerateDeltas) {
                 println()
                 deleteAllDeltas(appDir)
-                generateDeltas(appDir, newApkFile, infoOfApkToInsert, previousApks)
+                generateDeltas(appDir, infoOfApkToInsert, previousApks)
             } else {
                 emptyList()
             }
@@ -279,7 +281,9 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         println("")
     }
 
-    @Throws(IOException::class)
+    /**
+     * @throws IOException if unable to delete deltas
+     */
     private fun deleteAllDeltas(appDir: File) {
         appDir.listFiles(FileFilter { it.name.matches(DELTA_REGEX) })?.forEach { oldDelta ->
             println("deleting outdated delta ${oldDelta.name}")
@@ -289,7 +293,12 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         }
     }
 
-    @Throws(IOException::class)
+    /**
+     * Gets a sorted list of the previous APK files in the [appDir], mapping them to [AndroidApk] instances.
+     * The list will be sorted in ascending order.
+     *
+     * @throws IOException if an I/O error occurs
+     */
     private suspend fun getPreviousApks(appDir: File, newApkFile: File): List<AndroidApk> =
         withContext(repoDispatcher) {
             appDir
@@ -301,19 +310,18 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                                 isZipFile(it)
                     }
                 )
-                ?.sortedWith { a, b -> -a.nameWithoutExtension.toInt().compareTo(b.nameWithoutExtension.toInt()) }
                 ?.map {
-                    async { AndroidApk.buildFromApkFile(it, aaptInvoker, apkSignerInvoker) }
+                    async { AndroidApk.verifyCertsAndBuildFromApkFile(it, aaptInvoker, apkSignerInvoker) }
                 }
                 ?.awaitAll()
-                ?: throw IOException("failed to get previous apks")
+                ?.sortedBy { it.versionCode }
+                ?: throw IOException("failed to get previous apks: listFiles returned null")
         }
 
-    @Throws(IOException::class)
     private fun isZipFile(file: File): Boolean = try {
         ZipFile(file).close()
         true
-    } catch (e: ZipException) {
+    } catch (e: IOException) {
         false
     }
 
@@ -324,7 +332,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         if (appDir.exists()) {
             println("${infoOfApkToInsert.packageName} is in repo.")
             val latestAppMetadata = try {
-                AppMetadata.getInfoFromDiskForPackage(infoOfApkToInsert.packageName, fileManager)
+                AppMetadata.getMetadataFromDiskForPackage(infoOfApkToInsert.packageName, fileManager)
             } catch (e: IOException) {
                 println("error: missing metadata file despite the app directory being present")
                 println(" got IOException: ${e.message}")
@@ -364,11 +372,12 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         return true
     }
 
-    @Throws(IOException::class)
+    /**
+     * Generates multiple deltas with the [newApk] as the target
+     */
     private suspend fun generateDeltas(
         appDir: File,
-        newApkFile: File,
-        newApkInfo: AndroidApk,
+        newApk: AndroidApk,
         previousApks: List<AndroidApk>,
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS
     ): List<VersionCode> = withContext(repoDispatcher) {
@@ -381,15 +390,15 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                     val previousVersionApkFile = previousApk.apkFile
 
                     val previousApkInfo =
-                        AndroidApk.buildFromApkFile(previousVersionApkFile, aaptInvoker, apkSignerInvoker)
+                        AndroidApk.verifyCertsAndBuildFromApkFile(previousVersionApkFile, aaptInvoker, apkSignerInvoker)
                     val deltaName =
-                        DELTA_FILE_FORMAT.format(previousApkInfo.versionCode.code, newApkInfo.versionCode.code)
+                        DELTA_FILE_FORMAT.format(previousApkInfo.versionCode.code, newApk.versionCode.code)
                     println("generating delta: $deltaName")
 
                     val outputDeltaFile = File(appDir, deltaName)
                     ArchivePatcherUtil.generateDelta(
                         previousVersionApkFile,
-                        newApkFile,
+                        newApk.apkFile,
                         outputDeltaFile,
                         outputGzip = true
                     )

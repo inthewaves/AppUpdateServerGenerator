@@ -57,8 +57,18 @@ data class AndroidApk(
     }
 
     companion object {
-        @Throws(IOException::class)
-        fun buildFromApkFile(apkFile: File, aaptInvoker: AAPT2Invoker, apkSignerInvoker: ApkSignerInvoker): AndroidApk {
+        /**
+         * Builds an [AndroidApk] instance from the given [apkFile]. The [apkFile] will be stored as a member variable
+         * in [AndroidApk.apkFile].
+         *
+         * @throws IOException if an I/O error occurs, or the APK can't be parsed by the [aaptInvoker], or the APK
+         * failed to verify with the [apkSignerInvoker]
+         */
+        fun verifyCertsAndBuildFromApkFile(
+            apkFile: File,
+            aaptInvoker: AAPT2Invoker,
+            apkSignerInvoker: ApkSignerInvoker
+        ): AndroidApk {
             val builder = Builder()
             builder.apkFile = apkFile
             aaptInvoker.getAndroidAppDetails(apkFile, builder)

@@ -8,6 +8,12 @@ import java.io.IOException
 import java.nio.file.Path
 
 class ApkSignerInvoker(apkSignerPath: Path = Path.of("apksigner")) : Invoker(executablePath = apkSignerPath) {
+    /**
+     * Verifies the [apkFile] using apksigner and returns a list of the SHA256 hashes of the signing
+     * certificates.
+     *
+     * @throws IOException if an I/O error occurs or verification failed or apksigner fails.
+     */
     fun verifyAndGetSigningCerts(apkFile: File): List<HexString> {
         val certProcess: Process = ProcessBuilder(
             executablePath.toString(), "verify", "--print-certs", apkFile.absolutePath

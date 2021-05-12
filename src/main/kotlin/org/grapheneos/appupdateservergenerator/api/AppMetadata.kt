@@ -53,8 +53,11 @@ data class AppMetadata(
     }
 
     companion object {
-        @Throws(IOException::class)
-        fun getInfoFromDiskForPackage(pkg: String, fileManager: FileManager): AppMetadata =
+        /**
+         * Reads the metadata in the [pkg]'s app directory.
+         * @throws IOException if an I/O error occurs or the metadata is of an invalid format
+         */
+        fun getMetadataFromDiskForPackage(pkg: String, fileManager: FileManager): AppMetadata =
             try {
                 Json.decodeFromString(fileManager.getLatestAppVersionInfoMetadata(pkg).useLines { it.last() })
             } catch (e: SerializationException) {
