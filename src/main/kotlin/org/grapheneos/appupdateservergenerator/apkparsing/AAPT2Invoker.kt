@@ -173,7 +173,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                         .filter { !it.isDirectory && it.name.endsWith("$iconName.png") }
                         .map { it.name to Density.fromPathToDensity(it.name) }
                         .filter { it.second >= minimumDensity }
-                        .minByOrNull { Density.fromPathToDensity(it.first) }
+                        .minByOrNull { it.second }
                         ?.first
                         ?: return false
                 }
@@ -249,8 +249,13 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                     Density::qualifierValue.get(objectInstance) to objectInstance
                 }
             }
-            fun fromPathToDensity(name: String): Density =
-                regex.find(name)
+
+            /**
+             * Parses a path and returns a [Density], or [Density.DEFAULT] if it doesn't correspond to any instance.
+             * Examples of paths: res/drawable-mdpi-v4/notification_bg_normal.9.png corresponds to [Density.MEDIUM].
+             */
+            fun fromPathToDensity(path: String): Density =
+                regex.find(path)
                     ?.groupValues?.get(1)
                     ?.let { dpiPrefix -> qualifierToDensityMap[dpiPrefix + "dpi"] }
                     ?: DEFAULT
