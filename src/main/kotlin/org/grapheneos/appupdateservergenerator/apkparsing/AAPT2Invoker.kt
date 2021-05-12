@@ -248,7 +248,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
     }
 
     companion object {
-        private val badgingFirstLineRegex = Regex("^package: name='(.*)' versionCode='([0-9]*)' versionName='(.*)' platformBuildVersionName='(.*)' platformBuildVersionCode='[0-9]*' compileSdkVersion='[0-9]*' compileSdkVersionCodename='.*'$")
+        private val badgingFirstLineRegex = Regex("^package: name='(.*)' versionCode='([0-9]*)' versionName='(.*)' platformBuildVersionName='.*' platformBuildVersionCode='[0-9]*'( compileSdkVersion='[0-9]*' compileSdkVersionCodename='.*')?$")
         private val badgingSdkVersionLineRegex = Regex("^sdkVersion:'([0-9]*)'$")
         private val badgingApplicationLabelLineRegex = Regex("^application-label:'(.*)'$")
         private val badgingApplicationIconLineRegex = Regex("^application-icon-([0-9]*):'(.*)'$")
