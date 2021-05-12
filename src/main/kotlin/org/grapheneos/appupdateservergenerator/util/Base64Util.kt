@@ -9,5 +9,5 @@ object Base64Util {
      *
      * Alternatively, (originalLength + 2 - ((originalLength + 2) % 3)) / 3 * 4
      */
-    fun getSizeWhenEncodedAsBase64(originalLength: Int): Int = ceil(originalLength / 3.0).toInt() * 4
+    fun getBase64SizeForLength(originalLength: Int): Int = ceil(originalLength / 3.0).toInt() * 4
 }

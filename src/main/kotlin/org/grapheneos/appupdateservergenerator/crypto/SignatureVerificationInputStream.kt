@@ -14,7 +14,8 @@ import java.util.*
  * and then parsing it again.
  *
  * @throws InvalidKeyException if the [publicKey] is invalid
- * @throws NoSuchAlgorithmException if no Provider supports a [Signature] implementation for the specified algorithm
+ * @throws NoSuchAlgorithmException if no [Provider] supports a [Signature] implementation for the specified
+ * [signatureAlgorithm]
  */
 class SignatureVerificationInputStream
 constructor(
@@ -105,9 +106,7 @@ constructor(
     fun forEachLineIndexedThenVerify(action: (Int, String) -> Unit) {
         // Parse the signature header. Don't verify this part of the stream.
         on = false
-        val signatureStream = ByteArrayOutputStream(
-            Base64Util.getSizeWhenEncodedAsBase64(publicKey.maxSignatureLength())
-        )
+        val signatureStream = ByteArrayOutputStream(Base64Util.getBase64SizeForLength(publicKey.maxSignatureLength()))
         var current: Int = read()
         while (
             current != -1 &&
