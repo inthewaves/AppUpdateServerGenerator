@@ -10,9 +10,9 @@ import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
 import org.grapheneos.appupdateservergenerator.crypto.PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
-import org.grapheneos.appupdateservergenerator.files.digest
 import org.grapheneos.appupdateservergenerator.model.*
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
+import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.File
 import java.io.FileFilter
 import java.io.IOException
@@ -221,6 +221,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                 packageName = infoOfApkToInsert.packageName,
                 label = infoOfApkToInsert.label,
                 latestVersionCode = infoOfApkToInsert.versionCode,
+                latestVersionName = infoOfApkToInsert.versionName,
                 sha256Checksum = Base64String.fromBytes(newApkFile.digest(MessageDigest.getInstance("SHA-256"))),
                 deltaAvailableVersions = deltaAvailableVersions,
                 lastUpdateTimestamp = UnixTimestamp.now()

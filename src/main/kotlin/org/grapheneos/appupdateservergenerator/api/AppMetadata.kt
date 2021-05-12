@@ -16,6 +16,7 @@ data class AppMetadata(
     val packageName: String,
     val label: String,
     val latestVersionCode: VersionCode,
+    val latestVersionName: String,
     val sha256Checksum: Base64String,
     /**
      * The versions that have a delta available
@@ -27,6 +28,7 @@ data class AppMetadata(
         packageName: String,
         label: String,
         latestVersionCode: VersionCode,
+        latestVersionName: String,
         sha256Checksum: Base64String,
         deltaAvailableVersions: List<VersionCode>,
         lastUpdateTimestamp: UnixTimestamp
@@ -34,6 +36,7 @@ data class AppMetadata(
         packageName = packageName,
         label = label,
         latestVersionCode = latestVersionCode,
+        latestVersionName = latestVersionName,
         sha256Checksum = sha256Checksum,
         deltaAvailableVersions = deltaAvailableVersions.toSet(),
         lastUpdateTimestamp = lastUpdateTimestamp

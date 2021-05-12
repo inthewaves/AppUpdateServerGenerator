@@ -1,8 +1,8 @@
 package org.grapheneos.appupdateservergenerator.crypto
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider
-import org.grapheneos.appupdateservergenerator.files.prependLine
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
+import org.grapheneos.appupdateservergenerator.util.prependLine
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow

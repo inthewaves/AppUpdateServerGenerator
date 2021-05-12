@@ -1,8 +1,8 @@
 package org.grapheneos.appupdateservergenerator.crypto
 
-import org.grapheneos.appupdateservergenerator.files.prependLine
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.util.Invoker
+import org.grapheneos.appupdateservergenerator.util.prependLine
 import java.io.File
 import java.io.IOException
 import java.io.InputStream

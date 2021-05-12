@@ -1,4 +1,4 @@
-package org.grapheneos.appupdateservergenerator.files
+package org.grapheneos.appupdateservergenerator.util
 
 import java.io.File
 import java.io.FileOutputStream
