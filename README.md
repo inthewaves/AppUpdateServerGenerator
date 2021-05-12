@@ -12,13 +12,15 @@ Some facts about the app update repository:
 
 ### Repository management
 Requirements:
-* This tool is tested and developed on Linux only.
+* This tool is tested on and developed for Linux only.
 * `openssl`, `apksigner`, and `aapt2` need to be in included your `PATH` variable.
   * `openssl` should be packaged in most Linux distributions
   * `apksigner` and `aapt2` are tools in the Android SDK Build Tools package. The SDK can be
     typically installed using Android Studio, but instructions on getting those tools standalone
     can be found at https://developer.android.com/studio/command-line (`sdkmanager`).
 * You need an RSA or EC key in PKCS8 format to sign the metadata. The key needs to be decrypted.
+  There are test keys in the repo (`testkey_ec.pk8`, `testkey_rsa.pk8`), but these should not be
+  used in production.
 
 To insert an APK (or multiple APKs) into the repo, run this command after
 building the jar with `./gradlew build`:
@@ -37,31 +39,39 @@ See `./app-update-server-generator insert-apk --help` for more options.
 
   ```plain
   app_repo_data
-  └── [ 121M]  apps
-      ├── [ 7.1M]  app.attestation.auditor
-      │   ├── [ 2.2M]  24.apk
-      │   ├── [ 2.2M]  25.apk
-      │   ├── [ 2.2M]  26.apk
-      │   ├── [ 249K]  delta-24-to-26.gz
-      │   ├── [ 247K]  delta-25-to-26.gz
-      │   └── [  287]  latest.txt
-      ├── [ 114M]  org.chromium.chrome
-      │   ├── [  27M]  438910534.apk
-      │   ├── [  27M]  443006634.apk
-      │   ├── [  27M]  443008234.apk
-      │   ├── [  27M]  443009134.apk
-      │   ├── [ 4.2M]  delta-438910534-to-443009134.gz
-      │   ├── [ 674K]  delta-443006634-to-443009134.gz
-      │   ├── [ 583K]  delta-443008234-to-443009134.gz
-      │   └── [  314]  latest.txt
-      └── [  165]  latest-index.txt
+  ├── [ 121M]  apps
+  │   ├── [ 7.1M]  app.attestation.auditor
+  │   │   ├── [ 2.2M]  24.apk
+  │   │   ├── [ 2.2M]  25.apk
+  │   │   ├── [ 2.2M]  26.apk
+  │   │   ├── [ 249K]  delta-24-to-26.gz
+  │   │   ├── [ 247K]  delta-25-to-26.gz
+  │   │   ├── [ 1.5K]  ic_launcher.png
+  │   │   └── [  330]  latest.txt
+  │   ├── [ 114M]  org.chromium.chrome
+  │   │   ├── [  27M]  438910534.apk
+  │   │   ├── [  27M]  443006634.apk
+  │   │   ├── [  27M]  443008234.apk
+  │   │   ├── [  27M]  443009134.apk
+  │   │   ├── [ 4.2M]  delta-438910534-to-443009134.gz
+  │   │   ├── [ 674K]  delta-443006634-to-443009134.gz
+  │   │   ├── [ 583K]  delta-443008234-to-443009134.gz
+  │   │   └── [  368]  latest.txt
+  │   └── [  165]  latest-index.txt
+  └── [  178]  public-signing-key.pem
   ```
+
+  The public key will be used to validate the signatures in the repo _during local generation_, and
+  it will also validate the private key passed into the `insert-apk` command to prevent the use of
+  a different key. This public key file in the root directory isn't meant to be consumed by the
+  client app, so it could be preferable to not include it in a sync to the static file server.
+  (Instead, the client apps should have the public key included in the app by default.)
 
 * A sample of `latest-index.txt`:
   
   ```plain
-  MEUCIAI/UvoLxRK+oKByBOiqcWHZYbXGXN023Q60WqRbBGOxAiEArbSFqzGbREW4PTa4tr4hHLym4lGrwE3b/1r3C3vlFZQ=
-  1620527802
+  MEQCIE1GIqMWMuM18C/TE+jfuYkEHuD+wbE7rEArFkfXhxMXAiBmXH4oFTHaurv4TrIVKLQQd1PpYkV7fGRYQsMUZPG9aA==
+  1620860027
   app.attestation.auditor:26
   org.chromium.chrome:443009134
   ```
@@ -72,24 +82,26 @@ See `./app-update-server-generator insert-apk --help` for more options.
 * A sample of `latest.txt` for `org.chromium.chrome`:
   
   ```plain
-  MEUCIQCwYKB/u3FnaA+1+BrJwrQsJdFjure9LA/Z4XAH+/obXwIgfQUN5lIlrv33iqO7G5J8paoEVsZQITSHbdW2Vy/tF/o=
-  {"package":"org.chromium.chrome","latestVersionCode":443009134,"sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaAvailableVersions":[443008234,443006634,438910534],"lastUpdateTimestamp":1620527802}
+  MEUCIF8xSiJ1d6m8Wzycxjp1gaVBgMU7WXlSvJ/12X3GZJnLAiEAhbkwICElT9F3apUXdeTfew3DHfkySg+3wRmxnUXe+po=
+  {"package":"org.chromium.chrome","label":"Vanadium","latestVersionCode":443009134,"latestVersionName":"90.0.4430.91","sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaAvailableVersions":[438910534,443006634,443008234],"lastUpdateTimestamp":1620860027}
   ```
   
-  The first line contains a base64-encoded signature of the JSON metadata, and the prettified JSON
-  is:
+  The first line contains a base64-encoded signature of the JSON metadata. The prettified JSON for the
+  second line is:
   
-  ```plain
+  ```json
   {
     "package": "org.chromium.chrome",
+    "label": "Vanadium",
     "latestVersionCode": 443009134,
+    "latestVersionName": "90.0.4430.91",
     "sha256Checksum": "V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=",
     "deltaAvailableVersions": [
-        443008234,
-        443006634,
-        438910534
+      438910534,
+      443006634,
+      443008234
     ],
-    "lastUpdateTimestamp": 1620527802
+    "lastUpdateTimestamp": 1620860027
   }
   ```
 
