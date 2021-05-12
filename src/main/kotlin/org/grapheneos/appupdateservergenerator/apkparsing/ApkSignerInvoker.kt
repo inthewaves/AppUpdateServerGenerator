@@ -20,13 +20,20 @@ class ApkSignerInvoker(apkSignerPath: Path = Path.of("apksigner")) : Invoker(exe
                 }
             }
         }
-        if (certificates.isEmpty()) {
-            throw IOException("failed to parse signing certificates for $apkFile from apksigner verify")
-        }
 
         certProcess.waitFor()
         if (certProcess.exitValue() != 0) {
-            throw IOException("apksigner verify exited with non-zero exit code ($apkFile): ${certProcess.exitValue()}")
+            val errorMessage = try {
+                certProcess.errorStream.bufferedReader().use { it.readText() }
+            } catch (e: IOException) {
+                ""
+            }
+            throw IOException(
+                "apksigner verify exited with non-zero exit code ($apkFile): ${certProcess.exitValue()}:\n$errorMessage"
+            )
+        }
+        if (certificates.isEmpty()) {
+            throw IOException("failed to parse signing certificates for $apkFile from apksigner verify")
         }
 
         return certificates
