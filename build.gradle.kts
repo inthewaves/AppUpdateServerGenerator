@@ -26,6 +26,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.0")
     implementation("org.jetbrains.kotlinx:kotlinx-cli:0.3.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0-RC")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.5.0")
 
     testImplementation("org.bouncycastle:bcprov-jdk15to18:1.68")
     testImplementation(kotlin("test-junit5"))

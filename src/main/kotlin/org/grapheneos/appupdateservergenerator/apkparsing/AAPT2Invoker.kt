@@ -6,6 +6,7 @@ import org.grapheneos.appupdateservergenerator.util.Invoker
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
+import java.util.zip.ZipFile
 
 /**
  * Wrapper class for the aapt2 tool.
@@ -18,7 +19,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
      */
     @Throws(IOException::class)
     fun getAndroidAppDetails(apkFile: File, androidApkBuilder: AndroidApk.Builder) {
-        val manifestProcess: Process = ProcessBuilder(
+        val badgingProcess: Process = ProcessBuilder(
             executablePath.toString(), "dump", "badging", apkFile.absolutePath,
         ).start()
 
@@ -56,9 +57,9 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
         supports-screens: 'small' 'normal' 'large' 'xlarge'
         supports-any-density: 'true'
         locales: '--_--'
-        densities: '120' '160' '240' '320' '480' '640' '65534'
+        densities: '120' '160' '240' '320' '480' '640' '65534'aa
          */
-        manifestProcess.inputStream.bufferedReader().useLines { lineSequence ->
+        badgingProcess.inputStream.bufferedReader().useLines { lineSequence ->
             lineSequence.forEach { line ->
                 androidApkBuilder.apply {
                     when {
@@ -96,13 +97,160 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
             }
         }
 
-        manifestProcess.waitFor()
+        badgingProcess.waitFor()
         throw IOException("failed to read APK details from aapt2; the builder is $androidApkBuilder")
+    }
+
+    /**
+     * Copies the launcher icon from the [apkFile] into the [outputIconFile] as long as the launcher icon's density
+     * is >= [minimumDensity]. The saved icon will the the least possible density that is >= [minimumDensity]
+     *
+     * @return whether the extraction was successful
+     * @throws IOException if an I/O error occurs.
+     */
+    @Throws(IOException::class)
+    fun getApplicationIconFromApk(apkFile: File, minimumDensity: Density, outputIconFile: File): Boolean {
+        val badgingProcess: Process = ProcessBuilder(
+            executablePath.toString(), "dump", "badging", apkFile.absolutePath,
+        ).start()
+
+        badgingProcess.inputStream.bufferedReader().useLines { lineSequence ->
+            lineSequence.forEach { line ->
+                badgingApplicationIconLineRegex.matchEntire(line)
+                    ?.let { matchResult ->
+                        val iconSize = matchResult.groupValues[1].toIntOrNull() ?: return@let
+                        if (iconSize >= minimumDensity.approximateDpi) {
+                            val path = matchResult.groupValues[2]
+                            return extractIconEntryFromApkIntoOutputFile(
+                                apkFile,
+                                path,
+                                minimumDensity,
+                                outputIconFile
+                            )
+                        }
+                    }
+            }
+        }
+        badgingProcess.waitFor()
+        return false
+    }
+
+    /**
+     * The saved icon will the the least possible density that is >= [minimumDensity].
+     * @return whether extracting the entry into the output file was successful.
+     */
+    @Throws(IOException::class)
+    private fun extractIconEntryFromApkIntoOutputFile(
+        apkFile: File,
+        path: String,
+        minimumDensity: Density,
+        outputIconFile: File
+    ): Boolean {
+        ZipFile(apkFile, ZipFile.OPEN_READ).use { zipFile ->
+            val pathToUse: String = when {
+                path.endsWith(".png") -> path
+                path.endsWith(".xml") -> {
+                    // The launcher is some adaptive icon. Find the corresponding png if it exists.
+                    // Get the base icon name (e.g., res/mipmap-anydpi-v21/ic_launcher.xml is turned to ic_launcher)
+                    val iconName = path.split('/').lastOrNull()
+                        ?.split('.')?.firstOrNull()
+                        ?: return false
+
+                    // Search for a suitable png. It should have the same name.
+                    zipFile.entries().asSequence()
+                        .filter { !it.isDirectory && it.name.endsWith("$iconName.png") }
+                        .map { it.name to Density.fromPathToDensity(it.name) }
+                        .filter { it.second >= minimumDensity }
+                        .minByOrNull { Density.fromPathToDensity(it.first) }
+                        ?.first
+                        ?: return false
+                }
+                else -> return false
+            }
+
+            zipFile.getEntry(pathToUse)?.let { iconEntry ->
+                outputIconFile.outputStream().buffered().use { outputFileStream ->
+                    zipFile.getInputStream(iconEntry).buffered().use { it.copyTo(outputFileStream) }
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Represents the screen pixel density in dpi. The [approximateDpi] values are from [1] and [2].
+     *
+     * [1] https://android.googlesource.com/platform/frameworks/native/+/7e563f090ba19c36b9879e14388a0e377f1523b5/include/android/configuration.h#92
+     * [2] https://developer.android.com/guide/topics/resources/providing-resources#DensityQualifier
+     */
+    @Suppress("unused")
+    sealed class Density(val qualifierValue: String, val approximateDpi: Int) : Comparable<Density> {
+        object DEFAULT : Density("*", 0)
+
+        /** Low-density screens; approximately 120dpi.*/
+        object LOW : Density("ldpi", 120)
+        /** Medium-density (on traditional HVGA) screens; approximately 160dpi.*/
+        object MEDIUM : Density("mdpi",160)
+        /**
+         * Screens somewhere between mdpi and hdpi; approximately 213dpi. This isn't considered a "primary" density
+         * group. It is mostly intended for televisions and most apps shouldn't need it—providing mdpi and hdpi
+         * resources is sufficient for most apps and the system scales them as appropriate.
+         */
+        object TV : Density("tvdpi", 213)
+        /** High-density screens; approximately 240dpi.*/
+        object HIGH : Density("hdpi", 240)
+        /** Extra-high-density screens; approximately 320dpi.*/
+        object XHIGH : Density("xhdpi", 320)
+        /** Extra-extra-high-density screens; approximately 480dpi.*/
+        object XXHIGH : Density("xxhdpi", 480)
+        /**
+         * Extra-extra-extra-high-density uses (launcher icon only, see the note in Supporting Multiple Screens);
+         * approximately 640dpi.
+         *
+         * https://developer.android.com/guide/practices/screens_support#xxxhdpi-note
+         */
+        object XXXHIGH : Density("xxxhdpi", 640)
+
+        /**
+         * This qualifier matches all screen densities and takes precedence over other qualifiers. This is useful for
+         * vector drawables.
+         */
+        object ANY : Density("anydpi", 0xfffe)
+        override fun compareTo(other: Density): Int = approximateDpi.compareTo(other.approximateDpi)
+
+        override fun toString(): String {
+            return "Density(qualifierValue='$qualifierValue', approximateDpi=$approximateDpi)"
+        }
+
+        companion object {
+            private val regex = Regex("-(l|m|tv|x{0,3}h|any)dpi")
+
+            /**
+             * Maps qualifiers to [Density]. Lazy init to get around issues with this being created before the
+             * object are initialized.
+             */
+            private val qualifierToDensityMap: Map<String?, Density> by lazy {
+                Density::class.sealedSubclasses.associate {
+                    val objectInstance: Density = it.objectInstance
+                        ?: error("impossible---every sealed subclass should be an object")
+                    Density::qualifierValue.get(objectInstance) to objectInstance
+                }
+            }
+            fun fromPathToDensity(name: String): Density =
+                regex.find(name)
+                    ?.groupValues?.get(1)
+                    ?.let { dpiPrefix -> qualifierToDensityMap[dpiPrefix + "dpi"] }
+                    ?: DEFAULT
+        }
+
+
     }
 
     companion object {
         private val badgingFirstLineRegex = Regex("^package: name='(.*)' versionCode='([0-9]*)' versionName='(.*)' platformBuildVersionName='(.*)' platformBuildVersionCode='[0-9]*' compileSdkVersion='[0-9]*' compileSdkVersionCodename='.*'$")
         private val badgingSdkVersionLineRegex = Regex("^sdkVersion:'([0-9]*)'$")
         private val badgingApplicationLabelLineRegex = Regex("^application-label:'(.*)'$")
+        private val badgingApplicationIconLineRegex = Regex("^application-icon-([0-9]*):'(.*)'$")
     }
 }

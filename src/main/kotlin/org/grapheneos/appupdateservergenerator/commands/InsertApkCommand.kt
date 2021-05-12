@@ -130,6 +130,23 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                 // only regenerate deltas when at the latest apk
                 insertApk(apkInfo, signingPrivateKey, regenerateDeltas = index >= apksForThisPackage.size - 1)
             }
+
+            val maxVersionApk = apksForThisPackage.last()
+            val appIconFile = fileManager.getAppIconFile(maxVersionApk.packageName)
+
+            val didLauncherIconExtractSucceed = try {
+                aaptInvoker.getApplicationIconFromApk(
+                    apkFile = maxVersionApk.apkFile,
+                    minimumDensity = AAPT2Invoker.Density.MEDIUM,
+                    outputIconFile = appIconFile
+                )
+            } catch (e: IOException) {
+                false
+            }
+            if (!didLauncherIconExtractSucceed) {
+                println("warning: unable to extract launcher icon for ${maxVersionApk.apkFile}")
+            }
+
             println()
         }
 
