@@ -3,6 +3,7 @@ package org.grapheneos.appupdateservergenerator.apkparsing
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.util.Invoker
+import org.grapheneos.appupdateservergenerator.util.readTextFromErrorStream
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
@@ -132,6 +133,9 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
             }
         }
         badgingProcess.waitFor()
+        if (badgingProcess.exitValue() != 0) {
+            throw IOException("aapt2 dump badging $apkFile failed: ${badgingProcess.readTextFromErrorStream()}")
+        }
         return false
     }
 
@@ -243,8 +247,6 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                     ?.let { dpiPrefix -> qualifierToDensityMap[dpiPrefix + "dpi"] }
                     ?: DEFAULT
         }
-
-
     }
 
     companion object {

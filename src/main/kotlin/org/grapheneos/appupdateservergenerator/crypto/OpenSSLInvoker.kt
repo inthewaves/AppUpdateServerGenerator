@@ -3,6 +3,7 @@ package org.grapheneos.appupdateservergenerator.crypto
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.util.Invoker
 import org.grapheneos.appupdateservergenerator.util.prependLine
+import org.grapheneos.appupdateservergenerator.util.readTextFromErrorStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -21,7 +22,7 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         val asn1Stuff = asn1ParseProcess.inputStream.bufferedReader().use { it.readText() }
         asn1ParseProcess.waitFor()
         if (asn1ParseProcess.exitValue() != 0) {
-            throw IOException("openssl asn1parse failed to run")
+            throw IOException("openssl asn1parse failed to run: ${asn1ParseProcess.readTextFromErrorStream()}")
         }
 
         val algorithmLine = algorithmLineRegex.find(asn1Stuff)?.groupValues?.get(2)
@@ -51,14 +52,14 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
 
         pubKeyCreatorProcess.waitFor()
         if (pubKeyCreatorProcess.exitValue() != 0) {
-            val errorInfo = pubKeyCreatorProcess.errorStream.bufferedReader().use { it.readText() }
-            throw IOException("failed to generate public key: $errorInfo")
+            throw IOException("failed to generate public key: ${pubKeyCreatorProcess.readTextFromErrorStream()}")
         }
 
         return pubKey
     }
 
     /**
+     * Signs the bytes read from the [inputStream] using the given [privateKey].
      * Note: It is the caller's responsibility to close the [inputStream]
      */
     @Throws(IOException::class)
@@ -74,7 +75,7 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         }
         signingProcess.waitFor()
         if (signingProcess.exitValue() != 0) {
-            throw IOException("dgst returned non-zero exit code")
+            throw IOException("dgst returned non-zero exit code: ${signingProcess.readTextFromErrorStream()}")
         }
         return signature
     }
@@ -101,6 +102,10 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         signFile(privateKey, fileToSign)
             .also { signature -> fileToSign.prependLine(signature.s) }
 
+    /**
+     * Runs `openssl dgst` with the appropriate arguments in order to sign a file. The hash function is SHA256.
+     * If the [privateKey] is [PrivateKeyFile.RSA], SHA256withRSA/PSS is used.
+     */
     private fun createDgstSigningProcess(privateKey: PrivateKeyFile): Process {
         val command = mutableListOf<String>(
             executablePath.toString(), "dgst", "-sha256", "-keyform", "DER", "-sign", privateKey.file.absolutePath
