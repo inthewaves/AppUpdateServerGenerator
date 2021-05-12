@@ -1,44 +1,31 @@
-package org.grapheneos.appupdateservergenerator.util.invoker
+package org.grapheneos.appupdateservergenerator.crypto
 
-import org.bouncycastle.jce.provider.BouncyCastleProvider
-import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
-import org.grapheneos.appupdateservergenerator.crypto.PrivateKeyFile
-import org.grapheneos.appupdateservergenerator.crypto.SignatureVerificationInputStream
-import org.grapheneos.appupdateservergenerator.files.prependLine
-import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.junit.jupiter.api.Assertions.*
-import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.extension.ExtensionContext
-import org.junit.jupiter.api.fail
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.ArgumentsProvider
 import org.junit.jupiter.params.provider.ArgumentsSource
 import org.junit.jupiter.params.provider.ValueSource
-import java.io.File
-import java.nio.file.Files
+import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyFactory
-import java.security.Security
 import java.security.Signature
+import java.security.SignatureException
 import java.security.interfaces.RSAPrivateCrtKey
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.RSAPublicKeySpec
 import java.util.*
-import java.util.concurrent.TimeUnit
 import java.util.stream.Stream
 
-internal class OpenSSLInvokerTest {
+internal class SignatureVerificationInputStreamTest {
     companion object {
-        private const val SIGNATURE_ALGORITHM = "SHA256withRSA/PSS"
-        private const val PROVIDER = "BC"
+        private const val SIGNATURE_ALGORITHM = "SHA256withRSA"
     }
     private val privateKey: RSAPrivateCrtKey
     private val publicKey: RSAPublicKey
     init {
-        Security.addProvider(BouncyCastleProvider())
         val privateKeyBytes = Base64.getDecoder().decode(
             """
                 MIIJRQIBADANBgkqhkiG9w0BAQEFAASCCS8wggkrAgEAAoICAQDiRsGF0FQEgimT
@@ -94,21 +81,50 @@ internal class OpenSSLInvokerTest {
             """.trimIndent().replace("\n", "")
         )
         val privateKeySpec = PKCS8EncodedKeySpec(privateKeyBytes)
-        KeyFactory.getInstance("RSA", PROVIDER).run {
+        KeyFactory.getInstance("RSA").run {
             privateKey = generatePrivate(privateKeySpec) as RSAPrivateCrtKey
-            val publicKeySpec = RSAPublicKeySpec(privateKey.modulus, privateKey.publicExponent)
-            publicKey = generatePublic(publicKeySpec) as RSAPublicKey
+            publicKey = generatePublic(RSAPublicKeySpec(privateKey.modulus, privateKey.publicExponent)) as RSAPublicKey
         }
     }
-    private val keyFile: File = Files.createTempFile(
-        "test-key-${UnixTimestamp.now().seconds}",
-        null
-    ).toFile()
-        .apply {
-            deleteOnExit()
-            writeBytes(privateKey.encoded)
-        }
 
+    @ParameterizedTest(name = "testMissingSignatureHeader: {0}")
+    @ValueSource(
+        strings = [
+            "This is a file that doesn't have a signature header\nThis is a file.",
+            "This is a single-line file.",
+        ]
+    )
+    fun testMissingSignatureHeader(stringOfFileWithoutSignatureHeader: String) {
+        SignatureVerificationInputStream(
+            stream = stringOfFileWithoutSignatureHeader.byteInputStream(),
+            signatureAlgorithm = SIGNATURE_ALGORITHM,
+            publicKey = publicKey
+        ).use { verifiedStream ->
+            assertThrows(IOException::class.java) {
+                verifiedStream.forEachLineThenVerify {  }
+            }
+        }
+    }
+
+    @ParameterizedTest(name = "testNonSignatureBase64Header: {0}")
+    @ValueSource(
+        strings = [
+            "dGhpcyBpcyBub3QgYSBzaWduYXR1cmU=\nThat might be base64-encoded, but it's not a signature!",
+        ]
+    )
+    fun testNonSignatureBase64Header(stringToParse: String) {
+        SignatureVerificationInputStream(
+            stream = stringToParse.byteInputStream(),
+            signatureAlgorithm = SIGNATURE_ALGORITHM,
+            publicKey = publicKey
+        ).use { verifiedStream ->
+            assertThrows(SignatureException::class.java) {
+                verifiedStream.forEachLineThenVerify {  }
+            }
+        }
+    }
+
+    // https://github.com/junit-team/junit5-samples/tree/r5.7.1
     @ParameterizedTest(name = "verify {0}")
     @ValueSource(
         strings = [
@@ -119,52 +135,84 @@ internal class OpenSSLInvokerTest {
             "5. This is a string: to sign.\rThere are multiple lines.\rHello there\r\r\r",
             "6. This is a string: to sign.\nThere are multiple lines.\rHello there\n\n\n",
             "app.attestation.auditor:26\norg.chromium.chrome:443009134\n",
-            "app.attestation.auditor:26\norg.chromium.chrome:443009134"
+            "app.attestation.auditor:26\norg.chromium.chrome:443009134",
         ]
     )
-    fun testSignAndPrepend(stringToSign: String) {
-        val openSSLInvoker = OpenSSLInvoker()
-        // Failing on GitHub Runners --- IOException is thrown
-        // assert(openSSLInvoker.isExecutablePresent()) { "missing openssl executable" }
+    fun testSuccessArbitrarySignatureVerification(stringToSign: String) {
+        val signature = Signature.getInstance(SIGNATURE_ALGORITHM).run {
+            initSign(privateKey)
+            update(stringToSign.encodeToByteArray())
+            sign()!!
+        }
 
-        val tempFileToSign = Files.createTempFile(
-            "test-${UnixTimestamp.now().seconds}-${stringToSign.hashCode()}",
-            null
-        ).toFile()
-            .apply {
-                deleteOnExit()
-                writeText(stringToSign)
-            }
-
-        val key = PrivateKeyFile.RSA(file = keyFile)
-        val signature = openSSLInvoker.signFileAndPrependSignatureToFile(key, tempFileToSign)
         // sanity check
-        Signature.getInstance(SIGNATURE_ALGORITHM, PROVIDER).apply {
+        Signature.getInstance(SIGNATURE_ALGORITHM).apply {
             initVerify(publicKey)
             update(stringToSign.encodeToByteArray())
-            assert(verify(signature.bytes))
+            assert(verify(signature))
         }
 
-        // The last line from lines() can be just a blank string for some reason.
-        // The BufferedReader will not have a last line that is just a blank string, so
-        // we need to remove it.
-        val expectedLines = stringToSign.lines().toMutableList()
-            .apply {
-                if (last().isBlank()) {
-                    removeLast()
+        val encodedFilesToTest = listOf(
+            buildString {
+                append(Base64.getEncoder().encodeToString(signature))
+                append('\n')
+                append(stringToSign)
+            },
+            buildString {
+                append(Base64.getEncoder().encodeToString(signature))
+                append("\r\n")
+                append(stringToSign)
+            },
+            buildString {
+                append(Base64.getEncoder().encodeToString(signature))
+                append("\r")
+                append(stringToSign)
+            },
+        )
+
+        encodedFilesToTest.forEachIndexed { index, encodedFile ->
+            // The last line from lines() can be just a blank string for some reason.
+            // The BufferedReader will not have a last line that is just a blank string, so
+            // we need to remove it.
+            val expectedLines: List<String> = stringToSign.lines().run {
+                if (last().isEmpty()) {
+                    subList(0, lastIndex)
+                } else {
+                    this
                 }
             }
-        val actualLines = ArrayList<String>(expectedLines.size)
-        SignatureVerificationInputStream(
-            stream = tempFileToSign.inputStream(),
-            publicKey,
-            SIGNATURE_ALGORITHM,
-        ).use {
-            assertDoesNotThrow("failed to verify signature: contents are ${tempFileToSign.readText()}") {
-                it.forEachLineThenVerify { actualLines.add(it) }
+
+            val processedLinesFromStream: List<String> = SignatureVerificationInputStream(
+                stream = encodedFile.byteInputStream(),
+                publicKey = publicKey,
+                signatureAlgorithm = SIGNATURE_ALGORITHM,
+            ).use { verificationInputStream ->
+                ArrayList<String>().also { list ->
+                    assertDoesNotThrow {
+                        verificationInputStream.forEachLineThenVerify { list.add(it) }
+                    }
+                }
+            }
+            assertEquals(expectedLines, processedLinesFromStream) {
+                "line processing of encodedFile failed for #$index\nencodedFile:\n[$encodedFile]"
+            }
+
+            val processedLinesFromStreamIndexed: Array<String?> = SignatureVerificationInputStream(
+                stream = encodedFile.byteInputStream(),
+                publicKey = publicKey,
+                signatureAlgorithm = SIGNATURE_ALGORITHM,
+            ).use { verificationInputStream ->
+                arrayOfNulls<String>(expectedLines.size)
+                    .also { array ->
+                        assertDoesNotThrow {
+                            verificationInputStream.forEachLineIndexedThenVerify { index, line -> array[index] = line }
+                        }
+                    }
+            }
+            assertEquals(expectedLines, processedLinesFromStreamIndexed.toList()) {
+                "line processing of encodedFile failed for #$index\nencodedFile:\n[$encodedFile]"
             }
         }
-        assertEquals(expectedLines, actualLines)
     }
 
     class FailedVerificationArgumentProvider : ArgumentsProvider {
@@ -191,88 +239,56 @@ internal class OpenSSLInvokerTest {
     fun testFailedArbitrarySignatureVerification(stringToSign: String, differentString: String) {
         assertNotEquals(stringToSign, differentString)
 
-        val openSSLInvoker = OpenSSLInvoker()
-        // Failing on GitHub Runners --- IOException is thrown
-        // assert(openSSLInvoker.isExecutablePresent()) { "missing openssl executable" }
-
-        val tempFileToSign = Files.createTempFile(
-            "test-${UnixTimestamp.now().seconds}-${stringToSign.hashCode()}",
-            null
-        ).toFile()
-            .apply {
-                deleteOnExit()
-                writeText(stringToSign)
-            }
-
-        val key = PrivateKeyFile.RSA(file = keyFile)
-        val signature = openSSLInvoker.signFile(key, tempFileToSign)
-        // Replace the temp file contents with the different, unexpected string.
-        // This function overwrites the file.
-        tempFileToSign.writeText(differentString)
-        // Add the wrong signature.
-        tempFileToSign.prependLine(signature.s)
+        val signature = Signature.getInstance(SIGNATURE_ALGORITHM).run {
+            initSign(privateKey)
+            update(stringToSign.encodeToByteArray())
+            sign()!!
+        }
 
         // sanity check
-        Signature.getInstance(SIGNATURE_ALGORITHM, PROVIDER).apply {
+        Signature.getInstance(SIGNATURE_ALGORITHM).apply {
             initVerify(publicKey)
             update(stringToSign.encodeToByteArray())
-            assert(verify(signature.bytes))
+            assert(verify(signature))
             update(differentString.encodeToByteArray())
-            assertFalse(verify(signature.bytes))
+            assertFalse(verify(signature))
         }
 
-        // The last line from lines() can be just a blank string for some reason.
-        // The BufferedReader will not have a last line that is just a blank string, so
-        // we need to remove it.
-        val expectedLines = stringToSign.lines().toMutableList()
-            .apply {
-                if (last().isBlank()) {
-                    removeLast()
-                }
+        val encodedSignature = Base64.getEncoder().encodeToString(signature)
+
+        val encodedFilesToTest = listOf(
+            buildString {
+                append(encodedSignature)
+                append('\n')
+                append(differentString)
+            },
+            buildString {
+                append(encodedSignature)
+                append("\r\n")
+                append(differentString)
+            },
+            buildString {
+                append(encodedSignature)
+                append("\r")
+                append(differentString)
+            },
+        )
+
+        encodedFilesToTest.forEachIndexed { index, encodedFile ->
+            SignatureVerificationInputStream(
+                stream = encodedFile.byteInputStream(),
+                publicKey = publicKey,
+                signatureAlgorithm = SIGNATURE_ALGORITHM,
+            ).use { verificationInputStream ->
+                val unusedFakeDatabase = mutableListOf<String>()
+                assertThrows(
+                    GeneralSecurityException::class.java,
+                    {
+                        verificationInputStream.forEachLineThenVerify { unusedFakeDatabase.add(it) }
+                    },
+                    "expected encoded file[$index] to fail verification, but didn't"
+                )
             }
-        val actualLines = ArrayList<String>(expectedLines.size)
-        SignatureVerificationInputStream(
-            stream = tempFileToSign.inputStream(),
-            publicKey = publicKey,
-            signatureAlgorithm = SIGNATURE_ALGORITHM,
-        ).use {
-            assertThrows(GeneralSecurityException::class.java) {
-                it.forEachLineThenVerify { actualLines.add(it) }
-            }
         }
-        assertNotEquals(expectedLines, actualLines)
-    }
-
-    @Test
-    fun testGetKeyType() {
-        val invoker = OpenSSLInvoker()
-        val key = invoker.getKeyWithType(keyFile)
-        assert(key is PrivateKeyFile.RSA) { "expected test key to be RSA key" }
-
-        // Now generate an EC key and try to parse the key type from that.
-        val ecKeyFile = Files.createTempFile("temp-ec-key", ".pk8").toFile()
-            .apply { deleteOnExit() }
-
-        val ecKeyGeneratorProcess = ProcessBuilder(
-            "openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout"
-        ).start()
-
-        val pkcs8Process = ProcessBuilder(
-            "openssl", "pkcs8", "-topk8", "-outform", "DER", "-out", ecKeyFile.absolutePath, "-nocrypt"
-        ).start()
-
-        pkcs8Process.outputStream.buffered().use { output ->
-            ecKeyGeneratorProcess.inputStream.buffered().use { it.copyTo(output) }
-        }
-
-        if (!pkcs8Process.waitFor(15, TimeUnit.SECONDS)) {
-            fail("key generation took too long")
-        }
-        if (pkcs8Process.exitValue() != 0) {
-            fail("key generation not successful (non-zero error coe ${pkcs8Process.exitValue()}")
-        }
-
-        val parsedKey = invoker.getKeyWithType(ecKeyFile)
-        assert(parsedKey is PrivateKeyFile.EC)
     }
 }

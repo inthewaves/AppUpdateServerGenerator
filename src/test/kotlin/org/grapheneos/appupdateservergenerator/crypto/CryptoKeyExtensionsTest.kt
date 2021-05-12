@@ -1,11 +1,8 @@
-package org.grapheneos.appupdateservergenerator.util
+package org.grapheneos.appupdateservergenerator.crypto
 
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.asn1.ASN1Encoding
 import org.bouncycastle.asn1.ASN1Integer
-import org.grapheneos.appupdateservergenerator.crypto.calculateNumOfLengthOctetsForDER
-import org.grapheneos.appupdateservergenerator.crypto.maxSignatureLength
-import org.grapheneos.appupdateservergenerator.crypto.signatureLength
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.params.ParameterizedTest
