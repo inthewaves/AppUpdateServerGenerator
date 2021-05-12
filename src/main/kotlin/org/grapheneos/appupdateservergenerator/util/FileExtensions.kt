@@ -41,6 +41,7 @@ fun File.prependLine(line: String) {
             tempFile.delete()
         } catch (e: SecurityException) {
             println("failed to delete tempfile $tempFile: $e")
+            e.printStackTrace()
         }
     }
 }

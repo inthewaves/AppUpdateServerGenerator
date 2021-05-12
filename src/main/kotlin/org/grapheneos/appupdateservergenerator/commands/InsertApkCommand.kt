@@ -63,6 +63,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         userSpecifiedRepoDirectory?.let { FileManager(File(it)) } ?: FileManager()
     } catch (e: IOException) {
         println("failed to create root dir $userSpecifiedRepoDirectory")
+        e.printStackTrace()
         exitProcess(1)
     }
     private val aaptInvoker = AAPT2Invoker()
@@ -87,6 +88,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             parsePrivateKeyAndValidateDiskPublicKey()
         } catch (e: IOException) {
             println("error: ${e.message}")
+            e.printStackTrace()
             exitProcess(1)
         }
 
@@ -104,6 +106,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                     AndroidApk.buildFromApkFile(apkFile, aaptInvoker, apkSignerInvoker)
                 } catch (e: IOException) {
                     println("unable to to get Android app details for ${apkFile.path}: ${e.message}")
+                    e.printStackTrace()
                     exitProcess(1)
                 }
 
@@ -197,8 +200,8 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
         val previousApks = getPreviousApks(appDir, infoOfApkToInsert.apkFile)
         if (!validateApkSigningCertChain(infoOfApkToInsert, previousApks)) {
-            println("some apks don't have the same signing certificates")
-            println("dumping details: this apk: $infoOfApkToInsert")
+            println("some apks don't have the same signing certificates\n")
+            println("dumping details: this apk: $infoOfApkToInsert\n")
             println("previous apks: $previousApks")
             exitProcess(1)
         }
@@ -234,6 +237,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             println("metadata updated: $newAppMetadata")
         } catch (e: IOException) {
             println("failed to write metadata: ${e.message}")
+            e.printStackTrace()
             exitProcess(1)
         }
 
@@ -282,6 +286,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             } catch (e: IOException) {
                 println("error: missing metadata file despite the app directory being present")
                 println(" got IOException: ${e.message}")
+                e.printStackTrace()
                 exitProcess(1)
             }
             // The first line contains the signature.
