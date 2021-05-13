@@ -15,19 +15,35 @@ data class AppVersionIndex constructor(
     val timestamp: UnixTimestamp,
     val packageToVersionMap: SortedMap<String, VersionCode>
 ) {
-
+    /**
+     * Writes this [AppVersionIndex] to the disk and then signs the file using the [privateKey] and [openSSLInvoker].
+     *
+     *
+     * @throws IOException if an I/O error occurs.
+     */
     fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionIndex = fileManager.latestAppVersionIndex
         latestAppVersionIndex.bufferedWriter().use { writer ->
             writer.appendLine(timestamp.seconds.toString())
-            packageToVersionMap.forEach { entry -> writer.appendLine("${entry.key}:${entry.value.code}") }
+            packageToVersionMap.forEach { (packageName, versionCode) ->
+                writer.appendLine(createLine(packageName, versionCode))
+            }
         }
         openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, latestAppVersionIndex)
     }
 
     companion object {
         /**
+         * Format for the metadata file lines for each app.
+         * The format is
+         *
+         *     packageName:versionCode
+         */
+        private fun createLine(packageName: String, versionCode: VersionCode) = "$packageName:$versionCode"
+        /**
          * Creates a new [AppVersionIndex] instance from the files on disk in the database.
+         *
+         * @throws IOException if an I/O error occurs.
          */
         suspend fun create(fileManager: FileManager, timestamp: UnixTimestamp): AppVersionIndex = coroutineScope {
             val map = fileManager.appDirectory.listFiles()

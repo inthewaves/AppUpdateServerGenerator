@@ -105,7 +105,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
 
     /**
      * Copies the launcher icon from the [apkFile] into the [outputIconFile] as long as the launcher icon's density
-     * is >= [minimumDensity]. The saved icon will the the least possible density that is >= [minimumDensity].
+     * is >= [minimumDensity]. The saved icon will be the least possible density that is >= [minimumDensity].
      *
      * In the case that the icon from the app's manifest is .xml file (e.g. adaptive icon), it will try to find an
      * equivalent png launcher icon in the app's resources.
@@ -168,7 +168,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                         ?.split('.')?.firstOrNull()
                         ?: return false
 
-                    // Search for a suitable png. It should have the same name.
+                    // Search for a suitable png of the right density. It should have the same name.
                     zipFile.entries().asSequence()
                         .filter { !it.isDirectory && it.name.endsWith("$iconName.png") }
                         .map { it.name to Density.fromPathToDensity(it.name) }
@@ -263,9 +263,34 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
     }
 
     companion object {
-        private val badgingFirstLineRegex = Regex("^package: name='(.*?)' versionCode='([0-9]*?)' versionName='(.*?)'( platformBuildVersionName='.*?')?( platformBuildVersionCode='[0-9]*?')?( compileSdkVersion='[0-9]*?')?( compileSdkVersionCodename='.*?')?$")
+        /**
+         * A regex to match against the first line of `aapt2 dump badging apkFile`.
+         * For [MatchResult.groupValues]:
+         * - `groupValues[1]`: The name of the package
+         * - `groupValues[2]`: The versionCode of the APK
+         * - `groupValues[3]`: The versionName of the APK
+         */
+        private val badgingFirstLineRegex = Regex("^package: name='(.*?)' versionCode='([0-9]*?)' " +
+                "versionName='(.*?)'( platformBuildVersionName='.*?')?( platformBuildVersionCode='[0-9]*?')?" +
+                "( compileSdkVersion='[0-9]*?')?( compileSdkVersionCodename='.*?')?$")
+        /**
+         * A regex to match against the SDK version line of `aapt2 dump badging apkFile`.
+         * For [MatchResult.groupValues]:
+         * - `groupValues[1]`: The minSdkVersion of the APK
+         */
         private val badgingSdkVersionLineRegex = Regex("^sdkVersion:'([0-9]*)'$")
+        /**
+         * A regex to match against application label line of `aapt2 dump badging apkFile`.
+         * For [MatchResult.groupValues]:
+         * - `groupValues[1]`: The application label string
+         */
         private val badgingApplicationLabelLineRegex = Regex("^application-label:'(.*)'$")
+        /**
+         * A regex to match against application icon line of `aapt2 dump badging apkFile`.
+         * For [MatchResult.groupValues]:
+         * - `groupValues[1]`: The density of the icon (see [Density] for possible values)
+         * - `groupValues[2]`: The path to the icon in the APK / ZIP.
+         */
         private val badgingApplicationIconLineRegex = Regex("^application-icon-([0-9]*):'(.*)'$")
     }
 }

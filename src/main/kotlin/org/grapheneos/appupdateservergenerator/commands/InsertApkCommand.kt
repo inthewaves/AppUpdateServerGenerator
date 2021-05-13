@@ -155,13 +155,18 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             )
 
             sortedApksForThisPackage.forEachIndexed { index, apkInfo ->
-                insertApk(
-                    infoOfApkToInsert = apkInfo,
-                    signingPrivateKey = signingPrivateKey,
-                    // only regenerate deltas when at the latest apk
-                    regenerateDeltas = index >= sortedApksForThisPackage.size - 1,
-                    timestampForMetadata = timestampForMetadata
-                )
+                try {
+                    insertApk(
+                        infoOfApkToInsert = apkInfo,
+                        signingPrivateKey = signingPrivateKey,
+                        // only regenerate deltas when at the latest apk
+                        regenerateDeltas = index >= sortedApksForThisPackage.size - 1,
+                        timestampForMetadata = timestampForMetadata
+                    )
+                } catch (e: IOException) {
+                    println("error: failed to parse ${apkInfo.packageName}, versionCode: ${apkInfo.versionCode}")
+                    exitProcess(1)
+                }
             }
 
             val maxVersionApk = sortedApksForThisPackage.last()
@@ -190,7 +195,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             openSSLInvoker = openSSLInvoker,
             fileManager = fileManager
         )
-        println("wrote new app version at ${fileManager.latestAppVersionIndex}")
+        println("wrote new app version index at ${fileManager.latestAppVersionIndex}")
     }
 
 
@@ -249,7 +254,6 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         println("copied ${infoOfApkToInsert.apkFile.absolutePath} to ${newApkFile.absolutePath}")
 
         val deltaAvailableVersions: List<VersionCode>
-
         val timeTaken = measureTimeMillis {
             deltaAvailableVersions = if (regenerateDeltas) {
                 println()
@@ -379,7 +383,11 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
     }
 
     /**
-     * Generates multiple deltas with the [newApk] as the target
+     * Generates multiple deltas with the [newApk] as the target and all the [previousApks] as the base to generate
+     * a delta from.
+     *
+     * @return The version codes for which a delta is available to patching to create the [newApk]
+     * @throws IOException if an I/O error occurs
      */
     private suspend fun generateDeltas(
         appDir: File,
