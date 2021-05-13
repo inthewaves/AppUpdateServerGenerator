@@ -25,6 +25,7 @@ import kotlin.system.measureTimeMillis
 import java.util.concurrent.Executors
 
 import java.util.concurrent.ExecutorService
+import kotlin.random.Random
 
 /**
  * A command to insert a given APK into the repository. This will handle patch generation and metadata refreshing.
@@ -107,35 +108,33 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             e.printStackTrace()
             exitProcess(1)
         }
-
         println("parsing ${apkFilePaths.size} APKs")
 
         val apkGroupsByPackage: Map<String, List<AndroidApk>>
         val timeTaken = measureTimeMillis {
-            apkGroupsByPackage = apkFilePaths
-                .map { apkFilePathString ->
-                    val apkFile = File(apkFilePathString)
-                    if (!apkFile.exists() || !apkFile.canRead()) {
-                        println("unable to read APK file $apkFilePathString")
-                        exitProcess(1)
-                    }
+            apkGroupsByPackage = try {
+                coroutineScope {
+                    apkFilePaths.asSequence()
+                        .map { apkFilePathString ->
+                            val apkFile = File(apkFilePathString)
+                            if (!apkFile.exists() || !apkFile.canRead()) {
+                                println("unable to read APK file $apkFilePathString")
+                                exitProcess(1)
+                            }
 
-                    val infoOfApkToInsert: Deferred<AndroidApk> = try {
-                        async(repoDispatcher) {
-                            AndroidApk.verifyCertsAndBuildFromApkFile(apkFile, aaptInvoker, apkSignerInvoker)
+                            async(repoDispatcher) {
+                                AndroidApk.verifyCertsAndBuildFromApkFile(apkFile, aaptInvoker, apkSignerInvoker)
+                            }
                         }
-                    } catch (e: IOException) {
-                        println("unable to to get Android app details for ${apkFile.path}: ${e.message}")
-                        e.printStackTrace()
-                        exitProcess(1)
-                    }
-
-                    infoOfApkToInsert
+                        .groupBy(keySelector = { it.await().packageName }, valueTransform = { it.await() })
                 }
-                .awaitAll()
-                .groupBy { it.packageName }
+            } catch (e: IOException) {
+                println("error: unable to to get Android app details")
+                e.printStackTrace()
+                exitProcess(1)
+            }
         }
-        println("it took $timeTaken ms to parse APKs")
+        println("took $timeTaken ms to parse APKs")
 
         println("found the following packages: ${apkGroupsByPackage.keys}")
 
