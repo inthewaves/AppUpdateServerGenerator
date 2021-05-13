@@ -1,6 +1,7 @@
 package org.grapheneos.appupdateservergenerator.repo
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppVersionIndex
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
@@ -24,17 +25,32 @@ import kotlin.math.max
 import kotlin.system.measureTimeMillis
 
 /**
- * A command to insert a given APK into the repository. This will handle patch generation and metadata refreshing.
- *
- * If it is not an update to an existing app tracked in the repository, then a new directory is created for the app.
+ * A general manager for the app repo.
+ * Contains validation, APK insertion, metadata generation and signing
  */
-class AppRepoManager(
+interface AppRepoManager {
+    suspend fun insertApksFromStringPaths(apkFilePaths: Collection<String>)
+}
+
+fun AppRepoManager(
+    fileManager: FileManager,
+    aaptInvoker: AAPT2Invoker,
+    apkSignerInvoker: ApkSignerInvoker,
+    openSSLInvoker: OpenSSLInvoker,
+    signingPrivateKey: PKCS8PrivateKeyFile,
+): AppRepoManager = AppRepoManagerImpl(fileManager, aaptInvoker, apkSignerInvoker, openSSLInvoker, signingPrivateKey)
+
+/**
+ * The implementation of [AppRepoManager].
+ * @see AppRepoManager
+ */
+private class AppRepoManagerImpl(
     private val fileManager: FileManager,
     private val aaptInvoker: AAPT2Invoker,
     private val apkSignerInvoker: ApkSignerInvoker,
     private val openSSLInvoker: OpenSSLInvoker,
     private val signingPrivateKey: PKCS8PrivateKeyFile,
-) {
+): AppRepoManager {
     companion object {
         private const val DEFAULT_MAX_PREVIOUS_VERSION_DELTAS = 5
         private const val DELTA_FILE_FORMAT = "delta-%d-to-%d.gz"
@@ -46,9 +62,7 @@ class AppRepoManager(
         )
     }
 
-    private val executorService: ExecutorService = Executors.newFixedThreadPool(
-        min(Runtime.getRuntime().availableProcessors() + 2, 8)
-    )
+    private val executorService: ExecutorService = Executors.newFixedThreadPool(64)
     private val repoDispatcher = executorService.asCoroutineDispatcher()
 
     /**
@@ -58,7 +72,7 @@ class AppRepoManager(
      * @throws AppRepoException
      * @throws IOException
      */
-    suspend fun insertApksFromStringPaths(apkFilePaths: Collection<String>): Unit = withContext(repoDispatcher) {
+    override suspend fun insertApksFromStringPaths(apkFilePaths: Collection<String>): Unit = withContext(repoDispatcher) {
         validatePublicKeyInRepo()
 
         println("parsing ${apkFilePaths.size} APKs")
