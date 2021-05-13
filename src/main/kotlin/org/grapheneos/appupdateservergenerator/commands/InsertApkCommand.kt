@@ -139,6 +139,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
 
         println("found the following packages: ${apkGroupsByPackage.keys}")
 
+        val timestampForMetadata = UnixTimestamp.now()
         apkGroupsByPackage.forEach { (packageName, apks) ->
             val sortedApksForThisPackage = apks.sortedBy { it.versionCode }
 
@@ -155,8 +156,13 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             )
 
             sortedApksForThisPackage.forEachIndexed { index, apkInfo ->
-                // only regenerate deltas when at the latest apk
-                insertApk(apkInfo, signingPrivateKey, regenerateDeltas = index >= sortedApksForThisPackage.size - 1)
+                insertApk(
+                    infoOfApkToInsert = apkInfo,
+                    signingPrivateKey = signingPrivateKey,
+                    // only regenerate deltas when at the latest apk
+                    regenerateDeltas = index >= sortedApksForThisPackage.size - 1,
+                    timestampForMetadata = timestampForMetadata
+                )
             }
 
             val maxVersionApk = sortedApksForThisPackage.last()
@@ -178,7 +184,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             println()
         }
 
-        val index = AppVersionIndex.create(fileManager)
+        val index = AppVersionIndex.create(fileManager, timestampForMetadata)
         println("new app version index: $index")
         index.writeToDiskAndSign(
             privateKey = signingPrivateKey,
@@ -223,7 +229,8 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
     private suspend fun insertApk(
         infoOfApkToInsert: AndroidApk,
         signingPrivateKey: PKCS8PrivateKeyFile,
-        regenerateDeltas: Boolean
+        regenerateDeltas: Boolean,
+        timestampForMetadata: UnixTimestamp
     ): Unit = withContext(repoDispatcher) {
         println("Inserting ${infoOfApkToInsert.apkFile.name}, with details $infoOfApkToInsert")
 
@@ -264,7 +271,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
                 latestVersionName = infoOfApkToInsert.versionName,
                 sha256Checksum = Base64String.fromBytes(newApkFile.digest(MessageDigest.getInstance("SHA-256"))),
                 deltaAvailableVersions = deltaAvailableVersions,
-                lastUpdateTimestamp = UnixTimestamp.now()
+                lastUpdateTimestamp = timestampForMetadata
             )
             newAppMetadata.writeToDiskAndSign(
                 privateKey = signingPrivateKey,

@@ -1,17 +1,20 @@
 package org.grapheneos.appupdateservergenerator.api
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import java.io.IOException
+import java.util.*
 
 data class AppVersionIndex constructor(
     val timestamp: UnixTimestamp,
-    val packageToVersionMap: Map<String, VersionCode>
+    val packageToVersionMap: SortedMap<String, VersionCode>
 ) {
-    constructor(map: Map<String, VersionCode>) : this(UnixTimestamp.now(), map)
 
     fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionIndex = fileManager.latestAppVersionIndex
@@ -26,21 +29,24 @@ data class AppVersionIndex constructor(
         /**
          * Creates a new [AppVersionIndex] instance from the files on disk in the database.
          */
-        fun create(fileManager: FileManager): AppVersionIndex {
-            val map = fileManager.appDirectory.listFiles()?.asSequence()
+        suspend fun create(fileManager: FileManager, timestamp: UnixTimestamp): AppVersionIndex = coroutineScope {
+            val map = fileManager.appDirectory.listFiles()
                 ?.filter { it.isDirectory }
                 ?.map { dirForApp ->
-                    try {
-                        AppMetadata.getMetadataFromDiskForPackage(dirForApp.name, fileManager)
-                    } catch (e: IOException) {
-                        null
+                    async {
+                        try {
+                            AppMetadata.getMetadataFromDiskForPackage(dirForApp.name, fileManager)
+                        } catch (e: IOException) {
+                            null
+                        }
                     }
                 }
+                ?.awaitAll()
                 ?.filterNotNull()
-                ?.sortedBy { it.packageName }
-                ?.associate { it.packageName to it.latestVersionCode }
+                // sort by keys
+                ?.associateTo(TreeMap()) { it.packageName to it.latestVersionCode }
                 ?: throw IOException("failed to get files from app directory")
-            return AppVersionIndex(map)
+            AppVersionIndex(timestamp, map)
         }
     }
 }
