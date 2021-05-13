@@ -5,6 +5,10 @@ import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import java.io.File
 import java.io.IOException
 
+/**
+ * Encapsulates data from the [apkFile] that was taken from the [apkFile]'s manifest and signing
+ * certificate info.
+ */
 data class AndroidApk(
     val apkFile: File,
     val label: String,
@@ -59,12 +63,12 @@ data class AndroidApk(
     companion object {
         /**
          * Builds an [AndroidApk] instance from the given [apkFile]. The [apkFile] will be stored as a member variable
-         * in [AndroidApk.apkFile].
+         * in [AndroidApk.apkFile]. `apksigner verify` will be invoked on the APK to verify the signature of the APK.
          *
          * @throws IOException if an I/O error occurs, or the APK can't be parsed by the [aaptInvoker], or the APK
          * failed to verify with the [apkSignerInvoker]
          */
-        fun verifyCertsAndBuildFromApkFile(
+        fun verifyApkSignatureAndBuildFromApkFile(
             apkFile: File,
             aaptInvoker: AAPT2Invoker,
             apkSignerInvoker: ApkSignerInvoker
