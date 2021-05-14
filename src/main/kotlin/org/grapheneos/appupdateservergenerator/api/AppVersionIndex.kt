@@ -32,14 +32,15 @@ data class AppVersionIndex constructor(
         openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, latestAppVersionIndex)
     }
 
+    /**
+     * Format for the metadata file lines for each app.
+     * The format is
+     *
+     *     packageName:versionCode
+     */
+    private fun createLine(packageName: String, versionCode: VersionCode) = "$packageName:${versionCode.code}"
+
     companion object {
-        /**
-         * Format for the metadata file lines for each app.
-         * The format is
-         *
-         *     packageName:versionCode
-         */
-        private fun createLine(packageName: String, versionCode: VersionCode) = "$packageName:$versionCode"
         /**
          * Creates a new [AppVersionIndex] instance from the files on disk in the database.
          *
