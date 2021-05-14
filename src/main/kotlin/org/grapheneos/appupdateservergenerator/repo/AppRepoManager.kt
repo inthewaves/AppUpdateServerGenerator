@@ -10,6 +10,9 @@ import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
+import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.APK_REGEX
+import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA_FILE_FORMAT
+import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA_REGEX
 import org.grapheneos.appupdateservergenerator.model.*
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import org.grapheneos.appupdateservergenerator.util.digest
@@ -55,13 +58,6 @@ private class AppRepoManagerImpl(
 ): AppRepoManager {
     companion object {
         private const val DEFAULT_MAX_PREVIOUS_VERSION_DELTAS = 5
-        private const val DELTA_FILE_FORMAT = "delta-%d-to-%d.gz"
-        private val APK_REGEX = Regex("""^[0-9]*\.apk$""")
-        private val DELTA_REGEX = Regex(
-            DELTA_FILE_FORMAT
-                .replace("%d", "[0-9]*")
-                .replace(".", """\.""")
-        )
     }
 
     private val executorService: ExecutorService = Executors.newFixedThreadPool(64)
@@ -99,7 +95,13 @@ private class AppRepoManagerImpl(
                         }
                         .groupBy(keySelector = { it.await().packageName }, valueTransform = { it.await() })
                         .map {
-                            async { PackageApkGroup(it.value) }
+                            async {
+                                PackageApkGroup.fromIterable(
+                                    packageName = it.key,
+                                    apks = it.value,
+                                    ascendingOrder = false
+                                )
+                            }
                         }
                         .awaitAll()
                 }
@@ -179,7 +181,7 @@ private class AppRepoManagerImpl(
         val appDir = fileManager.getDirForApp(apksToInsert.packageName)
         validateOrCreateDirectories(appDir, apksToInsert)
 
-        val sortedPreviousApks = getAllApks(appDir, ascendingOrder = false)
+        val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = true)
         validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks)
 
         apksToInsert.sortedApks.forEach { apkToInsert ->
@@ -251,38 +253,6 @@ private class AppRepoManagerImpl(
         }
     }
 
-    /**
-     * Gets a sorted list of the previous APK files in the [appDir], mapping them to [AndroidApk] instances.
-     * The sort order is determined by [ascendingOrder].
-     *
-     * @throws IOException if an I/O error occurs
-     */
-    private suspend fun getAllApks(appDir: AppDir, ascendingOrder: Boolean): SortedSet<AndroidApk> =
-        withContext(repoDispatcher) {
-            val comparator = if (ascendingOrder) {
-                AndroidApk.ascendingVersionCodeComparator
-            } else {
-                AndroidApk.descendingVersionCodeComparator
-            }
-
-            appDir.dir
-                .listFiles(
-                    FileFilter { it.isFile && APK_REGEX.matches(it.name) && isZipFile(it) }
-                )
-                ?.map {
-                    async { AndroidApk.verifyApkSignatureAndBuildFromApkFile(it, aaptInvoker, apkSignerInvoker) }
-                }
-                ?.mapTo(TreeSet(comparator)) { it.await() }
-                ?: throw IOException("failed to get previous apks: listFiles returned null")
-        }
-
-    private fun isZipFile(file: File): Boolean = try {
-        ZipFile(file).close()
-        true
-    } catch (e: IOException) {
-        false
-    }
-
     private fun validateOrCreateDirectories(
         appDir: AppDir,
         apksToInsert: PackageApkGroup
@@ -322,10 +292,10 @@ private class AppRepoManagerImpl(
      */
     private fun validateApkSigningCertChain(
         newApks: SortedSet<AndroidApk>?,
-        currentApks: SortedSet<AndroidApk>
+        currentApks: PackageApkGroup
     ) {
         var currentSetIntersection: Set<HexString>? = null
-        currentApks.asSequence()
+        currentApks.sortedApks.asSequence()
             .apply { newApks?.let { plus(it) } }
             .forEach { currentApk ->
                 currentSetIntersection = currentSetIntersection
@@ -352,23 +322,17 @@ private class AppRepoManagerImpl(
         appDir: AppDir,
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS
     ): List<VersionCode> = withContext(repoDispatcher) {
-        val apks = getAllApks(appDir, ascendingOrder = false)
+        val apks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = false)
         if (apks.size <= 1) {
             return@withContext emptyList()
         }
+        check(apks is PackageApkGroup.DescendingOrder)
 
-        // Ensure we only generate for the most recent versions --- make sure this is in descending order
-        val sequence = if (apks.first().versionCode >= apks.last().versionCode) {
-            apks.asSequence()
-        } else {
-            println("WARNING: not descending order")
-            apks.toList().asReversed().asSequence()
-        }
-        val newestApk = apks.first()
+        val newestApk = apks.sortedApks.first()
         val numberOfDeltasToGenerate = min(apks.size - 1, maxPreviousVersions)
 
-        // Drop the first element, because that's the most recent one
-        sequence.drop(1)
+        // Drop the first element, because that's the most recent one and hence the target
+        apks.sortedApks.drop(1)
             .take(numberOfDeltasToGenerate)
             .mapTo(ArrayList(numberOfDeltasToGenerate)) { previousApk ->
                 async {

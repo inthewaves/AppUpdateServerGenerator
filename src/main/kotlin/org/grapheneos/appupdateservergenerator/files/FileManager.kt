@@ -20,6 +20,13 @@ class FileManager constructor(
     companion object {
         private const val REPO_ROOT_DIRNAME = "app_repo_data"
         private const val STANDALONE_APP_DATA_DIRNAME = "apps"
+        const val DELTA_FILE_FORMAT = "delta-%d-to-%d.gz"
+        val APK_REGEX = Regex("""^[0-9]*\.apk$""")
+        val DELTA_REGEX = Regex(
+            DELTA_FILE_FORMAT
+                .replace("%d", "[0-9]*")
+                .replace(".", """\.""")
+        )
     }
 
     /**
