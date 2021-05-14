@@ -5,8 +5,6 @@ import kotlinx.cli.ExperimentalCli
 import org.grapheneos.appupdateservergenerator.commands.ApplyDeltaCommand
 import org.grapheneos.appupdateservergenerator.commands.GenerateDeltaCommand
 import org.grapheneos.appupdateservergenerator.commands.InsertApkCommand
-import org.grapheneos.appupdateservergenerator.repo.AppRepoManager
-import org.grapheneos.appupdateservergenerator.files.FileManager
 import kotlin.system.exitProcess
 
 @OptIn(ExperimentalCli::class)

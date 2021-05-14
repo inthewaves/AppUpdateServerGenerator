@@ -3,7 +3,6 @@ package org.grapheneos.appupdateservergenerator.model
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.files.AppDir
@@ -13,7 +12,6 @@ import java.io.FileFilter
 import java.io.IOException
 import java.util.*
 import java.util.zip.ZipFile
-import kotlin.coroutines.coroutineContext
 
 /**
  * Represents the APKs for a package.

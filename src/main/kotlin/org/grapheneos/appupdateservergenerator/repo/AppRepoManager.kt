@@ -1,6 +1,9 @@
 package org.grapheneos.appupdateservergenerator.repo
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withContext
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppVersionIndex
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
@@ -10,7 +13,6 @@ import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
-import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.APK_REGEX
 import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA_FILE_FORMAT
 import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA_REGEX
 import org.grapheneos.appupdateservergenerator.model.*
@@ -24,8 +26,6 @@ import java.security.MessageDigest
 import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.zip.ZipFile
-import kotlin.collections.ArrayList
 import kotlin.math.max
 import kotlin.system.measureTimeMillis
 

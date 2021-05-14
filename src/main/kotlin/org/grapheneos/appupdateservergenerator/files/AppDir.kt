@@ -1,6 +1,5 @@
 package org.grapheneos.appupdateservergenerator.files
 
-import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import java.io.File
 
 /**

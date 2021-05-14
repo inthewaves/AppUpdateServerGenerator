@@ -1,18 +1,15 @@
 package org.grapheneos.appupdateservergenerator.commands
 
 import kotlinx.cli.*
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
-import org.grapheneos.appupdateservergenerator.repo.AppRepoException
 import org.grapheneos.appupdateservergenerator.repo.AppRepoManager
 import java.io.File
 import java.io.IOException
-import java.lang.Exception
 import kotlin.system.exitProcess
 
 @OptIn(ExperimentalCli::class)
