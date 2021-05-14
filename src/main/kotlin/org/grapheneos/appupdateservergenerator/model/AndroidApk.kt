@@ -61,6 +61,8 @@ data class AndroidApk(
     }
 
     companion object {
+        val ascendingVersionCodeComparator = Comparator<AndroidApk> { a, b -> a.versionCode.compareTo(b.versionCode) }
+        val descendingVersionCodeComparator: Comparator<AndroidApk> = ascendingVersionCodeComparator.reversed()
         /**
          * Builds an [AndroidApk] instance from the given [apkFile]. The [apkFile] will be stored as a member variable
          * in [AndroidApk.apkFile]. `apksigner verify` will be invoked on the APK to verify the signature of the APK.

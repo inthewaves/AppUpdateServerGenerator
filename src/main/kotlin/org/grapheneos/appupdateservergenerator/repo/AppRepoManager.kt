@@ -1,7 +1,6 @@
 package org.grapheneos.appupdateservergenerator.repo
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppVersionIndex
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
@@ -9,6 +8,7 @@ import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.*
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
@@ -18,9 +18,11 @@ import java.io.FileFilter
 import java.io.IOException
 import java.lang.Integer.min
 import java.security.MessageDigest
+import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.zip.ZipFile
+import kotlin.collections.ArrayList
 import kotlin.math.max
 import kotlin.system.measureTimeMillis
 
@@ -67,18 +69,22 @@ private class AppRepoManagerImpl(
 
     /**
      * Inserts APKs from the provided [apkFilePaths]. The APKs will be first validated (ensure that they
-     * verify with apksigner.
+     * verify with apksigner and that the contents of their manifests can be parsed).
      * 
      * @throws AppRepoException
      * @throws IOException
      */
-    override suspend fun insertApksFromStringPaths(apkFilePaths: Collection<String>): Unit = withContext(repoDispatcher) {
+    override suspend fun insertApksFromStringPaths(
+        apkFilePaths: Collection<String>
+    ): Unit = withContext(repoDispatcher) {
         validatePublicKeyInRepo()
 
         println("parsing ${apkFilePaths.size} APKs")
-        val apkGroupsByPackage: Map<String, List<AndroidApk>>
+        // If there are multiple versions of the same package passed into the command line, we insert all of those
+        // APKs together.
+        val packageApkGroup: List<PackageApkGroup>
         val timeTaken = measureTimeMillis {
-            apkGroupsByPackage = try {
+            packageApkGroup = try {
                 coroutineScope {
                     apkFilePaths.asSequence()
                         .map { apkFilePathString ->
@@ -92,21 +98,22 @@ private class AppRepoManagerImpl(
                             }
                         }
                         .groupBy(keySelector = { it.await().packageName }, valueTransform = { it.await() })
+                        .map {
+                            async { PackageApkGroup(it.value) }
+                        }
+                        .awaitAll()
                 }
             } catch (e: IOException) {
                 throw AppRepoException.AppDetailParseFailed("error: unable to to get Android app details", e)
             }
         }
         println("took $timeTaken ms to parse APKs")
-
-        println("found the following packages: ${apkGroupsByPackage.keys}")
+        println("found the following packages: ${packageApkGroup.map { it.packageName }}")
 
         val timestampForMetadata = UnixTimestamp.now()
-        apkGroupsByPackage.forEach { (packageName, apks) ->
-            val sortedApksForThisPackage = apks.sortedBy { it.versionCode }
-
-            val nowInsertingString = "Now inserting $packageName"
-            val versionCodeString = "Version codes: ${sortedApksForThisPackage.map { it.versionCode.code }}"
+        packageApkGroup.forEach { apkInsertionGroup ->
+            val nowInsertingString = "Now inserting ${apkInsertionGroup.packageName}"
+            val versionCodeString = "Version codes: ${apkInsertionGroup.sortedApks.map { it.versionCode.code }}"
             val width = max(versionCodeString.length, nowInsertingString.length)
             println(
                 """
@@ -117,31 +124,11 @@ private class AppRepoManagerImpl(
                 """.trimIndent()
             )
 
-            sortedApksForThisPackage.forEachIndexed { index, apkInfo ->
-                insertApk(
-                    apkToInsert = apkInfo,
-                    signingPrivateKey = signingPrivateKey,
-                    // only regenerate deltas when at the latest apk
-                    shouldGenerateDelta = index >= sortedApksForThisPackage.size - 1,
-                    timestampForMetadata = timestampForMetadata
-                )
-            }
-
-            val maxVersionApk = sortedApksForThisPackage.last()
-            val appIconFile = fileManager.getAppIconFile(maxVersionApk.packageName)
-
-            val didLauncherIconExtractSucceed = try {
-                aaptInvoker.getApplicationIconFromApk(
-                    apkFile = maxVersionApk.apkFile,
-                    minimumDensity = AAPT2Invoker.Density.MEDIUM,
-                    outputIconFile = appIconFile
-                )
-            } catch (e: IOException) {
-                false
-            }
-            if (!didLauncherIconExtractSucceed) {
-                println("warning: unable to extract launcher icon for ${maxVersionApk.apkFile}")
-            }
+            insertApkGroupForSinglePackage(
+                apksToInsert = apkInsertionGroup,
+                signingPrivateKey = signingPrivateKey,
+                timestampForMetadata = timestampForMetadata
+            )
 
             println()
         }
@@ -181,44 +168,45 @@ private class AppRepoManagerImpl(
         }
     }
 
-    private suspend fun insertApk(
-        apkToInsert: AndroidApk,
+    /**
+     * Inserts multiple APKs for a single package.
+     */
+    private suspend fun insertApkGroupForSinglePackage(
+        apksToInsert: PackageApkGroup,
         signingPrivateKey: PKCS8PrivateKeyFile,
-        shouldGenerateDelta: Boolean,
         timestampForMetadata: UnixTimestamp
     ): Unit = withContext(repoDispatcher) {
-        println("Inserting ${apkToInsert.apkFile.name}, with details $apkToInsert")
+        val appDir = fileManager.getDirForApp(apksToInsert.packageName)
+        validateOrCreateDirectories(appDir, apksToInsert)
 
-        val appDir = fileManager.getDirForApp(apkToInsert.packageName)
-        validateOrCreateDirectories(appDir, apkToInsert)
+        val sortedPreviousApks = getAllApks(appDir, ascendingOrder = false)
+        validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks)
 
-        val previousApks = getPreviousApks(appDir, apkToInsert.apkFile)
-        validateApkSigningCertChain(apkToInsert, previousApks)
+        apksToInsert.sortedApks.forEach { apkToInsert ->
+            val newApkFile = File(appDir.dir, "${apkToInsert.versionCode.code}.apk")
+            apkToInsert.apkFile.copyTo(newApkFile)
+            println("copied ${apkToInsert.apkFile.absolutePath} to ${newApkFile.absolutePath}")
+        }
 
-        val newApkFile = File(appDir, "${apkToInsert.versionCode.code}.apk")
-        apkToInsert.apkFile.copyTo(newApkFile)
-        println("copied ${apkToInsert.apkFile.absolutePath} to ${newApkFile.absolutePath}")
-
+        println()
+        deleteAllDeltas(appDir)
         val deltaAvailableVersions: List<VersionCode>
         val timeTaken = measureTimeMillis {
-            deltaAvailableVersions = if (shouldGenerateDelta) {
-                println()
-                deleteAllDeltas(appDir)
-                generateDeltas(appDir, apkToInsert, previousApks)
-            } else {
-                emptyList()
-            }
+            deltaAvailableVersions = generateDeltas(appDir)
         }
         println("took $timeTaken ms to generate ${deltaAvailableVersions.size} deltas")
 
+        val maxVersionApk = apksToInsert.sortedApks.last()
         try {
             println()
             val newAppMetadata = AppMetadata(
-                packageName = apkToInsert.packageName,
-                label = apkToInsert.label,
-                latestVersionCode = apkToInsert.versionCode,
-                latestVersionName = apkToInsert.versionName,
-                sha256Checksum = Base64String.fromBytes(newApkFile.digest(MessageDigest.getInstance("SHA-256"))),
+                packageName = maxVersionApk.packageName,
+                label = maxVersionApk.label,
+                latestVersionCode = maxVersionApk.versionCode,
+                latestVersionName = maxVersionApk.versionName,
+                sha256Checksum = Base64String.fromBytes(
+                    maxVersionApk.apkFile.digest(MessageDigest.getInstance("SHA-256"))
+                ),
                 deltaAvailableVersions = deltaAvailableVersions,
                 lastUpdateTimestamp = timestampForMetadata
             )
@@ -232,14 +220,30 @@ private class AppRepoManagerImpl(
             throw IOException("failed to write metadata", e)
         }
 
-        println("")
+        val appIconFile = fileManager.getAppIconFile(apksToInsert.packageName)
+        val didLauncherIconExtractSucceed = try {
+            aaptInvoker.getApplicationIconFromApk(
+                apkFile = maxVersionApk.apkFile,
+                minimumDensity = AAPT2Invoker.Density.MEDIUM,
+                outputIconFile = appIconFile
+            )
+        } catch (e: IOException) {
+            false
+        }
+        if (!didLauncherIconExtractSucceed) {
+            println("warning: unable to extract launcher icon for ${maxVersionApk.apkFile}")
+        } else {
+            println("launcher icon extracted")
+        }
+
+        println()
     }
 
     /**
      * @throws IOException if unable to delete deltas
      */
-    private fun deleteAllDeltas(appDir: File) {
-        appDir.listFiles(FileFilter { it.name.matches(DELTA_REGEX) })?.forEach { oldDelta ->
+    private fun deleteAllDeltas(appDir: AppDir) {
+        appDir.dir.listFiles(FileFilter { it.name.matches(DELTA_REGEX) })?.forEach { oldDelta ->
             println("deleting outdated delta ${oldDelta.name}")
             if (!oldDelta.delete()) {
                 throw IOException("failed to delete $oldDelta")
@@ -249,25 +253,26 @@ private class AppRepoManagerImpl(
 
     /**
      * Gets a sorted list of the previous APK files in the [appDir], mapping them to [AndroidApk] instances.
-     * The list will be sorted in ascending order.
+     * The sort order is determined by [ascendingOrder].
      *
      * @throws IOException if an I/O error occurs
      */
-    private suspend fun getPreviousApks(appDir: File, newApkFile: File): List<AndroidApk> =
+    private suspend fun getAllApks(appDir: AppDir, ascendingOrder: Boolean): SortedSet<AndroidApk> =
         withContext(repoDispatcher) {
-            appDir
+            val comparator = if (ascendingOrder) {
+                AndroidApk.ascendingVersionCodeComparator
+            } else {
+                AndroidApk.descendingVersionCodeComparator
+            }
+
+            appDir.dir
                 .listFiles(
-                    FileFilter {
-                        it.isFile && APK_REGEX.matches(it.name) &&
-                                it.nameWithoutExtension != newApkFile.nameWithoutExtension &&
-                                isZipFile(it)
-                    }
+                    FileFilter { it.isFile && APK_REGEX.matches(it.name) && isZipFile(it) }
                 )
                 ?.map {
                     async { AndroidApk.verifyApkSignatureAndBuildFromApkFile(it, aaptInvoker, apkSignerInvoker) }
                 }
-                ?.awaitAll()
-                ?.sortedBy { it.versionCode }
+                ?.mapTo(TreeSet(comparator)) { it.await() }
                 ?: throw IOException("failed to get previous apks: listFiles returned null")
         }
 
@@ -279,73 +284,91 @@ private class AppRepoManagerImpl(
     }
 
     private fun validateOrCreateDirectories(
-        appDir: File,
-        infoOfApkToInsert: AndroidApk
+        appDir: AppDir,
+        apksToInsert: PackageApkGroup
     ) {
-        if (appDir.exists()) {
-            println("${infoOfApkToInsert.packageName} is in repo.")
+        if (appDir.dir.exists()) {
+            println("${apksToInsert.packageName} is in repo.")
             val latestAppMetadata = try {
-                AppMetadata.getMetadataFromDiskForPackage(infoOfApkToInsert.packageName, fileManager)
+                AppMetadata.getMetadataFromDiskForPackage(apksToInsert.packageName, fileManager)
             } catch (e: IOException) {
                 throw AppRepoException.InvalidRepoState(
-                    "missing metadata file despite the app directory being present",
+                    "missing metadata file for ${apksToInsert.packageName} despite its app directory being present",
                     e
                 )
             }
-            // The first line contains the signature.
-            if (infoOfApkToInsert.versionCode <= latestAppMetadata.latestVersionCode) {
+            val smallestVersionCodeApk = apksToInsert.sortedApks.first()
+            if (smallestVersionCodeApk.versionCode <= latestAppMetadata.latestVersionCode) {
                 throw AppRepoException.InsertFailed(
-                    "trying to insert ${infoOfApkToInsert.packageName} with version code " +
-                            "${infoOfApkToInsert.versionCode.code} when the " + 
+                    "trying to insert ${smallestVersionCodeApk.packageName} with version code " +
+                            "${smallestVersionCodeApk.versionCode.code} when the " +
                             "repo has latest version ${latestAppMetadata.latestVersionCode.code}"
                 )
             }
             println("previous version in repo: ${latestAppMetadata.latestVersionCode.code}")
         } else {
-            println("${infoOfApkToInsert.packageName} is not in the repo. Creating new directory and metadata")
-            if (!appDir.mkdirs()) {
-                throw AppRepoException.InsertFailed("failed to create directory ${appDir.absolutePath}")
+            println("${apksToInsert.packageName} is not in the repo. Creating new directory and metadata")
+            if (!appDir.dir.mkdirs()) {
+                throw AppRepoException.InsertFailed("failed to create directory ${appDir.dir.absolutePath}")
             }
         }
     }
 
     /**
+     * Validates that the intersection of all signing certificates for all the APKs in [newApks] and [currentApks]
+     * is nonempty.
+     *
      * @throws AppRepoException.ApkSigningCertMismatch
      */
     private fun validateApkSigningCertChain(
-        infoOfApkToInsert: AndroidApk,
-        previousApks: List<AndroidApk>
+        newApks: SortedSet<AndroidApk>?,
+        currentApks: SortedSet<AndroidApk>
     ) {
-        var currentSetIntersection: Set<HexString> = infoOfApkToInsert.certificates.toSet()
-        previousApks.forEach { previousApkInfo ->
-            currentSetIntersection = currentSetIntersection intersect previousApkInfo.certificates
-            // TODO: verify using same or similar way as frameworks/base
-            if (currentSetIntersection.isEmpty()) {
-                throw AppRepoException.ApkSigningCertMismatch(
-                    "some apks don't have the same signing certificates\n" +
-                            "dumping details: this apk: $infoOfApkToInsert\n" +
-                            "previous apks: $previousApks"
-                )
+        var currentSetIntersection: Set<HexString>? = null
+        currentApks.asSequence()
+            .apply { newApks?.let { plus(it) } }
+            .forEach { currentApk ->
+                currentSetIntersection = currentSetIntersection
+                    ?.let { currentApk.certificates intersect it }
+                    ?: currentApk.certificates.toSet()
+
+                // TODO: verify using same or similar way as frameworks/base
+                if (currentSetIntersection!!.isEmpty()) {
+                    throw AppRepoException.ApkSigningCertMismatch(
+                        "some apks don't have the same signing certificates\ndumping details: $currentApks"
+                    )
+                }
             }
-        }
     }
 
     /**
-     * Generates multiple deltas with the [newApk] as the target and all the [previousApks] as the base to generate
-     * a delta from.
+     * Generates multiple deltas with the APK with the highest version code as the target and the top
+     * [maxPreviousVersions] APKs as the bases.
      *
-     * @return The version codes for which a delta is available to patching to create the [newApk]
+     * @return The version codes for which a delta is available to patching to create the highest version code APK
      * @throws IOException if an I/O error occurs
      */
     private suspend fun generateDeltas(
-        appDir: File,
-        newApk: AndroidApk,
-        previousApks: List<AndroidApk>,
+        appDir: AppDir,
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS
     ): List<VersionCode> = withContext(repoDispatcher) {
-        val numberOfDeltasToGenerate = min(previousApks.size, maxPreviousVersions)
-        
-        previousApks.asSequence()
+        val apks = getAllApks(appDir, ascendingOrder = false)
+        if (apks.size <= 1) {
+            return@withContext emptyList()
+        }
+
+        // Ensure we only generate for the most recent versions --- make sure this is in descending order
+        val sequence = if (apks.first().versionCode >= apks.last().versionCode) {
+            apks.asSequence()
+        } else {
+            println("WARNING: not descending order")
+            apks.toList().asReversed().asSequence()
+        }
+        val newestApk = apks.first()
+        val numberOfDeltasToGenerate = min(apks.size - 1, maxPreviousVersions)
+
+        // Drop the first element, because that's the most recent one
+        sequence.drop(1)
             .take(numberOfDeltasToGenerate)
             .mapTo(ArrayList(numberOfDeltasToGenerate)) { previousApk ->
                 async {
@@ -354,13 +377,13 @@ private class AppRepoManagerImpl(
                     val previousApkInfo =
                         AndroidApk.verifyApkSignatureAndBuildFromApkFile(previousVersionApkFile, aaptInvoker, apkSignerInvoker)
                     val deltaName =
-                        DELTA_FILE_FORMAT.format(previousApkInfo.versionCode.code, newApk.versionCode.code)
+                        DELTA_FILE_FORMAT.format(previousApkInfo.versionCode.code, newestApk.versionCode.code)
                     println("generating delta: $deltaName")
 
-                    val outputDeltaFile = File(appDir, deltaName)
+                    val outputDeltaFile = File(appDir.dir, deltaName)
                     ArchivePatcherUtil.generateDelta(
                         previousVersionApkFile,
-                        newApk.apkFile,
+                        newestApk.apkFile,
                         outputDeltaFile,
                         outputGzip = true
                     )

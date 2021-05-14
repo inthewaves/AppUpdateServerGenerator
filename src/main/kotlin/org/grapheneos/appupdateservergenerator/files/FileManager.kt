@@ -55,9 +55,9 @@ class FileManager constructor(
 
     val latestAppVersionIndex = File(appDirectory, "latest-index.txt")
 
-    fun getDirForApp(pkg: String) = File(appDirectory, pkg)
+    fun getDirForApp(pkg: String) = AppDir(File(appDirectory, pkg))
 
-    fun getLatestAppVersionInfoMetadata(pkg: String) = File(getDirForApp(pkg), "latest.txt")
+    fun getLatestAppVersionInfoMetadata(pkg: String) = File(getDirForApp(pkg).dir, "latest.txt")
 
-    fun getAppIconFile(pkg: String) = File(getDirForApp(pkg), "ic_launcher.png")
+    fun getAppIconFile(pkg: String) = File(getDirForApp(pkg).dir, "ic_launcher.png")
 }
