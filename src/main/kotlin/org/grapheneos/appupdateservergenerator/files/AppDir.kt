@@ -15,5 +15,5 @@ value class AppDir(val dir: File) {
         }
     }
 
-    val packageName: String get() = dir.nameWithoutExtension
+    val packageName: String get() = dir.name
 }

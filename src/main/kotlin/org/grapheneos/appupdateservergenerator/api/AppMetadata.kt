@@ -24,23 +24,6 @@ data class AppMetadata(
     val deltaAvailableVersions: Set<VersionCode>,
     val lastUpdateTimestamp: UnixTimestamp,
 ) {
-    constructor(
-        packageName: String,
-        label: String,
-        latestVersionCode: VersionCode,
-        latestVersionName: String,
-        sha256Checksum: Base64String,
-        deltaAvailableVersions: List<VersionCode>,
-        lastUpdateTimestamp: UnixTimestamp
-    ) : this(
-        packageName = packageName,
-        label = label,
-        latestVersionCode = latestVersionCode,
-        latestVersionName = latestVersionName,
-        sha256Checksum = sha256Checksum,
-        deltaAvailableVersions = deltaAvailableVersions.toSet(),
-        lastUpdateTimestamp = lastUpdateTimestamp
-    )
 
     fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionInfoJson = Json.encodeToString(this)

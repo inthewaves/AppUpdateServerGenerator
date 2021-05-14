@@ -1,9 +1,13 @@
 package org.grapheneos.appupdateservergenerator.repo
 
-import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.actor
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppVersionIndex
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
@@ -49,6 +53,7 @@ fun AppRepoManager(
  * The implementation of [AppRepoManager].
  * @see AppRepoManager
  */
+@ObsoleteCoroutinesApi
 private class AppRepoManagerImpl(
     private val fileManager: FileManager,
     private val aaptInvoker: AAPT2Invoker,
@@ -58,10 +63,51 @@ private class AppRepoManagerImpl(
 ): AppRepoManager {
     companion object {
         private const val DEFAULT_MAX_PREVIOUS_VERSION_DELTAS = 5
+        private const val MAX_CONCURRENT_DELTA_GENERATION_PACKAGES = 3
+        private const val MAX_CONCURRENT_DELTA_GENERATION_FOR_VERSION = 1
     }
 
     private val executorService: ExecutorService = Executors.newFixedThreadPool(64)
     private val repoDispatcher = executorService.asCoroutineDispatcher()
+
+    private fun CoroutineScope.createDeltaGenerationActor() = actor<AppDir>(capacity = Channel.UNLIMITED) {
+        val semaphore = Semaphore(permits = MAX_CONCURRENT_DELTA_GENERATION_PACKAGES)
+        val failedDeltaAppsMutex = Mutex()
+        val failedDeltaApps = ArrayList<AppDir>()
+        coroutineScope {
+            for (appDir in channel) {
+                println("starting to generate deltas for ${appDir.packageName}")
+                launch {
+                    try {
+                        val deltaAvailableVersions: List<VersionCode>
+
+                        val deltaGenTime = measureTimeMillis {
+                            deltaAvailableVersions = semaphore.withPermit { regenerateDeltas(appDir) }
+                        }
+                        println(
+                            "took $deltaGenTime ms to generate ${deltaAvailableVersions.size} deltas " +
+                                    "for ${appDir.packageName}"
+                        )
+
+                        AppMetadata.getMetadataFromDiskForPackage(appDir.packageName, fileManager)
+                            .copy(deltaAvailableVersions = deltaAvailableVersions.toSet())
+                            .writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
+                        println("updated metadata for ${appDir.packageName} with delta information")
+                    } catch (e: Throwable) {
+                        println("error during delta generation for ${appDir.packageName}")
+                        e.printStackTrace()
+                        failedDeltaAppsMutex.withLock { failedDeltaApps.add(appDir) }
+                    }
+                }
+            }
+        }
+
+        if (failedDeltaApps.isEmpty()) {
+            println("delta generation successful")
+        } else {
+            println("delta generation complete, but some failed to generate: ${failedDeltaApps.map { it.packageName }}")
+        }
+    }
 
     /**
      * Inserts APKs from the provided [apkFilePaths]. The APKs will be first validated (ensure that they
@@ -94,36 +140,42 @@ private class AppRepoManagerImpl(
         println("found the following packages: ${packageApkGroup.map { it.packageName }}")
 
         val timestampForMetadata = UnixTimestamp.now()
-        packageApkGroup.forEach { apkInsertionGroup ->
-            val nowInsertingString = "Now inserting ${apkInsertionGroup.packageName}"
-            val versionCodeString = "Version codes: ${apkInsertionGroup.sortedApks.map { it.versionCode.code }}"
-            val width = max(versionCodeString.length, nowInsertingString.length)
-            println(
-                """
-                ${"=".repeat(width)}
-                $nowInsertingString
-                $versionCodeString
-                ${"=".repeat(width)}
-                """.trimIndent()
-            )
 
-            insertApkGroupForSinglePackage(
-                apksToInsert = apkInsertionGroup,
-                signingPrivateKey = signingPrivateKey,
-                timestampForMetadata = timestampForMetadata
-            )
+        coroutineScope {
+            val deltaGenerationActor = createDeltaGenerationActor()
 
-            println()
+            packageApkGroup.forEach { apkInsertionGroup ->
+                val nowInsertingString = "Now inserting ${apkInsertionGroup.packageName}"
+                val versionCodeString = "Version codes: ${apkInsertionGroup.sortedApks.map { it.versionCode.code }}"
+                val width = max(versionCodeString.length, nowInsertingString.length)
+                println(
+                    """
+                        ${"=".repeat(width)}
+                        $nowInsertingString
+                        $versionCodeString
+                        ${"=".repeat(width)}
+                    """.trimIndent()
+                )
+
+                insertApkGroupForSinglePackage(
+                    apksToInsert = apkInsertionGroup,
+                    signingPrivateKey = signingPrivateKey,
+                    timestampForMetadata = timestampForMetadata,
+                    deltaGenerationRequestChannel = deltaGenerationActor
+                )
+            }
+
+            val index = AppVersionIndex.create(fileManager, timestampForMetadata)
+            println("new app version index: $index")
+            index.writeToDiskAndSign(
+                privateKey = signingPrivateKey,
+                openSSLInvoker = openSSLInvoker,
+                fileManager = fileManager
+            )
+            println("wrote new app version index at ${fileManager.latestAppVersionIndex}")
+
+            deltaGenerationActor.close()
         }
-
-        val index = AppVersionIndex.create(fileManager, timestampForMetadata)
-        println("new app version index: $index")
-        index.writeToDiskAndSign(
-            privateKey = signingPrivateKey,
-            openSSLInvoker = openSSLInvoker,
-            fileManager = fileManager
-        )
-        println("wrote new app version index at ${fileManager.latestAppVersionIndex}")
     }
 
     /**
@@ -157,7 +209,8 @@ private class AppRepoManagerImpl(
     private suspend fun insertApkGroupForSinglePackage(
         apksToInsert: PackageApkGroup,
         signingPrivateKey: PKCS8PrivateKeyFile,
-        timestampForMetadata: UnixTimestamp
+        timestampForMetadata: UnixTimestamp,
+        deltaGenerationRequestChannel: SendChannel<AppDir>
     ): Unit = withContext(repoDispatcher) {
         val appDir = fileManager.getDirForApp(apksToInsert.packageName)
         validateOrCreateDirectories(appDir, apksToInsert)
@@ -171,17 +224,8 @@ private class AppRepoManagerImpl(
             println("copied ${apkToInsert.apkFile.absolutePath} to ${newApkFile.absolutePath}")
         }
 
-        println()
-        deleteAllDeltas(appDir)
-        val deltaAvailableVersions: List<VersionCode>
-        val timeTaken = measureTimeMillis {
-            deltaAvailableVersions = generateDeltas(appDir)
-        }
-        println("took $timeTaken ms to generate ${deltaAvailableVersions.size} deltas")
-
         val maxVersionApk = apksToInsert.sortedApks.last()
         try {
-            println()
             val newAppMetadata = AppMetadata(
                 packageName = maxVersionApk.packageName,
                 label = maxVersionApk.label,
@@ -190,7 +234,8 @@ private class AppRepoManagerImpl(
                 sha256Checksum = Base64String.fromBytes(
                     maxVersionApk.apkFile.digest(MessageDigest.getInstance("SHA-256"))
                 ),
-                deltaAvailableVersions = deltaAvailableVersions,
+                // This will be filled in later.
+                deltaAvailableVersions = emptySet(),
                 lastUpdateTimestamp = timestampForMetadata
             )
             newAppMetadata.writeToDiskAndSign(
@@ -202,6 +247,8 @@ private class AppRepoManagerImpl(
         } catch (e: IOException) {
             throw IOException("failed to write metadata", e)
         }
+
+        deltaGenerationRequestChannel.send(appDir)
 
         val appIconFile = fileManager.getAppIconFile(apksToInsert.packageName)
         val didLauncherIconExtractSucceed = try {
@@ -218,8 +265,6 @@ private class AppRepoManagerImpl(
         } else {
             println("launcher icon extracted")
         }
-
-        println()
     }
 
     /**
@@ -299,10 +344,11 @@ private class AppRepoManagerImpl(
      * @return The version codes for which a delta is available to patching to create the highest version code APK
      * @throws IOException if an I/O error occurs
      */
-    private suspend fun generateDeltas(
+    private suspend fun regenerateDeltas(
         appDir: AppDir,
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS
     ): List<VersionCode> = withContext(repoDispatcher) {
+        deleteAllDeltas(appDir)
         val apks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = false)
         if (apks.size <= 1) {
             return@withContext emptyList()
@@ -312,33 +358,30 @@ private class AppRepoManagerImpl(
         val newestApk = apks.sortedApks.first()
         val numberOfDeltasToGenerate = min(apks.size - 1, maxPreviousVersions)
 
+        yield()
+        val semaphore = Semaphore(MAX_CONCURRENT_DELTA_GENERATION_FOR_VERSION)
         // Drop the first element, because that's the most recent one and hence the target
         apks.sortedApks.drop(1)
             .take(numberOfDeltasToGenerate)
             .mapTo(ArrayList(numberOfDeltasToGenerate)) { previousApk ->
                 async {
-                    val previousVersionApkFile = previousApk.apkFile
-
-                    val previousApkInfo =
-                        AndroidApk.verifyApkSignatureAndBuildFromApkFile(previousVersionApkFile, aaptInvoker, apkSignerInvoker)
-                    val deltaName =
-                        DELTA_FILE_FORMAT.format(previousApkInfo.versionCode.code, newestApk.versionCode.code)
-                    println("generating delta: $deltaName")
-
-                    val outputDeltaFile = File(appDir.dir, deltaName)
-                    ArchivePatcherUtil.generateDelta(
-                        previousVersionApkFile,
-                        newestApk.apkFile,
-                        outputDeltaFile,
-                        outputGzip = true
-                    )
-
-                    println(
-                        " generated delta ${outputDeltaFile.name} is " +
-                                "${outputDeltaFile.length().toDouble() / (0x1 shl 20)} MiB"
-                    )
-
-                    previousApkInfo.versionCode
+                    val deltaName = DELTA_FILE_FORMAT.format(previousApk.versionCode.code, newestApk.versionCode.code)
+                    yield()
+                    semaphore.withPermit {
+                        val outputDeltaFile = File(appDir.dir, deltaName)
+                        println("generating delta for ${appDir.packageName}: $deltaName")
+                        ArchivePatcherUtil.generateDelta(
+                            previousApk.apkFile,
+                            newestApk.apkFile,
+                            outputDeltaFile,
+                            outputGzip = true
+                        )
+                        println(
+                            " generated delta $deltaName is " +
+                                    "${outputDeltaFile.length().toDouble() / (0x1 shl 20)} MiB"
+                        )
+                    }
+                    previousApk.versionCode
                 }
             }
             .awaitAll()
