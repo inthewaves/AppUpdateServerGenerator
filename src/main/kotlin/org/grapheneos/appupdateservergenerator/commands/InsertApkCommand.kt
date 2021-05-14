@@ -1,6 +1,7 @@
 package org.grapheneos.appupdateservergenerator.commands
 
 import kotlinx.cli.*
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
@@ -11,6 +12,7 @@ import org.grapheneos.appupdateservergenerator.repo.AppRepoException
 import org.grapheneos.appupdateservergenerator.repo.AppRepoManager
 import java.io.File
 import java.io.IOException
+import java.lang.Exception
 import kotlin.system.exitProcess
 
 @OptIn(ExperimentalCli::class)
@@ -76,9 +78,7 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
         )
         try {
             appRepoManager.insertApksFromStringPaths(apkFilePaths)
-        } catch (e: IOException) {
-            printErrorAndExit(e.message, e)
-        } catch (e: AppRepoException) {
+        } catch (e: Exception) {
             printErrorAndExit(e.message, e)
         }
     }

@@ -1,6 +1,7 @@
 package org.grapheneos.appupdateservergenerator.model
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
@@ -20,20 +21,18 @@ import kotlin.coroutines.coroutineContext
  */
 sealed class PackageApkGroup private constructor(
     val packageName: String,
-    /**
-     * A set of [AndroidApk] instances for [packageName], sorted in ascending order
-     */
-    val sortedApks: SortedSet<AndroidApk>
+    inputApks: SortedSet<AndroidApk>
 ) {
+    /**
+     * A set of [AndroidApk] instances for [packageName], sorted in ascending order.
+     * This set is unmodifiable.
+     */
+    val sortedApks: SortedSet<AndroidApk> = Collections.unmodifiableSortedSet(inputApks)
     init {
         require(sortedApks.all { it.packageName == packageName })
     }
     val size: Int
-        get() = (sortedApks as TreeSet).size
-    val first: AndroidApk
-        get() = sortedApks.first()
-    val last: AndroidApk
-        get() = sortedApks.last()
+        get() = sortedApks.size
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -54,20 +53,69 @@ sealed class PackageApkGroup private constructor(
         return "ApkInsertionGroup(packageName='$packageName', sortedApks=$sortedApks)"
     }
 
+    /**
+     * Variant of [PackageApkGroup] where the [sortedApks] are sorted in ascending order by version code.
+     */
     class AscendingOrder constructor(packageName: String, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks)
+    /**
+     * Variant of [PackageApkGroup] where the [sortedApks] are sorted in descending order by version code.
+     */
     class DescendingOrder constructor(packageName: String, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks)
 
     companion object {
-        fun fromIterable(
-            packageName: String,
-            apks: Iterable<AndroidApk>,
+        /**
+         * Constructs a [PackageApkGroup] list from a given list of [apkFilePaths].
+         * This will group every APK by the package.
+         */
+        suspend fun fromStringPathsAscending(
+            apkFilePaths: Iterable<String>,
+            aaptInvoker: AAPT2Invoker,
+            apkSignerInvoker: ApkSignerInvoker
+        ): List<AscendingOrder> {
+            @Suppress("UNCHECKED_CAST")
+            return fromStringPaths(
+                apkFilePaths = apkFilePaths,
+                aaptInvoker = aaptInvoker,
+                apkSignerInvoker = apkSignerInvoker, ascendingOrder = true
+            ) as List<AscendingOrder>
+        }
+
+        private suspend fun fromStringPaths(
+            apkFilePaths: Iterable<String>,
+            aaptInvoker: AAPT2Invoker,
+            apkSignerInvoker: ApkSignerInvoker,
             ascendingOrder: Boolean
-        ): PackageApkGroup {
-            return if (ascendingOrder) {
-                AscendingOrder(packageName, apks.toSortedSet(AndroidApk.ascendingVersionCodeComparator))
+        ): List<PackageApkGroup> = coroutineScope {
+            val comparator = if (ascendingOrder) {
+                AndroidApk.ascendingVersionCodeComparator
             } else {
-                DescendingOrder(packageName, apks.toSortedSet(AndroidApk.descendingVersionCodeComparator))
+                AndroidApk.descendingVersionCodeComparator
             }
+
+            apkFilePaths
+                .map { apkFilePathString ->
+                    val apkFile = File(apkFilePathString)
+                    if (!apkFile.exists() || !apkFile.canRead()) {
+                        throw IOException("unable to read APK file $apkFilePathString")
+                    }
+
+                    async {
+                        AndroidApk.verifyApkSignatureAndBuildFromApkFile(apkFile, aaptInvoker, apkSignerInvoker)
+                    }
+                }
+                .awaitAll()
+                .groupingBy { it.packageName }
+                .fold(
+                    initialValueSelector = { _, _ -> TreeSet(comparator) },
+                    operation = { _, accumulator, element -> accumulator.apply { add(element) } }
+                )
+                .run {
+                    if (ascendingOrder) {
+                        map { AscendingOrder(it.key, it.value) }
+                    } else {
+                        map { DescendingOrder(it.key, it.value) }
+                    }
+                }
         }
 
         /**

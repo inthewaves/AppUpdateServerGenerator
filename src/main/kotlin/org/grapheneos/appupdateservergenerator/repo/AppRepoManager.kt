@@ -78,33 +78,14 @@ private class AppRepoManagerImpl(
         println("parsing ${apkFilePaths.size} APKs")
         // If there are multiple versions of the same package passed into the command line, we insert all of those
         // APKs together.
-        val packageApkGroup: List<PackageApkGroup>
+        val packageApkGroup: List<PackageApkGroup.AscendingOrder>
         val timeTaken = measureTimeMillis {
             packageApkGroup = try {
-                coroutineScope {
-                    apkFilePaths.asSequence()
-                        .map { apkFilePathString ->
-                            val apkFile = File(apkFilePathString)
-                            if (!apkFile.exists() || !apkFile.canRead()) {
-                                throw IOException("unable to read APK file $apkFilePathString")
-                            }
-
-                            async(repoDispatcher) {
-                                AndroidApk.verifyApkSignatureAndBuildFromApkFile(apkFile, aaptInvoker, apkSignerInvoker)
-                            }
-                        }
-                        .groupBy(keySelector = { it.await().packageName }, valueTransform = { it.await() })
-                        .map {
-                            async {
-                                PackageApkGroup.fromIterable(
-                                    packageName = it.key,
-                                    apks = it.value,
-                                    ascendingOrder = false
-                                )
-                            }
-                        }
-                        .awaitAll()
-                }
+                PackageApkGroup.fromStringPathsAscending(
+                    apkFilePaths = apkFilePaths,
+                    aaptInvoker = aaptInvoker,
+                    apkSignerInvoker = apkSignerInvoker
+                )
             } catch (e: IOException) {
                 throw AppRepoException.AppDetailParseFailed("error: unable to to get Android app details", e)
             }
