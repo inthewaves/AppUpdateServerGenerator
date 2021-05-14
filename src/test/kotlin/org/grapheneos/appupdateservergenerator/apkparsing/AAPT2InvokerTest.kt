@@ -6,6 +6,7 @@ import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.ArgumentsProvider
 import org.junit.jupiter.params.provider.ArgumentsSource
 import java.util.stream.Stream
+import kotlin.test.assertEquals
 
 internal class AAPT2InvokerTest {
     class PathToDensityArgProvider : ArgumentsProvider {
@@ -22,6 +23,6 @@ internal class AAPT2InvokerTest {
     @ParameterizedTest(name = "parse [{0}] expecting density {1}")
     @ArgumentsSource(PathToDensityArgProvider::class)
     fun testDensityPathParsing(path: String, expectedDensity: AAPT2Invoker.Density) {
-        assert(expectedDensity == AAPT2Invoker.Density.fromPathToDensity(path))
+        assertEquals(expectedDensity, AAPT2Invoker.Density.fromPathToDensity(path))
     }
 }
