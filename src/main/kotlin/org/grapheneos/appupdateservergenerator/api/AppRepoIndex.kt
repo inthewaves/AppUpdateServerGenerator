@@ -31,7 +31,7 @@ data class AppRepoIndex constructor(
      * @throws IOException if an I/O error occurs.
      */
     fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
-        val latestAppVersionIndex = fileManager.latestAppVersionIndex
+        val latestAppVersionIndex = fileManager.appIndex
         latestAppVersionIndex.bufferedWriter().use { writer ->
             writer.appendLine(timestamp.seconds.toString())
             packageToVersionMap.forEach { (packageName, versionCodeTimestampPair) ->
@@ -55,12 +55,40 @@ data class AppRepoIndex constructor(
     ) = "$packageName:${versionCode.code}:${lastUpdateTimestamp.seconds}"
 
     companion object {
+        private fun createFromLine(line: String): Pair<String, Pair<VersionCode, UnixTimestamp>>? {
+            val split = line.split(':')
+            return if (split.size == 3) {
+                split[0] to (VersionCode(split[1].toInt()) to UnixTimestamp(split[2].toLong()))
+            } else {
+                null
+            }
+        }
+
+        fun readFromExistingIndexFile(fileManager: FileManager): AppRepoIndex {
+            val sortedMap = sortedMapOf<String, Pair<VersionCode, UnixTimestamp>>()
+            var timestamp: UnixTimestamp? = null
+            fileManager.appIndex.useLines { lineSequence ->
+                // drop the signature line
+                lineSequence.drop(1)
+                    .forEachIndexed { index, line ->
+                        if (index == 0) {
+                            timestamp = UnixTimestamp(line.toLong())
+                        } else {
+                            val (packageName, versionCodeAndTimestamp) = createFromLine(line)
+                                ?: throw IOException("failed to parse line $line")
+                            sortedMap[packageName] = versionCodeAndTimestamp
+                        }
+                    }
+            }
+            return timestamp?.let { AppRepoIndex(it, sortedMap) } ?: throw IOException("missing timestamp")
+        }
+
         /**
          * Creates a new [AppRepoIndex] instance from the repo files on disk.
          *
          * @throws IOException if an I/O error occurs.
          */
-        suspend fun createFromDisk(
+        suspend fun constructFromRepoFilesOnDisk(
             fileManager: FileManager,
             timestamp: UnixTimestamp
         ): AppRepoIndex = coroutineScope {

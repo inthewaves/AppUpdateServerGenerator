@@ -22,6 +22,7 @@ import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA
 import org.grapheneos.appupdateservergenerator.model.*
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import org.grapheneos.appupdateservergenerator.util.digest
+import org.grapheneos.appupdateservergenerator.util.symmetricDifference
 import java.io.File
 import java.io.FileFilter
 import java.io.IOException
@@ -200,14 +201,14 @@ private class AppRepoManagerImpl(
             }
 
             println("refreshing app version index")
-            AppRepoIndex.createFromDisk(fileManager, timestampForMetadata)
+            AppRepoIndex.constructFromRepoFilesOnDisk(fileManager, timestampForMetadata)
                 .also { index -> println("new app version index: $index") }
                 .writeToDiskAndSign(
                     privateKey = signingPrivateKey,
                     openSSLInvoker = openSSLInvoker,
                     fileManager = fileManager
                 )
-            println("wrote new app version index at ${fileManager.latestAppVersionIndex}")
+            println("wrote new app version index at ${fileManager.appIndex}")
 
             deltaGenerationActor.send(DeltaGenerationRequest.StartPrinting)
             deltaGenerationActor.close()
@@ -218,10 +219,71 @@ private class AppRepoManagerImpl(
         println("generated bulk metadata file")
     }
 
-    override suspend fun validateRepo() = withContext(repoDispatcher) {
+    override suspend fun validateRepo(): Unit = withContext(repoDispatcher) {
+        val packageDirs = fileManager.appDirectory.listFiles(FileFilter { it.isDirectory })
+            ?.sortedBy { it.name }
+            ?: throw IOException("unable to get directories")
+        if (packageDirs.isEmpty()) {
+            println("repo is empty")
+            return@withContext
+        }
+
         val publicKey = fileManager.publicSigningKeyPem
-        openSSLInvoker.verifyFileWithSignatureHeader(fileManager.latestAppVersionIndex, publicKey)
-        openSSLInvoker.verifyFileWithSignatureHeader(fileManager.latestAppMetadataBulk, publicKey)
+        openSSLInvoker.verifyFileWithSignatureHeader(fileManager.appIndex, publicKey)
+        openSSLInvoker.verifyFileWithSignatureHeader(fileManager.bulkAppMetadata, publicKey)
+
+        val existingMetadata = AppMetadata.getAllAppMetadataFromDisk(fileManager)
+        val packagesFromDirectoryListing = packageDirs.mapTo(sortedSetOf()) { it.name }
+        val packagesFromAllMetadataOnDisk = existingMetadata.mapTo(sortedSetOf()) { it.packageName }
+        if (packagesFromDirectoryListing != packagesFromAllMetadataOnDisk) {
+            val problemDirectories = packagesFromDirectoryListing symmetricDifference packagesFromAllMetadataOnDisk
+            throw AppRepoException.InvalidRepoState("some directories are not valid app directories: $problemDirectories")
+        }
+
+        val existingIndex = AppRepoIndex.readFromExistingIndexFile(fileManager)
+        val packagesFromExistingIndex = existingIndex.packageToVersionMap.mapTo(sortedSetOf()) { it.key }
+        if (packagesFromExistingIndex != packagesFromAllMetadataOnDisk) {
+            val errorMessage = buildString {
+                val intersection = packagesFromExistingIndex intersect packagesFromAllMetadataOnDisk
+                (packagesFromExistingIndex subtract intersection)
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { packagesNotInDirs ->
+                        appendLine("index contains packages for which there are no directories for: " +
+                                "$packagesNotInDirs")
+                     }
+                (packagesFromAllMetadataOnDisk subtract intersection)
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { packagesNotInIndex ->
+                        appendLine("app directory has packages not included in the index: " +
+                                "$packagesNotInIndex")
+                    }
+            }.trimEnd('\n')
+            throw AppRepoException.InvalidRepoState(errorMessage)
+        }
+
+        val bulkAppMetadata = BulkAppMetadata.readFromExistingFile(fileManager).allAppMetadata
+        if (bulkAppMetadata != existingMetadata) {
+            val errorMessage = buildString {
+                val intersection = bulkAppMetadata intersect existingMetadata
+                (bulkAppMetadata subtract intersection).takeIf { it.isNotEmpty() }?.let {
+                    appendLine(
+                        "app directory missing metadata for a package included in bulk app metadata file: " +
+                                "${it.map { set -> set.packageName }}"
+
+                    )
+                }
+                (existingMetadata subtract intersection).takeIf { it.isNotEmpty() }?.let {
+                    appendLine(
+                        "bulk app metadata file doesn't include packages: " +
+                                "${it.map { set -> set.packageName }}"
+                    )
+                }
+            }.trimEnd('\n')
+            throw AppRepoException.InvalidRepoState(errorMessage)
+        }
+
+        check(packageDirs.size == existingMetadata.size)
+        val appDirToMetadataMap = packageDirs.zip(existingMetadata) { a, b -> check(a.name == b.packageName); a to b }
     }
 
     /**
@@ -449,6 +511,7 @@ sealed class AppRepoException : Exception {
         constructor(message: String) : super(message)
     }
     class InvalidRepoState : AppRepoException {
+        constructor(message: String) : super(message)
         constructor(message: String, cause: Throwable) : super(message)
     }
     class AppDetailParseFailed : AppRepoException {

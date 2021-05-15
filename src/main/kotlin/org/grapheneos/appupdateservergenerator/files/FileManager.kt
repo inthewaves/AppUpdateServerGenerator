@@ -60,9 +60,9 @@ class FileManager constructor(
      */
     val publicSigningKeyPem = File(dataRootDirectory, "public-signing-key.pem")
 
-    val latestAppVersionIndex = File(appDirectory, "latest-index.txt")
+    val appIndex = File(appDirectory, "latest-index.txt")
 
-    val latestAppMetadataBulk = File(appDirectory, "latest-bulk-metadata.txt")
+    val bulkAppMetadata = File(appDirectory, "latest-bulk-metadata.txt")
 
     fun getDirForApp(pkg: String) = AppDir(File(appDirectory, pkg))
 

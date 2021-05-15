@@ -52,7 +52,7 @@ data class AppMetadata(
     }
 
     companion object {
-        private val packageComparator = Comparator<AppMetadata> { o1, o2 -> o1.packageName.compareTo(o2.packageName) }
+        val packageComparator = Comparator<AppMetadata> { o1, o2 -> o1.packageName.compareTo(o2.packageName) }
 
         /**
          * Reads the metadata in the [pkg]'s app directory.
@@ -66,6 +66,9 @@ data class AppMetadata(
             }
 
         /**
+         * Reads all app metadata from the app / package directories. This will ignore directories that don't contain
+         * valid app info.
+         *
          * @throws IOException if an I/O error occurs.
          */
         suspend fun getAllAppMetadataFromDisk(fileManager: FileManager): SortedSet<AppMetadata> = coroutineScope {
