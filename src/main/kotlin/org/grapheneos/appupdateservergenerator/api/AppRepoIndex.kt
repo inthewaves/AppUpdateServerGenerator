@@ -11,13 +11,24 @@ import org.grapheneos.appupdateservergenerator.model.VersionCode
 import java.io.IOException
 import java.util.*
 
-data class AppVersionIndex constructor(
+/**
+ * The index of all the apps in the repo.
+ *
+ * Format:
+ * - line 1: base64-encoded signature of the below contents
+ * - line 2: a timestamp of when the index was last updated (i.e., the last time the insert-apk command was run)
+ * - line 3+: a line for each app in the repo of the form
+ *     ```
+ *     packageName:versionCode:lastUpdateTimestamp
+ *     ```
+ *     where lastUpdateTimestamp is when the app's metadata was last updated.
+ */
+data class AppRepoIndex constructor(
     val timestamp: UnixTimestamp,
     val packageToVersionMap: SortedMap<String, Pair<VersionCode, UnixTimestamp>>
 ) {
     /**
-     * Writes this [AppVersionIndex] to the disk and then signs the file using the [privateKey] and [openSSLInvoker].
-     *
+     * Writes this [AppRepoIndex] to the disk and then signs the file using the [privateKey] and [openSSLInvoker].
      *
      * @throws IOException if an I/O error occurs.
      */
@@ -37,7 +48,7 @@ data class AppVersionIndex constructor(
      * Format for the metadata file lines for each app.
      * The format is
      *
-     *     packageName:versionCode
+     *     packageName:versionCode:lastUpdateTimestamp
      */
     private fun createLine(
         packageName: String,
@@ -47,11 +58,11 @@ data class AppVersionIndex constructor(
 
     companion object {
         /**
-         * Creates a new [AppVersionIndex] instance from the files on disk in the database.
+         * Creates a new [AppRepoIndex] instance from the repo files on disk .
          *
          * @throws IOException if an I/O error occurs.
          */
-        suspend fun create(fileManager: FileManager, timestamp: UnixTimestamp): AppVersionIndex = coroutineScope {
+        suspend fun create(fileManager: FileManager, timestamp: UnixTimestamp): AppRepoIndex = coroutineScope {
             val map = fileManager.appDirectory.listFiles()
                 ?.filter { it.isDirectory }
                 ?.map { dirForApp ->
@@ -68,7 +79,7 @@ data class AppVersionIndex constructor(
                 // sort by keys
                 ?.associateTo(TreeMap()) { it.packageName to (it.latestVersionCode to it.lastUpdateTimestamp) }
                 ?: throw IOException("failed to get files from app directory")
-            AppVersionIndex(timestamp, map)
+            AppRepoIndex(timestamp, map)
         }
     }
 }

@@ -8,7 +8,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
-import org.grapheneos.appupdateservergenerator.api.AppVersionIndex
+import org.grapheneos.appupdateservergenerator.api.AppRepoIndex
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
@@ -199,7 +199,7 @@ private class AppRepoManagerImpl(
             }
 
             println("refreshing app version index")
-            AppVersionIndex.create(fileManager, timestampForMetadata)
+            AppRepoIndex.create(fileManager, timestampForMetadata)
                 .also { index -> println("new app version index: $index") }
                 .writeToDiskAndSign(
                     privateKey = signingPrivateKey,
