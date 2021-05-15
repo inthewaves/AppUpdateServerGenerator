@@ -26,9 +26,9 @@ import java.io.FileFilter
 import java.io.IOException
 import java.lang.Integer.min
 import java.security.MessageDigest
-import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.system.measureTimeMillis
 
@@ -69,40 +69,76 @@ private class AppRepoManagerImpl(
     private val executorService: ExecutorService = Executors.newFixedThreadPool(64)
     private val repoDispatcher = executorService.asCoroutineDispatcher()
 
-    private fun CoroutineScope.createDeltaGenerationActor() = actor<AppDir>(capacity = Channel.UNLIMITED) {
-        val failedDeltaAppsMutex = Mutex()
-        val failedDeltaApps = ArrayList<AppDir>()
-        coroutineScope {
-            for (appDir in channel) {
-                launch {
-                    try {
-                        val deltaAvailableVersions: List<VersionCode>
+    private sealed class DeltaGenerationRequest {
+        class GenForAppDir(val appDir: AppDir) : DeltaGenerationRequest()
+        object StartPrinting : DeltaGenerationRequest()
+    }
 
-                        val deltaGenTime = measureTimeMillis { deltaAvailableVersions = regenerateDeltas(appDir) }
-                        println(
-                            "took $deltaGenTime ms to generate ${deltaAvailableVersions.size} deltas " +
-                                    "for ${appDir.packageName}"
-                        )
+    private fun CoroutineScope.createDeltaGenerationActor() =
+        actor<DeltaGenerationRequest>(capacity = Channel.UNLIMITED) {
+            val failedDeltaAppsMutex = Mutex()
+            val failedDeltaApps = ArrayList<AppDir>()
+            val anyDeltasGenerated = AtomicBoolean(false)
 
-                        AppMetadata.getMetadataFromDiskForPackage(appDir.packageName, fileManager)
-                            .copy(deltaAvailableVersions = deltaAvailableVersions.toSet())
-                            .writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
-                        println("updated metadata for ${appDir.packageName} with delta information")
-                    } catch (e: Throwable) {
-                        println("error during delta generation for ${appDir.packageName}")
-                        e.printStackTrace()
-                        failedDeltaAppsMutex.withLock { failedDeltaApps.add(appDir) }
+            val printMessageChannel = Channel<String>(capacity = Channel.UNLIMITED)
+            val printMessageJob = launch(start = CoroutineStart.LAZY) {
+                for (printMessage in printMessageChannel) {
+                    println(printMessage)
+                }
+            }
+
+            coroutineScope {
+                for (request in channel) {
+                    if (request is DeltaGenerationRequest.GenForAppDir) {
+                        val appDir = request.appDir
+                        launch {
+                            try {
+                                val deltaAvailableVersions: List<VersionCode>
+
+                                val deltaGenTime =
+                                    measureTimeMillis {
+                                        deltaAvailableVersions = regenerateDeltas(
+                                            appDir,
+                                            printMessageChannel = printMessageChannel
+                                        )
+                                    }
+                                if (deltaAvailableVersions.isNotEmpty()) {
+                                    printMessageChannel.send(
+                                        "took $deltaGenTime ms to generate ${deltaAvailableVersions.size} deltas " +
+                                                "for ${appDir.packageName}. " +
+                                                "Versions with deltas available: ${deltaAvailableVersions.map { it.code }}"
+                                    )
+                                    anyDeltasGenerated.set(true)
+                                }
+
+                                // Update the metadata with the
+                                AppMetadata.getMetadataFromDiskForPackage(appDir.packageName, fileManager)
+                                    .copy(deltaAvailableVersions = deltaAvailableVersions.toSet())
+                                    .writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
+                                println("updated metadata for ${appDir.packageName} with delta information")
+                            } catch (e: Throwable) {
+                                println("error during delta generation for ${appDir.packageName}")
+                                e.printStackTrace()
+                                failedDeltaAppsMutex.withLock { failedDeltaApps.add(appDir) }
+                            }
+                        }
+                    } else {
+                        check(request is DeltaGenerationRequest.StartPrinting)
+                        printMessageJob.start()
                     }
                 }
             }
-        }
+            printMessageChannel.close()
+            printMessageJob.join()
 
-        if (failedDeltaApps.isEmpty()) {
-            println("delta generation successful")
-        } else {
-            println("delta generation complete, but some failed to generate: ${failedDeltaApps.map { it.packageName }}")
+            if (anyDeltasGenerated.get()) {
+                if (failedDeltaApps.isEmpty()) {
+                    println("delta generation successful")
+                } else {
+                    println("delta generation complete, but some failed to generate: ${failedDeltaApps.map { it.packageName }}")
+                }
+            }
         }
-    }
 
     /**
      * Inserts APKs from the provided [apkFilePaths]. The APKs will be first validated (ensure that they
@@ -157,9 +193,12 @@ private class AppRepoManagerImpl(
                     signingPrivateKey = signingPrivateKey,
                     timestampForMetadata = timestampForMetadata
                 )
-                deltaGenerationActor.send(fileManager.getDirForApp(apkInsertionGroup.packageName))
+                deltaGenerationActor.send(
+                    DeltaGenerationRequest.GenForAppDir(fileManager.getDirForApp(apkInsertionGroup.packageName))
+                )
             }
 
+            println("refreshing app version index")
             AppVersionIndex.create(fileManager, timestampForMetadata)
                 .also { index -> println("new app version index: $index") }
                 .writeToDiskAndSign(
@@ -169,6 +208,7 @@ private class AppRepoManagerImpl(
                 )
             println("wrote new app version index at ${fileManager.latestAppVersionIndex}")
 
+            deltaGenerationActor.send(DeltaGenerationRequest.StartPrinting)
             deltaGenerationActor.close()
         }
     }
@@ -210,7 +250,7 @@ private class AppRepoManagerImpl(
         validateOrCreateDirectories(appDir, apksToInsert)
 
         val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = true)
-        validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks)
+        validateApkSigningCertChain(newApks = apksToInsert, currentApks = sortedPreviousApks)
 
         apksToInsert.sortedApks.forEach { apkToInsert ->
             val newApkFile = File(appDir.dir, "${apkToInsert.versionCode.code}.apk")
@@ -309,12 +349,12 @@ private class AppRepoManagerImpl(
      * @throws AppRepoException.ApkSigningCertMismatch
      */
     private fun validateApkSigningCertChain(
-        newApks: SortedSet<AndroidApk>?,
+        newApks: PackageApkGroup?,
         currentApks: PackageApkGroup
     ) {
         var currentSetIntersection: Set<HexString>? = null
         currentApks.sortedApks.asSequence()
-            .apply { newApks?.let { plus(it) } }
+            .apply { newApks?.let { plus(newApks.sortedApks) } }
             .forEach { currentApk ->
                 currentSetIntersection = currentSetIntersection
                     ?.let { currentApk.certificates intersect it }
@@ -338,7 +378,8 @@ private class AppRepoManagerImpl(
      */
     private suspend fun regenerateDeltas(
         appDir: AppDir,
-        maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS
+        maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS,
+        printMessageChannel: Channel<String>?
     ): List<VersionCode> = withContext(repoDispatcher) {
         deleteAllDeltas(appDir)
         val apks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = false)
@@ -360,14 +401,14 @@ private class AppRepoManagerImpl(
                     yield()
                     deltaGenerationSemaphore.withPermit {
                         val outputDeltaFile = File(appDir.dir, deltaName)
-                        println("generating delta for ${appDir.packageName}: $deltaName")
+                        printMessageChannel?.send("generating delta for ${appDir.packageName}: $deltaName")
                         ArchivePatcherUtil.generateDelta(
                             previousApk.apkFile,
                             newestApk.apkFile,
                             outputDeltaFile,
                             outputGzip = true
                         )
-                        println(
+                        printMessageChannel?.send(
                             " generated delta $deltaName (${appDir.packageName}) is " +
                                     "${outputDeltaFile.length().toDouble() / (0x1 shl 20)} MiB"
                         )
