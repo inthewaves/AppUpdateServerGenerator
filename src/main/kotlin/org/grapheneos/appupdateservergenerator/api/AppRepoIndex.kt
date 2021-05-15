@@ -1,7 +1,5 @@
 package org.grapheneos.appupdateservergenerator.api
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
@@ -62,23 +60,13 @@ data class AppRepoIndex constructor(
          *
          * @throws IOException if an I/O error occurs.
          */
-        suspend fun create(fileManager: FileManager, timestamp: UnixTimestamp): AppRepoIndex = coroutineScope {
-            val map = fileManager.appDirectory.listFiles()
-                ?.filter { it.isDirectory }
-                ?.map { dirForApp ->
-                    async {
-                        try {
-                            AppMetadata.getMetadataFromDiskForPackage(dirForApp.name, fileManager)
-                        } catch (e: IOException) {
-                            null
-                        }
-                    }
-                }
-                ?.awaitAll()
-                ?.filterNotNull()
-                // sort by keys
-                ?.associateTo(TreeMap()) { it.packageName to (it.latestVersionCode to it.lastUpdateTimestamp) }
-                ?: throw IOException("failed to get files from app directory")
+        suspend fun createFromDisk(
+            fileManager: FileManager,
+            timestamp: UnixTimestamp
+        ): AppRepoIndex = coroutineScope {
+            // sort by keys
+            val map = AppMetadata.getAllAppMetadataFromDisk(fileManager)
+                .associateTo(TreeMap()) { it.packageName to (it.latestVersionCode to it.lastUpdateTimestamp) }
             AppRepoIndex(timestamp, map)
         }
     }

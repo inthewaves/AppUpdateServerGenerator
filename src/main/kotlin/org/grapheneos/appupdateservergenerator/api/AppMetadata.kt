@@ -1,5 +1,8 @@
 package org.grapheneos.appupdateservergenerator.api
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.*
 import kotlinx.serialization.json.Json
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
@@ -8,8 +11,13 @@ import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
+import java.io.FileFilter
 import java.io.IOException
+import java.util.*
 
+/**
+ * The metadata for an app that will be parsed by the app.
+ */
 @Serializable
 data class AppMetadata(
     @SerialName("package")
@@ -24,9 +32,17 @@ data class AppMetadata(
     val deltaAvailableVersions: Set<VersionCode>,
     val lastUpdateTimestamp: UnixTimestamp,
 ) {
+    fun writeToString() = try {
+        Json.encodeToString(this)
+    } catch (e: SerializationException) {
+        throw IOException(e)
+    }
 
+    /**
+     * @throws IOException if an I/O error occurs or the metadata is of an invalid format
+     */
     fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
-        val latestAppVersionInfoJson = Json.encodeToString(this)
+        val latestAppVersionInfoJson = writeToString()
         val signature = openSSLInvoker.signString(privateKey, latestAppVersionInfoJson)
         fileManager.getLatestAppVersionInfoMetadata(pkg = packageName).bufferedWriter().use { writer ->
             writer.appendLine(signature.s)
@@ -36,6 +52,8 @@ data class AppMetadata(
     }
 
     companion object {
+        val packageComparator = Comparator<AppMetadata> { o1, o2 -> o1.packageName.compareTo(o2.packageName) }
+
         /**
          * Reads the metadata in the [pkg]'s app directory.
          * @throws IOException if an I/O error occurs or the metadata is of an invalid format
@@ -47,5 +65,25 @@ data class AppMetadata(
                 throw IOException(e)
             }
 
+        /**
+         * @throws IOException if an I/O error occurs.
+         */
+        suspend fun getAllAppMetadataFromDisk(fileManager: FileManager): SortedSet<AppMetadata> = coroutineScope {
+            fileManager.appDirectory.listFiles(FileFilter { it.isDirectory })
+                ?.mapTo(ArrayList()) { dirForApp ->
+                    async {
+                        try {
+                            getMetadataFromDiskForPackage(dirForApp.name, fileManager)
+                        } catch (e: IOException) {
+                            // Ignore directories that fail
+                            null
+                        }
+                    }
+                }
+                ?.awaitAll()
+                ?.filterNotNull()
+                ?.toSortedSet(packageComparator)
+                ?: throw IOException("unable to get all app metadata from disk")
+        }
     }
 }

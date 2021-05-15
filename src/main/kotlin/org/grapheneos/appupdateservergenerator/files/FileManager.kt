@@ -62,6 +62,8 @@ class FileManager constructor(
 
     val latestAppVersionIndex = File(appDirectory, "latest-index.txt")
 
+    val latestAppMetadataBulk = File(appDirectory, "latest-bulk-metadata.txt")
+
     fun getDirForApp(pkg: String) = AppDir(File(appDirectory, pkg))
 
     fun getLatestAppVersionInfoMetadata(pkg: String) = File(getDirForApp(pkg).dir, "latest.txt")

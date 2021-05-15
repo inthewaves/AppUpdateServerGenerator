@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppRepoIndex
+import org.grapheneos.appupdateservergenerator.api.BulkAppMetadata
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
@@ -199,7 +200,7 @@ private class AppRepoManagerImpl(
             }
 
             println("refreshing app version index")
-            AppRepoIndex.create(fileManager, timestampForMetadata)
+            AppRepoIndex.createFromDisk(fileManager, timestampForMetadata)
                 .also { index -> println("new app version index: $index") }
                 .writeToDiskAndSign(
                     privateKey = signingPrivateKey,
@@ -211,6 +212,10 @@ private class AppRepoManagerImpl(
             deltaGenerationActor.send(DeltaGenerationRequest.StartPrinting)
             deltaGenerationActor.close()
         }
+
+        BulkAppMetadata.createFromDisk(fileManager, timestampForMetadata)
+            .writeToDiskAndSign(fileManager, openSSLInvoker, signingPrivateKey)
+        println("generated bulk metadata file")
     }
 
     /**
