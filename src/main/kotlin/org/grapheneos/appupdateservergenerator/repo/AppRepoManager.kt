@@ -38,16 +38,15 @@ import kotlin.system.measureTimeMillis
  * Contains validation, APK insertion, metadata generation and signing
  */
 interface AppRepoManager {
-    suspend fun insertApksFromStringPaths(apkFilePaths: Collection<String>)
+    suspend fun insertApksFromStringPaths(apkFilePaths: Collection<String>, signingPrivateKey: PKCS8PrivateKeyFile)
 }
 
 fun AppRepoManager(
     fileManager: FileManager,
     aaptInvoker: AAPT2Invoker,
     apkSignerInvoker: ApkSignerInvoker,
-    openSSLInvoker: OpenSSLInvoker,
-    signingPrivateKey: PKCS8PrivateKeyFile,
-): AppRepoManager = AppRepoManagerImpl(fileManager, aaptInvoker, apkSignerInvoker, openSSLInvoker, signingPrivateKey)
+    openSSLInvoker: OpenSSLInvoker
+): AppRepoManager = AppRepoManagerImpl(fileManager, aaptInvoker, apkSignerInvoker, openSSLInvoker)
 
 /**
  * The implementation of [AppRepoManager].
@@ -58,8 +57,7 @@ private class AppRepoManagerImpl(
     private val fileManager: FileManager,
     private val aaptInvoker: AAPT2Invoker,
     private val apkSignerInvoker: ApkSignerInvoker,
-    private val openSSLInvoker: OpenSSLInvoker,
-    private val signingPrivateKey: PKCS8PrivateKeyFile,
+    private val openSSLInvoker: OpenSSLInvoker
 ): AppRepoManager {
     companion object {
         private const val DEFAULT_MAX_PREVIOUS_VERSION_DELTAS = 5
@@ -75,7 +73,7 @@ private class AppRepoManagerImpl(
         object StartPrinting : DeltaGenerationRequest()
     }
 
-    private fun CoroutineScope.createDeltaGenerationActor() =
+    private fun CoroutineScope.createDeltaGenerationActor(signingPrivateKey: PKCS8PrivateKeyFile) =
         actor<DeltaGenerationRequest>(capacity = Channel.UNLIMITED) {
             val failedDeltaAppsMutex = Mutex()
             val failedDeltaApps = ArrayList<AppDir>()
@@ -149,9 +147,10 @@ private class AppRepoManagerImpl(
      * @throws IOException
      */
     override suspend fun insertApksFromStringPaths(
-        apkFilePaths: Collection<String>
+        apkFilePaths: Collection<String>,
+        signingPrivateKey: PKCS8PrivateKeyFile
     ): Unit = withContext(repoDispatcher) {
-        validatePublicKeyInRepo()
+        validatePublicKeyInRepo(signingPrivateKey)
 
         println("parsing ${apkFilePaths.size} APKs")
         // If there are multiple versions of the same package passed into the command line, we insert all of those
@@ -174,7 +173,7 @@ private class AppRepoManagerImpl(
         val timestampForMetadata = UnixTimestamp.now()
 
         coroutineScope {
-            val deltaGenerationActor = createDeltaGenerationActor()
+            val deltaGenerationActor = createDeltaGenerationActor(signingPrivateKey)
 
             packageApkGroup.forEach { apkInsertionGroup ->
                 val nowInsertingString = "Now inserting ${apkInsertionGroup.packageName}"
@@ -223,7 +222,7 @@ private class AppRepoManagerImpl(
      * failing, etc
      * @throws AppRepoException.RepoSigningKeyMismatch
      */
-    private fun validatePublicKeyInRepo() {
+    private fun validatePublicKeyInRepo(signingPrivateKey: PKCS8PrivateKeyFile) {
         val publicKey: PEMPublicKey = try {
             openSSLInvoker.getPublicKey(signingPrivateKey)
         } catch (e: IOException) {

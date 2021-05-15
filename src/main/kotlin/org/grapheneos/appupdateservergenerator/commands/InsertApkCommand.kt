@@ -70,11 +70,10 @@ class InsertApkCommand : Subcommand("insert-apk", "Inserts an APK into the local
             fileManager = fileManager,
             aaptInvoker = aaptInvoker,
             apkSignerInvoker = apkSignerInvoker,
-            openSSLInvoker = openSSLInvoker,
-            signingPrivateKey = signingPrivateKey
+            openSSLInvoker = openSSLInvoker
         )
         try {
-            appRepoManager.insertApksFromStringPaths(apkFilePaths)
+            appRepoManager.insertApksFromStringPaths(apkFilePaths, signingPrivateKey)
         } catch (e: Exception) {
             printErrorAndExit(e.message, e)
         }

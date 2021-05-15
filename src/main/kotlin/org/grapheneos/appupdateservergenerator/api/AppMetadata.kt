@@ -52,7 +52,7 @@ data class AppMetadata(
     }
 
     companion object {
-        val packageComparator = Comparator<AppMetadata> { o1, o2 -> o1.packageName.compareTo(o2.packageName) }
+        private val packageComparator = Comparator<AppMetadata> { o1, o2 -> o1.packageName.compareTo(o2.packageName) }
 
         /**
          * Reads the metadata in the [pkg]'s app directory.
