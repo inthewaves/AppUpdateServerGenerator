@@ -13,7 +13,7 @@ import java.util.*
 
 data class AppVersionIndex constructor(
     val timestamp: UnixTimestamp,
-    val packageToVersionMap: SortedMap<String, VersionCode>
+    val packageToVersionMap: SortedMap<String, Pair<VersionCode, UnixTimestamp>>
 ) {
     /**
      * Writes this [AppVersionIndex] to the disk and then signs the file using the [privateKey] and [openSSLInvoker].
@@ -25,8 +25,9 @@ data class AppVersionIndex constructor(
         val latestAppVersionIndex = fileManager.latestAppVersionIndex
         latestAppVersionIndex.bufferedWriter().use { writer ->
             writer.appendLine(timestamp.seconds.toString())
-            packageToVersionMap.forEach { (packageName, versionCode) ->
-                writer.appendLine(createLine(packageName, versionCode))
+            packageToVersionMap.forEach { (packageName, versionCodeTimestampPair) ->
+                val (versionCode, timestamp) = versionCodeTimestampPair
+                writer.appendLine(createLine(packageName, versionCode, timestamp))
             }
         }
         openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, latestAppVersionIndex)
@@ -38,7 +39,11 @@ data class AppVersionIndex constructor(
      *
      *     packageName:versionCode
      */
-    private fun createLine(packageName: String, versionCode: VersionCode) = "$packageName:${versionCode.code}"
+    private fun createLine(
+        packageName: String,
+        versionCode: VersionCode,
+        lastUpdateTimestamp: UnixTimestamp
+    ) = "$packageName:${versionCode.code}:${lastUpdateTimestamp.seconds}"
 
     companion object {
         /**
@@ -61,7 +66,7 @@ data class AppVersionIndex constructor(
                 ?.awaitAll()
                 ?.filterNotNull()
                 // sort by keys
-                ?.associateTo(TreeMap()) { it.packageName to it.latestVersionCode }
+                ?.associateTo(TreeMap()) { it.packageName to (it.latestVersionCode to it.lastUpdateTimestamp) }
                 ?: throw IOException("failed to get files from app directory")
             AppVersionIndex(timestamp, map)
         }
