@@ -37,6 +37,7 @@ See `./app-update-server-generator insert-apk --help` for more options.
 #### Example of repository structure
 * A sample of what the directory tree for a repository looks like and the file sizes:
 
+  <!-- tree --dirsfirst --du -h app_repo_data -->
   ```plain
   app_repo_data
   ├── [ 121M]  apps
@@ -57,29 +58,30 @@ See `./app-update-server-generator insert-apk --help` for more options.
   │   │   ├── [ 674K]  delta-443006634-to-443009134.gz
   │   │   ├── [ 583K]  delta-443008234-to-443009134.gz
   │   │   └── [  368]  latest.txt
-  │   └── [  165]  latest-index.txt
+  │   ├── [  614]  latest-bulk-metadata.txt
+  │   └── [  187]  latest-index.txt
   └── [  178]  public-signing-key.pem
   ```
 
-  The public key will be used to validate the signatures in the repo _during local generation_, and
-  it will also validate the private key passed into the `insert-apk` command to prevent the use of
+  **public-signing-key.pem**: The public key will be used to validate the signatures in the repo _during local 
+  generation_, and it will also validate the private key passed into the `insert-apk` command to prevent the use of
   a different key. This public key file in the root directory isn't meant to be consumed by the
   client app, so it could be preferable to not include it in a sync to the static file server.
   (Instead, the client apps should have the public key included in the app by default.)
 
-* A sample of `latest-index.txt`:
+* **latest-index.txt**: Sample:
   
   ```plain
-  MEQCIE1GIqMWMuM18C/TE+jfuYkEHuD+wbE7rEArFkfXhxMXAiBmXH4oFTHaurv4TrIVKLQQd1PpYkV7fGRYQsMUZPG9aA==
-  1620860027
-  app.attestation.auditor:26
-  org.chromium.chrome:443009134
+  MEUCIQD65BtWxRBDhalD9cyGxRvgB1uiRfqJXvXsHyWn0jPXEgIgfuh3rA6qCn67VF1vtNSZrCOvG7JKrzRNO5xMWnyIn2Y=
+  1621053334
+  app.attestation.auditor:26:1621053334
+  org.chromium.chrome:443009134:1621053334
   ```
   
   The first line contains a base64-encoded signature, the second line contains the last update
-  timestamp, and the rest of the lines contain versioning info.
+  timestamp, and the rest of the lines contain versions with last updated timestamps.
   
-* A sample of `latest.txt` for `org.chromium.chrome`:
+* **latest.txt**: Sample for `org.chromium.chrome`:
   
   ```plain
   MEUCIF8xSiJ1d6m8Wzycxjp1gaVBgMU7WXlSvJ/12X3GZJnLAiEAhbkwICElT9F3apUXdeTfew3DHfkySg+3wRmxnUXe+po=
@@ -105,6 +107,17 @@ See `./app-update-server-generator insert-apk --help` for more options.
   }
   ```
 
+* **latest-bulk-metadata.txt**: Sample:
+
+  ```plain
+  MEQCIBqK5Tl/AZ7sX1iIjMFZ+MGAXrm+aHV7mGeGKXEwPdUBAiAWkNTqyISAbN7yTbw5Fu6cHCWoa/QDYSthCqINA81iAA==
+  1621053334
+  {"package":"app.attestation.auditor","label":"Auditor","latestVersionCode":26,"latestVersionName":"26","sha256Checksum":"LZo/7Hr/tCoSidZGAr67iz/O1nhHBdUIkpWqrEVJh7I=","deltaAvailableVersions":[25,24],"lastUpdateTimestamp":1621053334}
+  {"package":"org.chromium.chrome","label":"Vanadium","latestVersionCode":443009134,"latestVersionName":"90.0.4430.91","sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaAvailableVersions":[443008234,443006634,438910534],"lastUpdateTimestamp":1621053334}
+  ```
+  
+  This is used for bulk downloads (e.g., first-time startup or force refreshes). It contains all
+  the app metadata in the repo.
 
 ### Delta generation
 The jar also supports generating deltas directly for convenience:
