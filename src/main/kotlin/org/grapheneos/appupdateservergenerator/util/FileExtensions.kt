@@ -55,3 +55,63 @@ fun File.prependLine(line: String) {
         }
     }
 }
+
+/**
+ * Edits the file so that the first line is removed, and then returns the first line. If the file is empty, then null
+ * is returned.
+ *
+ * @throws IOException
+ */
+fun File.removeFirstLine(): String? {
+    val tempFile = Files.createTempFile(
+        "temp-removeFirstLine",
+        null
+    ).toFile().apply { deleteOnExit() }
+    try {
+        val firstLine = bufferedReader().use { it.readLine() } ?: return null
+        var offset: Long = 0
+        // Find the place where the first line stops
+        this.bufferedReader().use { reader ->
+            var lastCharRead: Char?
+            do {
+                lastCharRead = reader.read().let { charAsInt ->
+                    if (charAsInt == -1) {
+                        null
+                    } else {
+                        offset++
+
+                        charAsInt.toChar()
+                    }
+                }
+            } while (lastCharRead != null && lastCharRead != '\n' && lastCharRead != '\r')
+            if (offset == 0L) {
+                return null
+            }
+
+            // Account for CRLF
+            if (lastCharRead == '\r') {
+                lastCharRead = reader.read().let { if (it == -1) null else it.toChar() }
+                if (lastCharRead == '\n') {
+                    offset++
+                }
+            }
+        }
+
+        tempFile.outputStream().buffered().use { output ->
+            this.inputStream().buffered().use { input ->
+                input.skip(offset)
+                input.copyTo(output)
+            }
+        }
+        tempFile.copyTo(this, overwrite = true)
+
+        return firstLine
+    } finally {
+        try {
+            tempFile.delete()
+        } catch (e: SecurityException) {
+            println("failed to delete tempfile $tempFile: $e")
+            e.printStackTrace()
+        }
+    }
+}

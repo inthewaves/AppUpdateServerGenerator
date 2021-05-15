@@ -39,6 +39,7 @@ import kotlin.system.measureTimeMillis
  */
 interface AppRepoManager {
     suspend fun insertApksFromStringPaths(apkFilePaths: Collection<String>, signingPrivateKey: PKCS8PrivateKeyFile)
+    suspend fun validateRepo()
 }
 
 fun AppRepoManager(
@@ -215,6 +216,12 @@ private class AppRepoManagerImpl(
         BulkAppMetadata.createFromDisk(fileManager, timestampForMetadata)
             .writeToDiskAndSign(fileManager, openSSLInvoker, signingPrivateKey)
         println("generated bulk metadata file")
+    }
+
+    override suspend fun validateRepo() = withContext(repoDispatcher) {
+        val publicKey = fileManager.publicSigningKeyPem
+        openSSLInvoker.verifyFileWithSignatureHeader(fileManager.latestAppVersionIndex, publicKey)
+        openSSLInvoker.verifyFileWithSignatureHeader(fileManager.latestAppMetadataBulk, publicKey)
     }
 
     /**

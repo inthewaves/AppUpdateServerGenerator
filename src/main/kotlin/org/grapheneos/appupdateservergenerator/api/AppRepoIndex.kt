@@ -56,7 +56,7 @@ data class AppRepoIndex constructor(
 
     companion object {
         /**
-         * Creates a new [AppRepoIndex] instance from the repo files on disk .
+         * Creates a new [AppRepoIndex] instance from the repo files on disk.
          *
          * @throws IOException if an I/O error occurs.
          */
