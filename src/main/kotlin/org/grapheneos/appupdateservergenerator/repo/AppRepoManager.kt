@@ -17,7 +17,6 @@ import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
-import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA_FILE_FORMAT
 import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA_REGEX
 import org.grapheneos.appupdateservergenerator.model.*
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
@@ -27,6 +26,7 @@ import java.io.File
 import java.io.FileFilter
 import java.io.IOException
 import java.lang.Integer.min
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -39,7 +39,22 @@ import kotlin.system.measureTimeMillis
  * Contains validation, APK insertion, metadata generation and signing
  */
 interface AppRepoManager {
+    /**
+     * Inserts APKs from the provided [apkFilePaths]. The APKs will be first validated (ensure that they
+     * verify with apksigner and that the contents of their manifests can be parsed).
+     *
+     * @throws AppRepoException
+     * @throws IOException
+     */
     suspend fun insertApksFromStringPaths(apkFilePaths: Collection<String>, signingPrivateKey: PKCS8PrivateKeyFile)
+
+    /**
+     * Validates the entire repository to ensure that the metadata is consistent with the actual files in the repo,
+     * and that the APK details are correct, and that the deltas actually apply to get the target files.
+     *
+     * @throws AppRepoException
+     * @throws IOException
+     */
     suspend fun validateRepo()
 }
 
@@ -219,6 +234,9 @@ private class AppRepoManagerImpl(
         println("generated bulk metadata file")
     }
 
+    /**
+     * @see AppRepoManager.validateRepo
+     */
     override suspend fun validateRepo(): Unit = withContext(repoDispatcher) {
         val packageDirs = fileManager.appDirectory.listFiles(FileFilter { it.isDirectory })
             ?.sortedBy { it.name }
@@ -283,7 +301,145 @@ private class AppRepoManagerImpl(
         }
 
         check(packageDirs.size == existingMetadata.size)
-        val appDirToMetadataMap = packageDirs.zip(existingMetadata) { a, b -> check(a.name == b.packageName); a to b }
+        println("validating details, APKs, and delta files of " +
+                "${packageDirs.size} ${if (packageDirs.size == 1) "app" else "apps"}")
+        val appDirAndMetadata = packageDirs.zip(existingMetadata) { a, b -> check(a.name == b.packageName); a to b }
+        coroutineScope {
+            appDirAndMetadata.forEach { (appDir, metadata) ->
+                launch {
+                    val pkg = metadata.packageName
+                    if (metadata.lastUpdateTimestamp > existingIndex.timestamp) {
+                        throw AppRepoException.InvalidRepoState(
+                            "$pkg: metadata timestamp (${metadata.lastUpdateTimestamp}) " +
+                                    "> index timestamp (${existingIndex.timestamp})"
+                        )
+                    }
+                    val apks = appDir.listFiles(FileFilter { it.isFile && it.name.matches(FileManager.APK_REGEX) })
+                        ?.sortedBy { it.nameWithoutExtension }
+                        ?: throw IOException("can't list files")
+
+                    val latestVersionCodeFromFileName: Int = apks.last().nameWithoutExtension.toInt()
+                    if (metadata.latestVersionCode.code != latestVersionCodeFromFileName) {
+                        throw AppRepoException.InvalidRepoState(
+                            "$pkg: metadata latestVersionCode (${metadata.latestVersionCode.code}) " +
+                                    "> apk version from file name (${apks.last()})"
+                        )
+                    }
+                    val latestApk =
+                        AndroidApk.verifyApkSignatureAndBuildFromApkFile(apks.last(), aaptInvoker, apkSignerInvoker)
+                    if (metadata.latestVersionCode != latestApk.versionCode) {
+                        throw AppRepoException.InvalidRepoState(
+                            "$pkg: latest APK versionCode in manifest mismatches with filename"
+                        )
+                    }
+                    val iconFile = fileManager.getAppIconFile(latestApk.packageName)
+                    if (iconFile.exists()) {
+                        val tempIconFile = Files.createTempFile("icon", ".png").toFile()
+                            .apply { deleteOnExit() }
+                        try {
+                            aaptInvoker.getApplicationIconFromApk(
+                                latestApk.apkFile,
+                                AAPT2Invoker.Density.MEDIUM,
+                                tempIconFile
+                            )
+                            val iconFileDigest = iconFile.digest(MessageDigest.getInstance("SHA-256"))
+                            val parsedIconFileDigest = tempIconFile.digest(MessageDigest.getInstance("SHA-256"))
+                            if (!iconFileDigest.contentEquals(parsedIconFileDigest)) {
+                                throw AppRepoException.InvalidRepoState(
+                                    "$pkg: icon from $latestApk doesn't match current icon in repo $iconFile"
+                                )
+                            }
+                        } finally {
+                            tempIconFile.delete()
+                        }
+                    }
+
+                    val deltaApplicationChannel = actor<Triple<AndroidApk, File, AndroidApk>> {
+                        val deltaApplicationSemaphore = Semaphore(4)
+                        coroutineScope {
+                            for ((baseFile, deltaFile, expectedFile) in channel) {
+                                launch {
+                                    deltaApplicationSemaphore.withPermit {
+                                        println(
+                                            "${baseFile.packageName}: validating delta from ${baseFile.versionCode} to " +
+                                                    "${expectedFile.versionCode} using ${deltaFile.name}"
+                                        )
+                                        val tempOutputFile = Files.createTempFile("deltaapply", ".apk").toFile()
+                                            .apply { deleteOnExit() }
+                                        try {
+                                            ArchivePatcherUtil.applyDelta(
+                                                baseFile.apkFile,
+                                                deltaFile,
+                                                tempOutputFile,
+                                                isDeltaGzipped = true
+                                            )
+                                            val outputDigest =
+                                                tempOutputFile.digest(MessageDigest.getInstance("SHA-256"))
+                                            val expectedDigest =
+                                                expectedFile.apkFile.digest(MessageDigest.getInstance("SHA-256"))
+                                            if (!outputDigest.contentEquals(expectedDigest)) {
+                                                throw AppRepoException.InvalidRepoState(
+                                                    "delta application did not produce expected target file " +
+                                                            "(old: $baseFile, delta: $deltaFile, " +
+                                                            "expected: ${expectedFile.apkFile})"
+                                                )
+                                            }
+                                        } catch (e: Throwable) {
+                                            println(
+                                                "${latestApk.packageName}: error occurred when trying to validate deltas" +
+                                                        "(old: $baseFile, delta: $deltaFile, " +
+                                                        "expected: ${expectedFile.apkFile})"
+                                            )
+                                            throw e
+                                        } finally {
+                                            tempOutputFile.delete()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    coroutineScope {
+                        apks.forEach { apkFile ->
+                            launch {
+                                val parsedApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(
+                                    apkFile,
+                                    aaptInvoker,
+                                    apkSignerInvoker
+                                )
+                                if (parsedApk.versionCode.code != apkFile.nameWithoutExtension.toInt()) {
+                                    throw AppRepoException.InvalidRepoState(
+                                        "$pkg: mismatch between filename version code and version from manifest ($apkFile)"
+                                    )
+                                }
+                                if (parsedApk.versionCode > metadata.latestVersionCode) {
+                                    throw AppRepoException.InvalidRepoState(
+                                        "$pkg: APK ($apkFile) exceeds the latest version code from metadata"
+                                    )
+                                }
+                                if (parsedApk.versionCode in metadata.deltaAvailableVersions) {
+                                    val deltaFile = fileManager.getDeltaFileForApp(
+                                        metadata.packageName,
+                                        parsedApk.versionCode,
+                                        metadata.latestVersionCode
+                                    )
+                                    if (!deltaFile.exists()) {
+                                        throw AppRepoException.InvalidRepoState(
+                                            "$pkg: missing a delta file from ${parsedApk.versionCode} " +
+                                                    "to ${metadata.latestVersionCode}"
+                                        )
+                                    }
+                                    deltaApplicationChannel.send(Triple(parsedApk, deltaFile, latestApk))
+                                }
+                            }
+                        }
+                    }
+                    deltaApplicationChannel.close()
+                }
+            }
+        }
+        println("repo successfully validated")
     }
 
     /**
@@ -470,11 +626,14 @@ private class AppRepoManagerImpl(
             .take(numberOfDeltasToGenerate)
             .mapTo(ArrayList(numberOfDeltasToGenerate)) { previousApk ->
                 async {
-                    val deltaName = DELTA_FILE_FORMAT.format(previousApk.versionCode.code, newestApk.versionCode.code)
                     yield()
                     deltaGenerationSemaphore.withPermit {
-                        val outputDeltaFile = File(appDir.dir, deltaName)
-                        printMessageChannel?.send("generating delta for ${appDir.packageName}: $deltaName")
+                        val outputDeltaFile = fileManager.getDeltaFileForApp(
+                            apks.packageName,
+                            previousApk.versionCode,
+                            newestApk.versionCode
+                        )
+                        printMessageChannel?.send("generating delta for ${appDir.packageName}: ${outputDeltaFile.name}")
                         ArchivePatcherUtil.generateDelta(
                             previousApk.apkFile,
                             newestApk.apkFile,
@@ -482,7 +641,7 @@ private class AppRepoManagerImpl(
                             outputGzip = true
                         )
                         printMessageChannel?.send(
-                            " generated delta $deltaName (${appDir.packageName}) is " +
+                            " generated delta ${outputDeltaFile.name} (${appDir.packageName}) is " +
                                     "${outputDeltaFile.length().toDouble() / (0x1 shl 20)} MiB"
                         )
                     }

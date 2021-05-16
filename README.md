@@ -34,6 +34,13 @@ tool will create the directories. This will not delete / move the source APK pro
 
 See `./app-update-server-generator insert-apk --help` for more options.
 
+To validate the repository (i.e. make sure the metadata is consistent, the signatures for the
+metadata actually verify, the APK information is correct, and the deltas apply correctly), run
+
+```bash
+$ ./app-update-server-generator validate [OPTIONS]
+```
+
 #### Example of repository structure
 * A sample of what the directory tree for a repository looks like and the file sizes:
 

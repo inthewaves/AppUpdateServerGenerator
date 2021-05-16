@@ -1,5 +1,6 @@
 package org.grapheneos.appupdateservergenerator.files
 
+import org.grapheneos.appupdateservergenerator.model.VersionCode
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
@@ -20,7 +21,7 @@ class FileManager constructor(
     companion object {
         private const val REPO_ROOT_DIRNAME = "app_repo_data"
         private const val STANDALONE_APP_DATA_DIRNAME = "apps"
-        const val DELTA_FILE_FORMAT = "delta-%d-to-%d.gz"
+        private const val DELTA_FILE_FORMAT = "delta-%d-to-%d.gz"
         val APK_REGEX = Regex("""^[0-9]*\.apk$""")
         val DELTA_REGEX = Regex(
             DELTA_FILE_FORMAT
@@ -67,6 +68,9 @@ class FileManager constructor(
     fun getDirForApp(pkg: String) = AppDir(File(appDirectory, pkg))
 
     fun getLatestAppVersionInfoMetadata(pkg: String) = File(getDirForApp(pkg).dir, "latest.txt")
+
+    fun getDeltaFileForApp(pkg: String, previousVersion: VersionCode, newVersion: VersionCode) =
+        File(getDirForApp(pkg).dir, DELTA_FILE_FORMAT.format(previousVersion.code, newVersion.code))
 
     fun getAppIconFile(pkg: String) = File(getDirForApp(pkg).dir, "ic_launcher.png")
 }
