@@ -17,7 +17,7 @@ import java.util.*
  * - line 2: a timestamp of when the index was last updated (i.e., the last time the insert-apk command was run)
  * - line 3+: a line for each app in the repo of the form
  *     ```
- *     packageName:versionCode:lastUpdateTimestamp
+ *     packageName versionCode lastUpdateTimestamp
  *     ```
  *     where lastUpdateTimestamp is when the app's metadata was last updated.
  */
@@ -46,17 +46,17 @@ data class AppRepoIndex private constructor(
      * Format for the metadata file lines for each app.
      * The format is
      *
-     *     packageName:versionCode:lastUpdateTimestamp
+     *     packageName versionCode lastUpdateTimestamp
      */
     private fun createLine(
         packageName: String,
         versionCode: VersionCode,
         lastUpdateTimestamp: UnixTimestamp
-    ) = "$packageName:${versionCode.code}:${lastUpdateTimestamp.seconds}"
+    ) = "$packageName ${versionCode.code} ${lastUpdateTimestamp.seconds}"
 
     companion object {
         private fun createFromLine(line: String): Pair<String, Pair<VersionCode, UnixTimestamp>>? {
-            val split = line.split(':')
+            val split = line.split(' ')
             return if (split.size == 3) {
                 split[0] to (VersionCode(split[1].toInt()) to UnixTimestamp(split[2].toLong()))
             } else {
