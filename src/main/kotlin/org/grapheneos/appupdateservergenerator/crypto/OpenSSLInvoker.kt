@@ -1,5 +1,6 @@
 package org.grapheneos.appupdateservergenerator.crypto
 
+import org.grapheneos.appupdateservergenerator.files.TempFile
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.util.Invoker
 import org.grapheneos.appupdateservergenerator.util.prependLine
@@ -140,40 +141,31 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
      * @throws IOException
      */
     fun verifyFileWithSignatureHeader(file: File, publicKeyFile: File) {
-        val tempFileToVerify = Files.createTempFile("verifyFileWithSignatureHeader", null)
-            .toFile()
-            .apply { deleteOnExit() }
-        val tempSignatureFile = Files.createTempFile("signature", ".bin")
-            .toFile()
-            .apply { deleteOnExit() }
-        try {
-            file.copyTo(tempFileToVerify, overwrite = true)
-            val base64Signature = Base64String(
-                tempFileToVerify.removeFirstLine() ?: throw GeneralSecurityException("missing signature header")
-            )
-            tempSignatureFile.outputStream().buffered().use { it.write(base64Signature.bytes) }
+        TempFile.create("verifyFileWithSignatureHeader").useFile { tempFileToVerify ->
+            TempFile.create("signature").useFile { tempSignatureFile ->
+                file.copyTo(tempFileToVerify, overwrite = true)
+                val base64Signature = Base64String(
+                    tempFileToVerify.removeFirstLine() ?: throw GeneralSecurityException("missing signature header")
+                )
+                tempSignatureFile.outputStream().buffered().use { it.write(base64Signature.bytes) }
 
-            val verifyProcess = ProcessBuilder(
-                executablePath.toString(),
-                "dgst",
-                "-sha256",
-                "-verify",
-                publicKeyFile.absolutePath,
-                "-signature",
-                tempSignatureFile.absolutePath,
-                tempFileToVerify.absolutePath
-            ).start()
-            verifyProcess.waitFor()
-            if (verifyProcess.exitValue() != 0) {
-                val errorMessage = verifyProcess.readTextFromErrorStream()
-                    .ifBlank { verifyProcess.inputStream.bufferedReader().readText() }
-                throw GeneralSecurityException("openssl dgst verification of file $file failed: $errorMessage")
-            }
-        } finally {
-            try {
-                tempFileToVerify.delete()
-                tempSignatureFile.delete()
-            } catch (_: SecurityException) {
+                val verifyProcess = ProcessBuilder(
+                    executablePath.toString(),
+                    "dgst",
+                    "-sha256",
+                    "-verify",
+                    publicKeyFile.absolutePath,
+                    "-signature",
+                    tempSignatureFile.absolutePath,
+                    tempFileToVerify.absolutePath
+                ).start()
+                verifyProcess.waitFor()
+                if (verifyProcess.exitValue() != 0) {
+                    val errorMessage = verifyProcess.readTextFromErrorStream()
+                        .ifBlank { verifyProcess.inputStream.bufferedReader().readText() }
+                        .trimEnd('\n')
+                    throw GeneralSecurityException("openssl dgst verification of file $file failed: $errorMessage")
+                }
             }
         }
     }

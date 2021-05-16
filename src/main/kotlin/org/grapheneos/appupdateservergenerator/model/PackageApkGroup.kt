@@ -6,12 +6,9 @@ import kotlinx.coroutines.coroutineScope
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.files.AppDir
-import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.APK_REGEX
 import java.io.File
-import java.io.FileFilter
 import java.io.IOException
 import java.util.*
-import java.util.zip.ZipFile
 
 /**
  * Represents the APKs for a package.
@@ -134,15 +131,9 @@ sealed class PackageApkGroup private constructor(
                 AndroidApk.descendingVersionCodeComparator
             }
 
-            val set = appDir.dir
-                .listFiles(
-                    FileFilter { it.isFile && APK_REGEX.matches(it.name) && isZipFile(it) }
-                )
-                ?.map {
-                    async { AndroidApk.verifyApkSignatureAndBuildFromApkFile(it, aaptInvoker, apkSignerInvoker) }
-                }
-                ?.mapTo(TreeSet(comparator)) { it.await() }
-                ?: throw IOException("failed to get previous apks: listFiles returned null")
+            val set = appDir.listApkFilesUnsorted()
+                .map { async { AndroidApk.verifyApkSignatureAndBuildFromApkFile(it, aaptInvoker, apkSignerInvoker) } }
+                .mapTo(TreeSet(comparator)) { it.await() }
 
             val packageName = if (set.isEmpty()) appDir.packageName else set.first().packageName
             if (ascendingOrder) {
@@ -150,13 +141,6 @@ sealed class PackageApkGroup private constructor(
             } else {
                 DescendingOrder(packageName, set)
             }
-        }
-
-        private fun isZipFile(file: File): Boolean = try {
-            ZipFile(file).close()
-            true
-        } catch (e: IOException) {
-            false
         }
     }
 }

@@ -67,7 +67,7 @@ class FileManager constructor(
 
     fun getDirForApp(pkg: String) = AppDir(File(appDirectory, pkg))
 
-    fun getLatestAppVersionInfoMetadata(pkg: String) = File(getDirForApp(pkg).dir, "latest.txt")
+    fun getLatestAppMetadata(pkg: String) = File(getDirForApp(pkg).dir, "latest.txt")
 
     fun getDeltaFileForApp(pkg: String, previousVersion: VersionCode, newVersion: VersionCode) =
         File(getDirForApp(pkg).dir, DELTA_FILE_FORMAT.format(previousVersion.code, newVersion.code))

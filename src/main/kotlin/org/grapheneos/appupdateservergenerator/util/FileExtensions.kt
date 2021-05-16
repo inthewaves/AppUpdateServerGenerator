@@ -1,9 +1,9 @@
 package org.grapheneos.appupdateservergenerator.util
 
+import org.grapheneos.appupdateservergenerator.files.TempFile
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.file.Files
 import java.security.DigestInputStream
 import java.security.MessageDigest
 
@@ -31,11 +31,7 @@ fun File.digest(messageDigest: MessageDigest): ByteArray {
  * @throws IOException if an I/O error occurs (especially around creating temporary files).
  */
 fun File.prependLine(line: String) {
-    val tempFile = Files.createTempFile(
-        "temp-prependLine-${line.hashCode()}-${System.currentTimeMillis()}",
-        null
-    ).toFile().apply { deleteOnExit() }
-    try {
+    TempFile.create("temp-prependLine").useFile { tempFile ->
         // Prepend the line
         tempFile.outputStream().bufferedWriter().use {
             it.appendLine(line)
@@ -46,13 +42,6 @@ fun File.prependLine(line: String) {
             this.inputStream().buffered().use { it.copyTo(output) }
         }
         tempFile.copyTo(this, overwrite = true)
-    } finally {
-        try {
-            tempFile.delete()
-        } catch (e: SecurityException) {
-            println("failed to delete tempfile $tempFile: $e")
-            e.printStackTrace()
-        }
     }
 }
 
@@ -63,11 +52,7 @@ fun File.prependLine(line: String) {
  * @throws IOException
  */
 fun File.removeFirstLine(): String? {
-    val tempFile = Files.createTempFile(
-        "temp-removeFirstLine",
-        null
-    ).toFile().apply { deleteOnExit() }
-    try {
+    TempFile.create("temp-removeFirstLine").useFile { tempFile ->
         val firstLine = bufferedReader().use { it.readLine() } ?: return null
         var offset: Long = 0
         // Find the place where the first line stops
@@ -106,12 +91,5 @@ fun File.removeFirstLine(): String? {
         tempFile.copyTo(this, overwrite = true)
 
         return firstLine
-    } finally {
-        try {
-            tempFile.delete()
-        } catch (e: SecurityException) {
-            println("failed to delete tempfile $tempFile: $e")
-            e.printStackTrace()
-        }
     }
 }

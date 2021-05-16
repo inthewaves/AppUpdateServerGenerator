@@ -44,7 +44,7 @@ data class AppMetadata(
     fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionInfoJson = writeToString()
         val signature = openSSLInvoker.signString(privateKey, latestAppVersionInfoJson)
-        fileManager.getLatestAppVersionInfoMetadata(pkg = packageName).bufferedWriter().use { writer ->
+        fileManager.getLatestAppMetadata(pkg = packageName).bufferedWriter().use { writer ->
             writer.appendLine(signature.s)
             writer.append(latestAppVersionInfoJson)
             writer.flush()
@@ -60,7 +60,7 @@ data class AppMetadata(
          */
         fun getMetadataFromDiskForPackage(pkg: String, fileManager: FileManager): AppMetadata =
             try {
-                Json.decodeFromString(fileManager.getLatestAppVersionInfoMetadata(pkg).useLines { it.last() })
+                Json.decodeFromString(fileManager.getLatestAppMetadata(pkg).useLines { it.last() })
             } catch (e: SerializationException) {
                 throw IOException(e)
             }
