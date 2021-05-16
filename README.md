@@ -46,7 +46,7 @@ $ ./app-update-server-generator validate [OPTIONS]
 
   <!-- tree --dirsfirst --du -h app_repo_data -->
   ```plain
-  app_repo_data
+  app_repo_data/
   ├── [ 121M]  apps
   │   ├── [ 7.1M]  app.attestation.auditor
   │   │   ├── [ 2.2M]  24.apk
@@ -55,7 +55,7 @@ $ ./app-update-server-generator validate [OPTIONS]
   │   │   ├── [ 249K]  delta-24-to-26.gz
   │   │   ├── [ 247K]  delta-25-to-26.gz
   │   │   ├── [ 1.5K]  ic_launcher.png
-  │   │   └── [  330]  latest.txt
+  │   │   └── [  477]  latest.txt
   │   ├── [ 114M]  org.chromium.chrome
   │   │   ├── [  27M]  438910534.apk
   │   │   ├── [  27M]  443006634.apk
@@ -64,8 +64,8 @@ $ ./app-update-server-generator validate [OPTIONS]
   │   │   ├── [ 4.2M]  delta-438910534-to-443009134.gz
   │   │   ├── [ 674K]  delta-443006634-to-443009134.gz
   │   │   ├── [ 583K]  delta-443008234-to-443009134.gz
-  │   │   └── [  368]  latest.txt
-  │   ├── [  614]  latest-bulk-metadata.txt
+  │   │   └── [  595]  latest.txt
+  │   ├── [  988]  latest-bulk-metadata.txt
   │   └── [  187]  latest-index.txt
   └── [  178]  public-signing-key.pem
   ```
@@ -91,8 +91,8 @@ $ ./app-update-server-generator validate [OPTIONS]
 * **latest.txt**: Sample for `org.chromium.chrome`:
   
   ```plain
-  MEUCIF8xSiJ1d6m8Wzycxjp1gaVBgMU7WXlSvJ/12X3GZJnLAiEAhbkwICElT9F3apUXdeTfew3DHfkySg+3wRmxnUXe+po=
-  {"package":"org.chromium.chrome","label":"Vanadium","latestVersionCode":443009134,"latestVersionName":"90.0.4430.91","sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaAvailableVersions":[438910534,443006634,443008234],"lastUpdateTimestamp":1620860027}
+  MEYCIQCh3owUSbU8flbTbUHkcG5cmqqsjVcR1QbDzHJywPLQ6gIhAKml3CKyR6OU9eWIRpe92XJS8/WiPyq+hB6ntRgU+vqP
+  {"package":"org.chromium.chrome","label":"Vanadium","latestVersionCode":443009134,"latestVersionName":"90.0.4430.91","lastUpdateTimestamp":1621135714,"sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaInfo":[{"versionCode":443008234,"sha256Checksum":"0JEp1W1w6rnTpv2dWyqFI9W1ZFIHQMSF/1ZATjkdjXA="},{"versionCode":443006634,"sha256Checksum":"24XV98Qz26gn6dV44Kr8aTSJCf8oyIXxfomFGL87HGI="},{"versionCode":438910534,"sha256Checksum":"zt0pH24gFTDLSjuRFwXzP4GmH6dWLvTrmuC1xh1SxvM="}]}
   ```
   
   The first line contains a base64-encoded signature of the JSON metadata. The prettified JSON for the
@@ -104,27 +104,35 @@ $ ./app-update-server-generator validate [OPTIONS]
     "label": "Vanadium",
     "latestVersionCode": 443009134,
     "latestVersionName": "90.0.4430.91",
+    "lastUpdateTimestamp": 1621135714,
     "sha256Checksum": "V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=",
-    "deltaAvailableVersions": [
-      438910534,
-      443006634,
-      443008234
-    ],
-    "lastUpdateTimestamp": 1620860027
+    "deltaInfo": [
+      {
+        "versionCode": 443008234,
+        "sha256Checksum": "0JEp1W1w6rnTpv2dWyqFI9W1ZFIHQMSF/1ZATjkdjXA="
+      },
+      {
+        "versionCode": 443006634,
+        "sha256Checksum": "24XV98Qz26gn6dV44Kr8aTSJCf8oyIXxfomFGL87HGI="
+      },
+      {
+        "versionCode": 438910534,
+        "sha256Checksum": "zt0pH24gFTDLSjuRFwXzP4GmH6dWLvTrmuC1xh1SxvM="
+      }
+    ]
   }
   ```
 
-* **latest-bulk-metadata.txt**: Sample:
+* **latest-bulk-metadata.txt**: This is a file of all the metadata in the repository:
 
   ```plain
-  MEQCIBqK5Tl/AZ7sX1iIjMFZ+MGAXrm+aHV7mGeGKXEwPdUBAiAWkNTqyISAbN7yTbw5Fu6cHCWoa/QDYSthCqINA81iAA==
-  1621053334
-  {"package":"app.attestation.auditor","label":"Auditor","latestVersionCode":26,"latestVersionName":"26","sha256Checksum":"LZo/7Hr/tCoSidZGAr67iz/O1nhHBdUIkpWqrEVJh7I=","deltaAvailableVersions":[25,24],"lastUpdateTimestamp":1621053334}
-  {"package":"org.chromium.chrome","label":"Vanadium","latestVersionCode":443009134,"latestVersionName":"90.0.4430.91","sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaAvailableVersions":[443008234,443006634,438910534],"lastUpdateTimestamp":1621053334}
+  MEYCIQCQ4o1uSqFuaybDTJQoPznfTw3nsAmEPxi+5NIMqgvyMAIhAIdiGHs8sRJLtTdDE+vor5I2OkPIF3UX86ubF6dF1P9V
+  1621135714
+  {"package":"app.attestation.auditor","label":"Auditor","latestVersionCode":26,"latestVersionName":"26","lastUpdateTimestamp":1621135714,"sha256Checksum":"LZo/7Hr/tCoSidZGAr67iz/O1nhHBdUIkpWqrEVJh7I=","deltaInfo":[{"versionCode":25,"sha256Checksum":"xUsN2tuUQWtxdrscGF8rEvpdilq6BSb6fe8xLwaviAA="},{"versionCode":24,"sha256Checksum":"HwI4GQGC1E+Xc5BVKwzSZhAOgZWG3KZzfkTYk0mO5pg="}]}
+  {"package":"org.chromium.chrome","label":"Vanadium","latestVersionCode":443009134,"latestVersionName":"90.0.4430.91","lastUpdateTimestamp":1621135714,"sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaInfo":[{"versionCode":443008234,"sha256Checksum":"0JEp1W1w6rnTpv2dWyqFI9W1ZFIHQMSF/1ZATjkdjXA="},{"versionCode":443006634,"sha256Checksum":"24XV98Qz26gn6dV44Kr8aTSJCf8oyIXxfomFGL87HGI="},{"versionCode":438910534,"sha256Checksum":"zt0pH24gFTDLSjuRFwXzP4GmH6dWLvTrmuC1xh1SxvM="}]}
   ```
   
-  This is used for bulk downloads (e.g., first-time startup or force refreshes). It contains all
-  the app metadata in the repo.
+  This is used for bulk downloads (e.g., first-time startup or force refreshes).
 
 ### Delta generation
 The jar also supports generating deltas directly for convenience:

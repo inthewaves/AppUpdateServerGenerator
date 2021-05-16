@@ -6,6 +6,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.security.DigestInputStream
 import java.security.MessageDigest
+import java.security.NoSuchAlgorithmException
 
 /**
  * Generates a digest of the file using the specified [messageDigest].
@@ -22,6 +23,15 @@ fun File.digest(messageDigest: MessageDigest): ByteArray {
         return messageDigest.digest()
     }
 }
+
+/**
+ * Generates a digest of the file using the specified [digestAlgorithm].
+ *
+ * @throws IOException if an I/O error occurs.
+ * @throws NoSuchAlgorithmException if no Provider supports a MessageDigestSpi implementation for the specified
+ * algorithm
+ */
+fun File.digest(digestAlgorithm: String): ByteArray = digest(MessageDigest.getInstance(digestAlgorithm))
 
 /**
  * Prepends the [line] to this file. The implementation creates a temporary file, appends the [line] to the temp file,

@@ -16,7 +16,7 @@ import java.util.*
  * the app the make tons of network requests, as it is more efficient to do everything in one network
  * request.
  */
-data class BulkAppMetadata(
+data class BulkAppMetadata private constructor(
     val lastUpdateTimestamp: UnixTimestamp,
     val allAppMetadata: SortedSet<AppMetadata>
 ) {

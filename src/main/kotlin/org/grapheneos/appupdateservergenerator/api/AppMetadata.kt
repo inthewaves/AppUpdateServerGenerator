@@ -25,13 +25,16 @@ data class AppMetadata(
     val label: String,
     val latestVersionCode: VersionCode,
     val latestVersionName: String,
+    val lastUpdateTimestamp: UnixTimestamp,
     val sha256Checksum: Base64String,
     /**
      * The versions that have a delta available
      */
-    val deltaAvailableVersions: Set<VersionCode>,
-    val lastUpdateTimestamp: UnixTimestamp,
+    val deltaInfo: Set<DeltaInfo>,
 ) {
+    @Serializable
+    data class DeltaInfo(val versionCode: VersionCode, val sha256Checksum: Base64String)
+
     fun writeToString() = try {
         Json.encodeToString(this)
     } catch (e: SerializationException) {

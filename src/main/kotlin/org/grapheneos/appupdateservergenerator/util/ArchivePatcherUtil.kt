@@ -41,12 +41,18 @@ object ArchivePatcherUtil {
      *
      * @throws IOException if an I/O error occurs
      */
-    fun generateDelta(oldFile: File, newFile: File, outputDeltaFile: File, outputGzip: Boolean) {
+    fun generateDelta(
+        oldFile: File,
+        newFile: File,
+        outputDeltaFile: File,
+        outputGzip: Boolean
+    ) {
         val outputStream = if (outputGzip) {
-            GZIPOutputStream(outputDeltaFile.outputStream())
+            GZIPOutputStream(outputDeltaFile.outputStream().buffered())
         } else {
-            outputDeltaFile.outputStream()
+            outputDeltaFile.outputStream().buffered()
         }
+
         outputStream.use { deltaOutputStream ->
             FileByFileV1DeltaGenerator().generateDelta(oldFile, newFile, deltaOutputStream)
             deltaOutputStream.flush()

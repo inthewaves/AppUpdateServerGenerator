@@ -21,7 +21,7 @@ import java.util.*
  *     ```
  *     where lastUpdateTimestamp is when the app's metadata was last updated.
  */
-data class AppRepoIndex constructor(
+data class AppRepoIndex private constructor(
     val timestamp: UnixTimestamp,
     val packageToVersionMap: SortedMap<String, Pair<VersionCode, UnixTimestamp>>
 ) {
