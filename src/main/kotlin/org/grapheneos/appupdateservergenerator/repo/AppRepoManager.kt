@@ -191,7 +191,6 @@ private class AppRepoManagerImpl(
         println("found the following packages: ${packageApkGroup.map { it.packageName }}")
 
         val timestampForMetadata = UnixTimestamp.now()
-
         coroutineScope {
             val deltaGenerationActor = createDeltaGenerationActor(signingPrivateKey)
 
@@ -218,15 +217,14 @@ private class AppRepoManagerImpl(
                 )
             }
 
-            println("refreshing app version index")
+            println("refreshing app index")
             AppRepoIndex.constructFromRepoFilesOnDisk(fileManager, timestampForMetadata)
-                .also { index -> println("new app version index: $index") }
                 .writeToDiskAndSign(
                     privateKey = signingPrivateKey,
                     openSSLInvoker = openSSLInvoker,
                     fileManager = fileManager
                 )
-            println("wrote new app version index at ${fileManager.appIndex}")
+            println("wrote new app index at ${fileManager.appIndex}")
 
             deltaGenerationActor.send(DeltaGenerationRequest.StartPrinting)
             deltaGenerationActor.close()
@@ -234,7 +232,7 @@ private class AppRepoManagerImpl(
 
         BulkAppMetadata.createFromDisk(fileManager, timestampForMetadata)
             .writeToDiskAndSign(fileManager, openSSLInvoker, signingPrivateKey)
-        println("generated bulk metadata file")
+        println("refreshed bulk metadata file")
     }
 
     /**
@@ -426,9 +424,8 @@ private class AppRepoManagerImpl(
                 }
             }
         }
-        val parsedApks: List<AndroidApk>
-        coroutineScope {
-            parsedApks = apks.map { apkFile ->
+        val parsedApks: List<AndroidApk> = coroutineScope {
+            apks.map { apkFile ->
                 async {
                     val parsedApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(
                         apkFile,
@@ -472,8 +469,8 @@ private class AppRepoManagerImpl(
                     parsedApk
                 }
             }.awaitAll()
-            deltaApplicationChannel.close()
         }
+        deltaApplicationChannel.close()
         validateApkSigningCertChain(newApks = null, parsedApks)
     }
 

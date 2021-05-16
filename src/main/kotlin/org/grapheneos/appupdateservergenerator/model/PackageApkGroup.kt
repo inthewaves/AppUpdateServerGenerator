@@ -59,7 +59,7 @@ sealed class PackageApkGroup private constructor(
 
     companion object {
         /**
-         * Constructs a [PackageApkGroup] list from a given list of [apkFilePaths].
+         * Constructs a [PackageApkGroup.AscendingOrder] list from a given list of [apkFilePaths].
          * This will group every APK by the package.
          */
         suspend fun fromStringPathsAscending(
