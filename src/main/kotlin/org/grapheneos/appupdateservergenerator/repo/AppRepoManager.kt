@@ -18,6 +18,7 @@ import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA_REGEX
+import org.grapheneos.appupdateservergenerator.files.TempFile
 import org.grapheneos.appupdateservergenerator.model.*
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import org.grapheneos.appupdateservergenerator.util.digest
@@ -246,6 +247,7 @@ private class AppRepoManagerImpl(
             return@withContext
         }
 
+        println("validating metadata consistency")
         val publicKey = fileManager.publicSigningKeyPem
         openSSLInvoker.verifyFileWithSignatureHeader(fileManager.appIndex, publicKey)
         openSSLInvoker.verifyFileWithSignatureHeader(fileManager.bulkAppMetadata, publicKey)
@@ -306,140 +308,160 @@ private class AppRepoManagerImpl(
         val appDirAndMetadata = packageDirs.zip(existingMetadata) { a, b -> check(a.name == b.packageName); a to b }
         coroutineScope {
             appDirAndMetadata.forEach { (appDir, metadata) ->
-                launch {
-                    val pkg = metadata.packageName
-                    if (metadata.lastUpdateTimestamp > existingIndex.timestamp) {
-                        throw AppRepoException.InvalidRepoState(
-                            "$pkg: metadata timestamp (${metadata.lastUpdateTimestamp}) " +
-                                    "> index timestamp (${existingIndex.timestamp})"
-                        )
-                    }
-                    val apks = appDir.listFiles(FileFilter { it.isFile && it.name.matches(FileManager.APK_REGEX) })
-                        ?.sortedBy { it.nameWithoutExtension }
-                        ?: throw IOException("can't list files")
+                launch { validateAppDir(AppDir(appDir), metadata, publicKey, existingIndex) }
+            }
+        }
 
-                    val latestVersionCodeFromFileName: Int = apks.last().nameWithoutExtension.toInt()
-                    if (metadata.latestVersionCode.code != latestVersionCodeFromFileName) {
-                        throw AppRepoException.InvalidRepoState(
-                            "$pkg: metadata latestVersionCode (${metadata.latestVersionCode.code}) " +
-                                    "> apk version from file name (${apks.last()})"
-                        )
-                    }
-                    val latestApk =
-                        AndroidApk.verifyApkSignatureAndBuildFromApkFile(apks.last(), aaptInvoker, apkSignerInvoker)
-                    if (metadata.latestVersionCode != latestApk.versionCode) {
-                        throw AppRepoException.InvalidRepoState(
-                            "$pkg: latest APK versionCode in manifest mismatches with filename"
-                        )
-                    }
-                    val iconFile = fileManager.getAppIconFile(latestApk.packageName)
-                    if (iconFile.exists()) {
-                        val tempIconFile = Files.createTempFile("icon", ".png").toFile()
-                            .apply { deleteOnExit() }
-                        try {
-                            aaptInvoker.getApplicationIconFromApk(
-                                latestApk.apkFile,
-                                AAPT2Invoker.Density.MEDIUM,
-                                tempIconFile
-                            )
-                            val iconFileDigest = iconFile.digest(MessageDigest.getInstance("SHA-256"))
-                            val parsedIconFileDigest = tempIconFile.digest(MessageDigest.getInstance("SHA-256"))
-                            if (!iconFileDigest.contentEquals(parsedIconFileDigest)) {
-                                throw AppRepoException.InvalidRepoState(
-                                    "$pkg: icon from $latestApk doesn't match current icon in repo $iconFile"
-                                )
-                            }
-                        } finally {
-                            tempIconFile.delete()
-                        }
-                    }
+        println("repo successfully validated")
+    }
 
-                    val deltaApplicationChannel = actor<Triple<AndroidApk, File, AndroidApk>> {
-                        val deltaApplicationSemaphore = Semaphore(4)
-                        coroutineScope {
-                            for ((baseFile, deltaFile, expectedFile) in channel) {
-                                launch {
-                                    deltaApplicationSemaphore.withPermit {
-                                        println(
-                                            "${baseFile.packageName}: validating delta from ${baseFile.versionCode} to " +
-                                                    "${expectedFile.versionCode} using ${deltaFile.name}"
-                                        )
-                                        val tempOutputFile = Files.createTempFile("deltaapply", ".apk").toFile()
-                                            .apply { deleteOnExit() }
-                                        try {
-                                            ArchivePatcherUtil.applyDelta(
-                                                baseFile.apkFile,
-                                                deltaFile,
-                                                tempOutputFile,
-                                                isDeltaGzipped = true
-                                            )
-                                            val outputDigest =
-                                                tempOutputFile.digest(MessageDigest.getInstance("SHA-256"))
-                                            val expectedDigest =
-                                                expectedFile.apkFile.digest(MessageDigest.getInstance("SHA-256"))
-                                            if (!outputDigest.contentEquals(expectedDigest)) {
-                                                throw AppRepoException.InvalidRepoState(
-                                                    "delta application did not produce expected target file " +
-                                                            "(old: $baseFile, delta: $deltaFile, " +
-                                                            "expected: ${expectedFile.apkFile})"
-                                                )
-                                            }
-                                        } catch (e: Throwable) {
-                                            println(
-                                                "${latestApk.packageName}: error occurred when trying to validate deltas" +
-                                                        "(old: $baseFile, delta: $deltaFile, " +
-                                                        "expected: ${expectedFile.apkFile})"
-                                            )
-                                            throw e
-                                        } finally {
-                                            tempOutputFile.delete()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+    private suspend fun validateAppDir(
+        appDir: AppDir,
+        metadata: AppMetadata,
+        publicKey: File,
+        existingIndex: AppRepoIndex,
+    ): Unit = coroutineScope {
+        require(appDir.packageName == metadata.packageName)
 
-                    coroutineScope {
-                        apks.forEach { apkFile ->
-                            launch {
-                                val parsedApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(
-                                    apkFile,
-                                    aaptInvoker,
-                                    apkSignerInvoker
-                                )
-                                if (parsedApk.versionCode.code != apkFile.nameWithoutExtension.toInt()) {
-                                    throw AppRepoException.InvalidRepoState(
-                                        "$pkg: mismatch between filename version code and version from manifest ($apkFile)"
-                                    )
-                                }
-                                if (parsedApk.versionCode > metadata.latestVersionCode) {
-                                    throw AppRepoException.InvalidRepoState(
-                                        "$pkg: APK ($apkFile) exceeds the latest version code from metadata"
-                                    )
-                                }
-                                if (parsedApk.versionCode in metadata.deltaAvailableVersions) {
-                                    val deltaFile = fileManager.getDeltaFileForApp(
-                                        metadata.packageName,
-                                        parsedApk.versionCode,
-                                        metadata.latestVersionCode
-                                    )
-                                    if (!deltaFile.exists()) {
-                                        throw AppRepoException.InvalidRepoState(
-                                            "$pkg: missing a delta file from ${parsedApk.versionCode} " +
-                                                    "to ${metadata.latestVersionCode}"
-                                        )
-                                    }
-                                    deltaApplicationChannel.send(Triple(parsedApk, deltaFile, latestApk))
-                                }
-                            }
-                        }
-                    }
-                    deltaApplicationChannel.close()
+        val metadataFile = fileManager.getLatestAppMetadata(metadata.packageName)
+        openSSLInvoker.verifyFileWithSignatureHeader(metadataFile, publicKey)
+        val pkg = metadata.packageName
+        if (metadata.lastUpdateTimestamp > existingIndex.timestamp) {
+            throw AppRepoException.InvalidRepoState(
+                "$pkg: metadata timestamp (${metadata.lastUpdateTimestamp}) " +
+                        "> index timestamp (${existingIndex.timestamp})"
+            )
+        }
+        val apks = appDir.listApkFilesUnsorted().sortedBy { it.nameWithoutExtension }
+        if (apks.isEmpty()) {
+            throw AppRepoException.InvalidRepoState("can't have an app directory with no APKs in it")
+        }
+
+        val latestVersionCodeFromFileName: Int = apks.last().nameWithoutExtension.toInt()
+        if (metadata.latestVersionCode.code != latestVersionCodeFromFileName) {
+            throw AppRepoException.InvalidRepoState(
+                "$pkg: metadata latestVersionCode (${metadata.latestVersionCode.code}) " +
+                        "> apk version from file name (${apks.last()})"
+            )
+        }
+        val latestApk =
+            AndroidApk.verifyApkSignatureAndBuildFromApkFile(apks.last(), aaptInvoker, apkSignerInvoker)
+        if (metadata.latestVersionCode != latestApk.versionCode) {
+            throw AppRepoException.InvalidRepoState(
+                "$pkg: latest APK versionCode in manifest mismatches with filename"
+            )
+        }
+        val latestApkDigest = Base64String.fromBytes(
+            latestApk.apkFile.digest(MessageDigest.getInstance("SHA-256"))
+        )
+        if (metadata.sha256Checksum != latestApkDigest) {
+            throw AppRepoException.InvalidRepoState(
+                "$pkg: sha256 checksum from latest apk file doesn't match the checksum in the metadata"
+            )
+        }
+        val iconFile = fileManager.getAppIconFile(latestApk.packageName)
+        if (iconFile.exists()) {
+            TempFile.create("icon").useFile { tempIconFile ->
+                aaptInvoker.getApplicationIconFromApk(
+                    latestApk.apkFile,
+                    AAPT2Invoker.Density.MEDIUM,
+                    tempIconFile
+                )
+                val iconFileDigest = iconFile.digest(MessageDigest.getInstance("SHA-256"))
+                val parsedIconFileDigest = tempIconFile.digest(MessageDigest.getInstance("SHA-256"))
+                if (!iconFileDigest.contentEquals(parsedIconFileDigest)) {
+                    throw AppRepoException.InvalidRepoState(
+                        "$pkg: icon from $latestApk doesn't match current icon in repo $iconFile"
+                    )
                 }
             }
         }
-        println("repo successfully validated")
+        val deltaApplicationChannel = actor<Triple<AndroidApk, File, AndroidApk>> {
+            val deltaApplicationSemaphore = Semaphore(4)
+            coroutineScope {
+                for ((baseFile, deltaFile, expectedFile) in channel) {
+                    launch {
+                        deltaApplicationSemaphore.withPermit {
+                            println(
+                                "${baseFile.packageName}: validating delta from version codes " +
+                                        "${baseFile.versionCode.code} to " +
+                                        "${expectedFile.versionCode.code} using ${deltaFile.name}"
+                            )
+                            val tempOutputFile = Files.createTempFile("deltaapply", ".apk").toFile()
+                                .apply { deleteOnExit() }
+                            try {
+                                ArchivePatcherUtil.applyDelta(
+                                    baseFile.apkFile,
+                                    deltaFile,
+                                    tempOutputFile,
+                                    isDeltaGzipped = true
+                                )
+                                val outputDigest =
+                                    tempOutputFile.digest(MessageDigest.getInstance("SHA-256"))
+                                val expectedDigest =
+                                    expectedFile.apkFile.digest(MessageDigest.getInstance("SHA-256"))
+                                if (!outputDigest.contentEquals(expectedDigest)) {
+                                    throw AppRepoException.InvalidRepoState(
+                                        "delta application did not produce expected target file " +
+                                                "(old: $baseFile, delta: $deltaFile, " +
+                                                "expected: ${expectedFile.apkFile})"
+                                    )
+                                }
+                            } catch (e: Throwable) {
+                                println(
+                                    "${latestApk.packageName}: error occurred when trying to validate deltas" +
+                                            "(old: $baseFile, delta: $deltaFile, " +
+                                            "expected: ${expectedFile.apkFile})"
+                                )
+                                throw e
+                            } finally {
+                                tempOutputFile.delete()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val parsedApks: List<AndroidApk>
+        coroutineScope {
+            parsedApks = apks.map { apkFile ->
+                async {
+                    val parsedApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(
+                        apkFile,
+                        aaptInvoker,
+                        apkSignerInvoker
+                    )
+                    if (parsedApk.versionCode.code != apkFile.nameWithoutExtension.toInt()) {
+                        throw AppRepoException.InvalidRepoState(
+                            "$pkg: mismatch between filename version code and version from manifest ($apkFile)"
+                        )
+                    }
+                    if (parsedApk.versionCode > metadata.latestVersionCode) {
+                        throw AppRepoException.InvalidRepoState(
+                            "$pkg: APK ($apkFile) exceeds the latest version code from metadata"
+                        )
+                    }
+                    if (parsedApk.versionCode in metadata.deltaAvailableVersions) {
+                        val deltaFile = fileManager.getDeltaFileForApp(
+                            metadata.packageName,
+                            parsedApk.versionCode,
+                            metadata.latestVersionCode
+                        )
+                        if (!deltaFile.exists()) {
+                            throw AppRepoException.InvalidRepoState(
+                                "$pkg: missing a delta file from ${parsedApk.versionCode} " +
+                                        "to ${metadata.latestVersionCode}"
+                            )
+                        }
+                        deltaApplicationChannel.send(Triple(parsedApk, deltaFile, latestApk))
+                    }
+
+                    parsedApk
+                }
+            }.awaitAll()
+            deltaApplicationChannel.close()
+        }
+        validateApkSigningCertChain(newApks = null, parsedApks)
     }
 
     /**
@@ -479,7 +501,7 @@ private class AppRepoManagerImpl(
         validateOrCreateDirectories(appDir, apksToInsert)
 
         val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = true)
-        validateApkSigningCertChain(newApks = apksToInsert, currentApks = sortedPreviousApks)
+        validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks.sortedApks)
 
         apksToInsert.sortedApks.forEach { apkToInsert ->
             val newApkFile = File(appDir.dir, "${apkToInsert.versionCode.code}.apk")
@@ -578,12 +600,12 @@ private class AppRepoManagerImpl(
      * @throws AppRepoException.ApkSigningCertMismatch
      */
     private fun validateApkSigningCertChain(
-        newApks: PackageApkGroup?,
-        currentApks: PackageApkGroup
+        newApks: Iterable<AndroidApk>?,
+        currentApks: Iterable<AndroidApk>
     ) {
         var currentSetIntersection: Set<HexString>? = null
-        currentApks.sortedApks.asSequence()
-            .apply { newApks?.let { plus(newApks.sortedApks) } }
+        currentApks.asSequence()
+            .apply { newApks?.let { plus(newApks) } }
             .forEach { currentApk ->
                 currentSetIntersection = currentSetIntersection
                     ?.let { currentApk.certificates intersect it }
