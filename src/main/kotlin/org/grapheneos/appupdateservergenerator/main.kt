@@ -11,10 +11,10 @@ import kotlin.system.exitProcess
 @OptIn(ExperimentalCli::class)
 fun main(args: Array<String>) {
     // if (!DefaultDeflateCompatibilityWindow().isCompatible) {
-        // System.err.println("Warning: zlib not compatible on this system")
-        // exitProcess(1)
+    //     System.err.println("Warning: zlib not compatible on this system")
     // }
-    val parser = ArgParser(programName = "app-update-server-generator")
+
+    val parser = ArgParser(programName = "appservergen")
     parser.subcommands(GenerateDeltaCommand(), ApplyDeltaCommand(), InsertApkCommand(), ValidateCommand())
     // force the help command to show up if the user doesn't supply arguments
     parser.parse(if (args.isNotEmpty()) args else arrayOf("-h"))

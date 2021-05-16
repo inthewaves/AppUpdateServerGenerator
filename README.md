@@ -25,7 +25,7 @@ To insert an APK (or multiple APKs) into the repo, run this command after buildi
 `./gradlew build`:
 
 ```bash
-$ ./app-update-server-generator insert-apk [OPTIONS] -k decrypted_signing_key APKS
+$ ./appservergen insert-apk [OPTIONS] -k decrypted_signing_key APKS
 ```
 
 This handles metadata and delta generation. If the repository directories don't already exist, the
@@ -37,7 +37,7 @@ To validate the repository (i.e. make sure the metadata is consistent, the signa
 metadata actually verify, the APK information is correct, and the deltas apply correctly), run
 
 ```bash
-$ ./app-update-server-generator validate [OPTIONS]
+$ ./appservergen validate [OPTIONS]
 ```
 
 #### Example of repository structure
@@ -141,8 +141,8 @@ $ ./app-update-server-generator validate [OPTIONS]
 ### Delta generation
 The jar also supports generating deltas directly for convenience:
 ```bash
-$ ./app-update-server-generator generate-delta [OPTIONS] OLDFILE NEWFILE OUTPUTDELTA
-$ ./app-update-server-generator apply-delta [OPTIONS] OLDFILE DELTAFILE NEWFILE
+$ ./appservergen generate-delta [OPTIONS] OLDFILE NEWFILE OUTPUTDELTA
+$ ./appservergen apply-delta [OPTIONS] OLDFILE DELTAFILE NEWFILE
 ```
 See the help option `-h` for `OPTIONS`.
 
