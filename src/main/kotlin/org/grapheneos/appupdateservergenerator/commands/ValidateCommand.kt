@@ -26,7 +26,7 @@ class ValidateCommand : Subcommand(name = "validate", actionDescription = "Valid
     private val openSSLInvoker = OpenSSLInvoker()
 
     private fun printErrorAndExit(errorMessage: String?, cause: Throwable? = null): Nothing {
-        errorMessage?.let { println("error: $it") } ?: println("error encountered when trying to insert APK(s)")
+        errorMessage?.let { println("error: $it") } ?: println("error during repo validation")
         cause?.printStackTrace()
         exitProcess(1)
     }

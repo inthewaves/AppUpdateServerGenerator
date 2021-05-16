@@ -17,7 +17,6 @@ import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
-import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA_REGEX
 import org.grapheneos.appupdateservergenerator.files.TempFile
 import org.grapheneos.appupdateservergenerator.model.*
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
@@ -51,7 +50,8 @@ interface AppRepoManager {
 
     /**
      * Validates the entire repository to ensure that the metadata is consistent with the actual files in the repo,
-     * and that the APK details are correct, and that the deltas actually apply to get the target files.
+     * and that the APK details are correct, and that the deltas actually apply to get the target files. This also
+     * checks the signatures for the metadata using [FileManager.publicSigningKeyPem].
      *
      * @throws AppRepoException
      * @throws IOException
@@ -334,7 +334,7 @@ private class AppRepoManagerImpl(
         }
         val apks = appDir.listApkFilesUnsorted().sortedBy { it.nameWithoutExtension }
         if (apks.isEmpty()) {
-            throw AppRepoException.InvalidRepoState("can't have an app directory with no APKs in it")
+            throw AppRepoException.InvalidRepoState("$pkg: app directory with no APKs in it")
         }
 
         val latestVersionCodeFromFileName: Int = apks.last().nameWithoutExtension.toInt()
@@ -377,6 +377,33 @@ private class AppRepoManagerImpl(
             } else if (iconFile.exists()) {
                 println("warning: $pkg has icon $iconFile but extraction of icon failed")
             }
+        }
+
+        val versionsToDeltaMap: Map<Pair<VersionCode, VersionCode>, File> = appDir.listDeltaFilesUnsortedMappedToVersion()
+        val baseDeltaVersionsFromDirFiles: List<VersionCode> = versionsToDeltaMap
+            .map { (versionPair, file)  ->
+                val (baseVersion, targetVersion) = versionPair
+                if (targetVersion != metadata.latestVersionCode) {
+                    throw AppRepoException.InvalidRepoState(
+                        "$pkg: delta file ${file.name} doesn't target latest version ${metadata.latestVersionCode.code}"
+                    )
+                }
+
+                baseVersion
+            }
+            .sorted()
+        val baseDeltaVersionsToFileMapFromMetadata: Map<VersionCode, AppMetadata.DeltaInfo> =
+            metadata.deltaInfo.associateBy { it.versionCode }
+
+        if (baseDeltaVersionsToFileMapFromMetadata.keys.sorted() != baseDeltaVersionsFromDirFiles) {
+            val problemVersions = (baseDeltaVersionsToFileMapFromMetadata.keys symmetricDifference
+                    baseDeltaVersionsFromDirFiles)
+                .map { it.code }
+
+            throw AppRepoException.InvalidRepoState(
+                "$pkg: mismatch between delta files in repo and delta files in metadata for these base versions: " +
+                        "$problemVersions"
+            )
         }
 
         /** Accepts a triple of the form (baseFile, deltaFile, expectedFile) */
@@ -442,7 +469,9 @@ private class AppRepoManagerImpl(
                             "$pkg: APK ($apkFile) exceeds the latest version code from metadata"
                         )
                     }
-                    if (parsedApk.versionCode in metadata.deltaInfo.map { it.versionCode }) {
+                    val x = linkedMapOf<String, Int>()
+
+                    if (parsedApk.versionCode in baseDeltaVersionsToFileMapFromMetadata.keys) {
                         val deltaFile = fileManager.getDeltaFileForApp(
                             metadata.packageName,
                             parsedApk.versionCode,
@@ -454,7 +483,7 @@ private class AppRepoManagerImpl(
                                         "to ${metadata.latestVersionCode}"
                             )
                         }
-                        val deltaInfo = metadata.deltaInfo.find { it.versionCode == parsedApk.versionCode }
+                        val deltaInfo = baseDeltaVersionsToFileMapFromMetadata[parsedApk.versionCode]
                             ?: error("impossible")
                         val deltaDigest = Base64String.fromBytes(deltaFile.digest("SHA-256"))
                         if (deltaDigest != deltaInfo.sha256Checksum) {
@@ -564,7 +593,7 @@ private class AppRepoManagerImpl(
      * @throws IOException if unable to delete deltas
      */
     private fun deleteAllDeltas(appDir: AppDir) {
-        appDir.dir.listFiles(FileFilter { it.name.matches(DELTA_REGEX) })?.forEach { oldDelta ->
+        appDir.listDeltaFilesUnsorted().forEach { oldDelta ->
             println("deleting outdated delta ${oldDelta.name}")
             if (!oldDelta.delete()) {
                 throw IOException("failed to delete $oldDelta")
