@@ -469,7 +469,6 @@ private class AppRepoManagerImpl(
                             "$pkg: APK ($apkFile) exceeds the latest version code from metadata"
                         )
                     }
-                    val x = linkedMapOf<String, Int>()
 
                     if (parsedApk.versionCode in baseDeltaVersionsToFileMapFromMetadata.keys) {
                         val deltaFile = fileManager.getDeltaFileForApp(
