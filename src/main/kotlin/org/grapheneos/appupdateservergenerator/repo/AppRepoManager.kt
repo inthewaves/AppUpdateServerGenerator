@@ -26,7 +26,6 @@ import java.io.File
 import java.io.FileFilter
 import java.io.IOException
 import java.lang.Integer.min
-import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -252,9 +251,9 @@ private class AppRepoManagerImpl(
         openSSLInvoker.verifyFileWithSignatureHeader(fileManager.appIndex, publicKey)
         openSSLInvoker.verifyFileWithSignatureHeader(fileManager.bulkAppMetadata, publicKey)
 
-        val existingMetadata = AppMetadata.getAllAppMetadataFromDisk(fileManager)
+        val metadataFromDirs = AppMetadata.getAllAppMetadataFromDisk(fileManager)
         val packagesFromDirectoryListing = packageDirs.mapTo(sortedSetOf()) { it.name }
-        val packagesFromAllMetadataOnDisk = existingMetadata.mapTo(sortedSetOf()) { it.packageName }
+        val packagesFromAllMetadataOnDisk = metadataFromDirs.mapTo(sortedSetOf()) { it.packageName }
         if (packagesFromDirectoryListing != packagesFromAllMetadataOnDisk) {
             val problemDirectories = packagesFromDirectoryListing symmetricDifference packagesFromAllMetadataOnDisk
             throw AppRepoException.InvalidRepoState("some directories are not valid app directories: $problemDirectories")
@@ -263,49 +262,28 @@ private class AppRepoManagerImpl(
         val existingIndex = AppRepoIndex.readFromExistingIndexFile(fileManager)
         val packagesFromExistingIndex = existingIndex.packageToVersionMap.mapTo(sortedSetOf()) { it.key }
         if (packagesFromExistingIndex != packagesFromAllMetadataOnDisk) {
-            val errorMessage = buildString {
-                val intersection = packagesFromExistingIndex intersect packagesFromAllMetadataOnDisk
-                (packagesFromExistingIndex subtract intersection)
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { packagesNotInDirs ->
-                        appendLine("index contains packages for which there are no directories for: " +
-                                "$packagesNotInDirs")
-                     }
-                (packagesFromAllMetadataOnDisk subtract intersection)
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { packagesNotInIndex ->
-                        appendLine("app directory has packages not included in the index: " +
-                                "$packagesNotInIndex")
-                    }
-            }.trimEnd('\n')
-            throw AppRepoException.InvalidRepoState(errorMessage)
+            throwExceptionWithMissingIntersectionElements(
+                firstPackages = packagesFromExistingIndex,
+                missingFromFirstError = "app directory has packages not included in the index",
+                secondPackages = packagesFromAllMetadataOnDisk,
+                missingFromSecondError = "index contains packages for which there are no directories for"
+            )
         }
 
         val bulkAppMetadata = BulkAppMetadata.readFromExistingFile(fileManager).allAppMetadata
-        if (bulkAppMetadata != existingMetadata) {
-            val errorMessage = buildString {
-                val intersection = bulkAppMetadata intersect existingMetadata
-                (bulkAppMetadata subtract intersection).takeIf { it.isNotEmpty() }?.let {
-                    appendLine(
-                        "app directory missing metadata for a package included in bulk app metadata file: " +
-                                "${it.map { set -> set.packageName }}"
-
-                    )
-                }
-                (existingMetadata subtract intersection).takeIf { it.isNotEmpty() }?.let {
-                    appendLine(
-                        "bulk app metadata file doesn't include packages: " +
-                                "${it.map { set -> set.packageName }}"
-                    )
-                }
-            }.trimEnd('\n')
-            throw AppRepoException.InvalidRepoState(errorMessage)
+        if (bulkAppMetadata != metadataFromDirs) {
+            throwExceptionWithMissingIntersectionElements(
+                firstPackages = bulkAppMetadata.map { it.packageName},
+                missingFromFirstError = "bulk app metadata file doesn't include packages",
+                secondPackages = metadataFromDirs.map { it.packageName },
+                missingFromSecondError = "missing latest.txt metadata for packages included in bulk app metadata file"
+            )
         }
 
-        check(packageDirs.size == existingMetadata.size)
+        check(packageDirs.size == metadataFromDirs.size)
         println("validating details, APKs, and delta files of " +
                 "${packageDirs.size} ${if (packageDirs.size == 1) "app" else "apps"}")
-        val appDirAndMetadata = packageDirs.zip(existingMetadata) { a, b -> check(a.name == b.packageName); a to b }
+        val appDirAndMetadata = packageDirs.zip(metadataFromDirs) { a, b -> check(a.name == b.packageName); a to b }
         coroutineScope {
             appDirAndMetadata.forEach { (appDir, metadata) ->
                 launch { validateAppDir(AppDir(appDir), metadata, publicKey, existingIndex) }
@@ -313,6 +291,24 @@ private class AppRepoManagerImpl(
         }
 
         println("repo successfully validated")
+    }
+
+    private fun throwExceptionWithMissingIntersectionElements(
+        firstPackages: Iterable<String>,
+        missingFromFirstError: String,
+        secondPackages: Iterable<String>,
+        missingFromSecondError: String
+    ): Nothing {
+        val errorMessage = buildString {
+            val intersection = firstPackages intersect secondPackages
+            (firstPackages subtract intersection)
+                .takeIf { it.isNotEmpty() }
+                ?.let { appendLine("$missingFromSecondError: $it") }
+            (secondPackages subtract intersection)
+                .takeIf { it.isNotEmpty() }
+                ?.let { appendLine("$missingFromFirstError: $it") }
+        }.trimEnd('\n')
+        throw AppRepoException.InvalidRepoState(errorMessage)
     }
 
     private suspend fun validateAppDir(
@@ -413,39 +409,7 @@ private class AppRepoManagerImpl(
                 for ((baseFile, deltaFile, expectedFile) in channel) {
                     launch {
                         deltaApplicationSemaphore.withPermit {
-                            println(
-                                "${baseFile.packageName}: validating delta from version codes " +
-                                        "${baseFile.versionCode.code} to " +
-                                        "${expectedFile.versionCode.code} using ${deltaFile.name}"
-                            )
-                            val tempOutputFile = Files.createTempFile("deltaapply", ".apk").toFile()
-                                .apply { deleteOnExit() }
-                            try {
-                                ArchivePatcherUtil.applyDelta(
-                                    baseFile.apkFile,
-                                    deltaFile,
-                                    tempOutputFile,
-                                    isDeltaGzipped = true
-                                )
-                                val outputDigest = tempOutputFile.digest("SHA-256")
-                                val expectedDigest = expectedFile.apkFile.digest("SHA-256")
-                                if (!outputDigest.contentEquals(expectedDigest)) {
-                                    throw AppRepoException.InvalidRepoState(
-                                        "delta application did not produce expected target file " +
-                                                "(old: $baseFile, delta: $deltaFile, " +
-                                                "expected: ${expectedFile.apkFile})"
-                                    )
-                                }
-                            } catch (e: Throwable) {
-                                println(
-                                    "${latestApk.packageName}: error occurred when trying to validate deltas" +
-                                            "(old: $baseFile, delta: $deltaFile, " +
-                                            "expected: ${expectedFile.apkFile})"
-                                )
-                                throw e
-                            } finally {
-                                tempOutputFile.delete()
-                            }
+                            applyDeltaAndValidate(baseFile, deltaFile, expectedFile)
                         }
                     }
                 }
@@ -500,6 +464,45 @@ private class AppRepoManagerImpl(
         }
         deltaApplicationChannel.close()
         validateApkSigningCertChain(newApks = null, parsedApks)
+    }
+
+    private fun applyDeltaAndValidate(
+        baseFile: AndroidApk,
+        deltaFile: File,
+        expectedFile: AndroidApk,
+    ) {
+        println(
+            "${baseFile.packageName}: validating delta from version codes " +
+                    "${baseFile.versionCode.code} to " +
+                    "${expectedFile.versionCode.code} using ${deltaFile.name}"
+        )
+
+        TempFile.create("deltaapply", ".apk").useFile { tempOutputFile ->
+            try {
+                ArchivePatcherUtil.applyDelta(
+                    baseFile.apkFile,
+                    deltaFile,
+                    tempOutputFile,
+                    isDeltaGzipped = true
+                )
+                val outputDigest = tempOutputFile.digest("SHA-256")
+                val expectedDigest = expectedFile.apkFile.digest("SHA-256")
+                if (!outputDigest.contentEquals(expectedDigest)) {
+                    throw AppRepoException.InvalidRepoState(
+                        "delta application did not produce expected target file " +
+                                "(old: $baseFile, delta: $deltaFile, " +
+                                "expected: ${expectedFile.apkFile})"
+                    )
+                }
+            } catch (e: Throwable) {
+                println(
+                    "${baseFile.packageName}: error occurred when trying to validate deltas" +
+                            "(old: $baseFile, delta: $deltaFile, " +
+                            "expected: ${expectedFile.apkFile})"
+                )
+                throw e
+            }
+        }
     }
 
     /**
@@ -558,6 +561,7 @@ private class AppRepoManagerImpl(
                     maxVersionApk.apkFile.digest(MessageDigest.getInstance("SHA-256"))
                 ),
                 // This will be filled in later.
+                // Deltas are generated asynchronously
                 deltaInfo = emptySet(),
                 lastUpdateTimestamp = timestampForMetadata
             )
@@ -738,9 +742,9 @@ sealed class AppRepoException : Exception {
     }
     class InvalidRepoState : AppRepoException {
         constructor(message: String) : super(message)
-        constructor(message: String, cause: Throwable) : super(message)
+        constructor(message: String, cause: Throwable) : super(message, cause)
     }
     class AppDetailParseFailed : AppRepoException {
-        constructor(message: String, cause: Throwable) : super(message)
+        constructor(message: String, cause: Throwable) : super(message, cause)
     }
 }

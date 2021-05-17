@@ -11,7 +11,7 @@ value class TempFile private constructor(val tmpFile: File): Closeable {
             TempFile(Files.createTempFile(prefix, suffix).toFile().apply { deleteOnExit() })
     }
 
-    inline fun <T> useFile(block: (File) -> T): T = use { block(it.tmpFile) }
+    inline fun <T> useFile(block: (File) -> T): T = this.use { block(it.tmpFile) }
 
     override fun close() {
         try {
