@@ -22,6 +22,7 @@ import java.util.*
 data class AppMetadata(
     @SerialName("package")
     val packageName: String,
+    val groupId: String? = null,
     val label: String,
     val latestVersionCode: VersionCode,
     val latestVersionName: String,

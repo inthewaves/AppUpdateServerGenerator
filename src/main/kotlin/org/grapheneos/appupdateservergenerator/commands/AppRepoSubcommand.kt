@@ -41,7 +41,7 @@ abstract class AppRepoSubcommand(name: String, actionDescription: String) : Subc
         )
     }
 
-    protected fun printErrorAndExit(errorMessage: String?, cause: Throwable? = null): Nothing {
+    protected open fun printErrorAndExit(errorMessage: String?, cause: Throwable? = null): Nothing {
         errorMessage?.let { println("error: $it") } ?: println("error during repo validation")
         cause?.printStackTrace()
         exitProcess(1)

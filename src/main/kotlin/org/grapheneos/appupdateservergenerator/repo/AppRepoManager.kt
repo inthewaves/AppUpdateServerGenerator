@@ -27,6 +27,7 @@ import java.io.FileFilter
 import java.io.IOException
 import java.lang.Integer.min
 import java.security.MessageDigest
+import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -56,6 +57,33 @@ interface AppRepoManager {
      * @throws IOException
      */
     suspend fun validateRepo()
+
+    /**
+     * Sets the groupId for the packages / apps to the given [groupId].
+     *
+     * If [createNewGroupIfNotExists] is false and the group does not already exist (i.e. it's not being used), the
+     * function will return an error.
+     */
+    suspend fun setGroupForPackages(
+        groupId: String,
+        packages: List<String>,
+        signingPrivateKey: PKCS8PrivateKeyFile,
+        createNewGroupIfNotExists: Boolean
+    )
+
+    /**
+     * Removes the group IDs from the given [packages]
+     */
+    suspend fun removeGroupFromPackages(packages: List<String>, signingPrivateKey: PKCS8PrivateKeyFile)
+
+    /**
+     * Deletes the [groupId] from the repository.
+     */
+    suspend fun deleteGroup(groupId: String, signingPrivateKey: PKCS8PrivateKeyFile)
+
+    suspend fun printAllPackages()
+
+    suspend fun printAllGroups()
 }
 
 fun AppRepoManager(
@@ -86,153 +114,7 @@ private class AppRepoManagerImpl(
     private val executorService: ExecutorService = Executors.newFixedThreadPool(64)
     private val repoDispatcher = executorService.asCoroutineDispatcher()
 
-    private sealed class DeltaGenerationRequest {
-        class GenForAppDir(val appDir: AppDir) : DeltaGenerationRequest()
-        object StartPrinting : DeltaGenerationRequest()
-    }
 
-    private fun CoroutineScope.createDeltaGenerationActor(signingPrivateKey: PKCS8PrivateKeyFile) =
-        actor<DeltaGenerationRequest>(capacity = Channel.UNLIMITED) {
-            val failedDeltaAppsMutex = Mutex()
-            val failedDeltaApps = ArrayList<AppDir>()
-            val anyDeltasGenerated = AtomicBoolean(false)
-
-            val printMessageChannel = Channel<String>(capacity = Channel.UNLIMITED)
-            val printMessageJob = launch(start = CoroutineStart.LAZY) {
-                for (printMessage in printMessageChannel) {
-                    println(printMessage)
-                }
-            }
-
-            coroutineScope {
-                for (request in channel) {
-                    if (request is DeltaGenerationRequest.GenForAppDir) {
-                        val appDir = request.appDir
-                        launch {
-                            try {
-                                val deltaAvailableVersions: List<AppMetadata.DeltaInfo>
-
-                                val deltaGenTime =
-                                    measureTimeMillis {
-                                        deltaAvailableVersions = regenerateDeltas(
-                                            appDir,
-                                            printMessageChannel = printMessageChannel
-                                        )
-                                    }
-                                if (deltaAvailableVersions.isNotEmpty()) {
-                                    printMessageChannel.trySend(
-                                        "took $deltaGenTime ms to generate ${deltaAvailableVersions.size} deltas " +
-                                                "for ${appDir.packageName}. " +
-                                                "Versions with deltas available: " +
-                                                "${deltaAvailableVersions.map { it.versionCode.code }}"
-                                    )
-                                    anyDeltasGenerated.set(true)
-                                }
-
-                                // Update the metadata with the updated delta info
-                                AppMetadata.getMetadataFromDiskForPackage(appDir.packageName, fileManager)
-                                    .copy(deltaInfo = deltaAvailableVersions.toSet())
-                                    .writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
-                                println("updated metadata for ${appDir.packageName} with delta information")
-                            } catch (e: Throwable) {
-                                println("error during delta generation for ${appDir.packageName}")
-                                e.printStackTrace()
-                                failedDeltaAppsMutex.withLock { failedDeltaApps.add(appDir) }
-                            }
-                        }
-                    } else {
-                        check(request is DeltaGenerationRequest.StartPrinting)
-                        printMessageJob.start()
-                    }
-                }
-            }
-            printMessageChannel.close()
-            printMessageJob.join()
-
-            if (anyDeltasGenerated.get()) {
-                if (failedDeltaApps.isEmpty()) {
-                    println("delta generation successful")
-                } else {
-                    println("delta generation complete, but some failed to generate: ${failedDeltaApps.map { it.packageName }}")
-                }
-            }
-        }
-
-    /**
-     * Inserts APKs from the provided [apkFilePaths]. The APKs will be first validated (ensure that they
-     * verify with apksigner and that the contents of their manifests can be parsed).
-     * 
-     * @throws AppRepoException
-     * @throws IOException
-     */
-    override suspend fun insertApksFromStringPaths(
-        apkFilePaths: Collection<String>,
-        signingPrivateKey: PKCS8PrivateKeyFile
-    ): Unit = withContext(repoDispatcher) {
-        validatePublicKeyInRepo(signingPrivateKey)
-
-        println("parsing ${apkFilePaths.size} APKs")
-        // If there are multiple versions of the same package passed into the command line, we insert all of those
-        // APKs together.
-        val packageApkGroup: List<PackageApkGroup.AscendingOrder>
-        val timeTaken = measureTimeMillis {
-            packageApkGroup = try {
-                PackageApkGroup.fromStringPathsAscending(
-                    apkFilePaths = apkFilePaths,
-                    aaptInvoker = aaptInvoker,
-                    apkSignerInvoker = apkSignerInvoker
-                )
-            } catch (e: IOException) {
-                throw AppRepoException.AppDetailParseFailed("error: unable to to get Android app details", e)
-            }
-        }
-        println("took $timeTaken ms to parse APKs")
-        println("found the following packages: ${packageApkGroup.map { it.packageName }}")
-
-        val timestampForMetadata = UnixTimestamp.now()
-        coroutineScope {
-            val deltaGenerationActor = createDeltaGenerationActor(signingPrivateKey)
-
-            packageApkGroup.forEach { apkInsertionGroup ->
-                val nowInsertingString = "Now inserting ${apkInsertionGroup.packageName}"
-                val versionCodeString = "Version codes: ${apkInsertionGroup.sortedApks.map { it.versionCode.code }}"
-                val width = max(versionCodeString.length, nowInsertingString.length)
-                println(
-                    """
-                        ${"=".repeat(width)}
-                        $nowInsertingString
-                        $versionCodeString
-                        ${"=".repeat(width)}
-                    """.trimIndent()
-                )
-
-                insertApkGroupForSinglePackage(
-                    apksToInsert = apkInsertionGroup,
-                    signingPrivateKey = signingPrivateKey,
-                    timestampForMetadata = timestampForMetadata
-                )
-                deltaGenerationActor.send(
-                    DeltaGenerationRequest.GenForAppDir(fileManager.getDirForApp(apkInsertionGroup.packageName))
-                )
-            }
-
-            println("refreshing app index")
-            AppRepoIndex.constructFromRepoFilesOnDisk(fileManager, timestampForMetadata)
-                .writeToDiskAndSign(
-                    privateKey = signingPrivateKey,
-                    openSSLInvoker = openSSLInvoker,
-                    fileManager = fileManager
-                )
-            println("wrote new app index at ${fileManager.appIndex}")
-
-            deltaGenerationActor.send(DeltaGenerationRequest.StartPrinting)
-            deltaGenerationActor.close()
-        }
-
-        BulkAppMetadata.createFromDisk(fileManager, timestampForMetadata)
-            .writeToDiskAndSign(fileManager, openSSLInvoker, signingPrivateKey)
-        println("refreshed bulk metadata file")
-    }
 
     /**
      * @see AppRepoManager.validateRepo
@@ -505,6 +387,155 @@ private class AppRepoManagerImpl(
         }
     }
 
+    private sealed class DeltaGenerationRequest {
+        class GenForAppDir(val appDir: AppDir) : DeltaGenerationRequest()
+        object StartPrinting : DeltaGenerationRequest()
+    }
+
+    private fun CoroutineScope.createDeltaGenerationActor(signingPrivateKey: PKCS8PrivateKeyFile) =
+        actor<DeltaGenerationRequest>(capacity = Channel.UNLIMITED) {
+            val failedDeltaAppsMutex = Mutex()
+            val failedDeltaApps = ArrayList<AppDir>()
+            val anyDeltasGenerated = AtomicBoolean(false)
+
+            val printMessageChannel = Channel<String>(capacity = Channel.UNLIMITED)
+            val printMessageJob = launch(start = CoroutineStart.LAZY) {
+                for (printMessage in printMessageChannel) {
+                    println(printMessage)
+                }
+            }
+
+            coroutineScope {
+                for (request in channel) {
+                    if (request is DeltaGenerationRequest.GenForAppDir) {
+                        val appDir = request.appDir
+                        launch {
+                            try {
+                                val deltaAvailableVersions: List<AppMetadata.DeltaInfo>
+
+                                val deltaGenTime =
+                                    measureTimeMillis {
+                                        deltaAvailableVersions = regenerateDeltas(
+                                            appDir,
+                                            printMessageChannel = printMessageChannel
+                                        )
+                                    }
+                                if (deltaAvailableVersions.isNotEmpty()) {
+                                    printMessageChannel.trySend(
+                                        "took $deltaGenTime ms to generate ${deltaAvailableVersions.size} deltas " +
+                                                "for ${appDir.packageName}. " +
+                                                "Versions with deltas available: " +
+                                                "${deltaAvailableVersions.map { it.versionCode.code }}"
+                                    )
+                                    anyDeltasGenerated.set(true)
+                                }
+
+                                // Update the metadata with the updated delta info
+                                AppMetadata.getMetadataFromDiskForPackage(appDir.packageName, fileManager)
+                                    .copy(deltaInfo = deltaAvailableVersions.toSet())
+                                    .writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
+                                println("updated metadata for ${appDir.packageName} with delta information")
+                            } catch (e: Throwable) {
+                                println("error during delta generation for ${appDir.packageName}")
+                                e.printStackTrace()
+                                failedDeltaAppsMutex.withLock { failedDeltaApps.add(appDir) }
+                            }
+                        }
+                    } else {
+                        check(request is DeltaGenerationRequest.StartPrinting)
+                        printMessageJob.start()
+                    }
+                }
+            }
+            printMessageChannel.close()
+            printMessageJob.join()
+
+            if (anyDeltasGenerated.get()) {
+                if (failedDeltaApps.isEmpty()) {
+                    println("delta generation successful")
+                } else {
+                    println("delta generation complete, but some failed to generate: ${failedDeltaApps.map { it.packageName }}")
+                }
+            }
+        }
+
+    /**
+     * Inserts APKs from the provided [apkFilePaths]. The APKs will be first validated (ensure that they
+     * verify with apksigner and that the contents of their manifests can be parsed).
+     *
+     * @throws AppRepoException
+     * @throws IOException
+     */
+    override suspend fun insertApksFromStringPaths(
+        apkFilePaths: Collection<String>,
+        signingPrivateKey: PKCS8PrivateKeyFile
+    ): Unit = withContext(repoDispatcher) {
+        validatePublicKeyInRepo(signingPrivateKey)
+
+        println("parsing ${apkFilePaths.size} APKs")
+        // If there are multiple versions of the same package passed into the command line, we insert all of those
+        // APKs together.
+        val packageApkGroup: List<PackageApkGroup.AscendingOrder>
+        val timeTaken = measureTimeMillis {
+            packageApkGroup = try {
+                PackageApkGroup.fromStringPathsAscending(
+                    apkFilePaths = apkFilePaths,
+                    aaptInvoker = aaptInvoker,
+                    apkSignerInvoker = apkSignerInvoker
+                )
+            } catch (e: IOException) {
+                throw AppRepoException.AppDetailParseFailed("error: unable to to get Android app details", e)
+            }
+        }
+        println("took $timeTaken ms to parse APKs")
+        println("found the following packages: ${packageApkGroup.map { it.packageName }}")
+
+        val timestampForMetadata = UnixTimestamp.now()
+        coroutineScope {
+            val deltaGenerationActor = createDeltaGenerationActor(signingPrivateKey)
+
+            packageApkGroup.forEach { apkInsertionGroup ->
+                val nowInsertingString = "Now inserting ${apkInsertionGroup.packageName}"
+                val versionCodeString = "Version codes: ${apkInsertionGroup.sortedApks.map { it.versionCode.code }}"
+                val width = max(versionCodeString.length, nowInsertingString.length)
+                println(
+                    """
+                        ${"=".repeat(width)}
+                        $nowInsertingString
+                        $versionCodeString
+                        ${"=".repeat(width)}
+                    """.trimIndent()
+                )
+
+                insertApkGroupForSinglePackage(
+                    apksToInsert = apkInsertionGroup,
+                    signingPrivateKey = signingPrivateKey,
+                    timestampForMetadata = timestampForMetadata
+                )
+
+                deltaGenerationActor.send(
+                    DeltaGenerationRequest.GenForAppDir(fileManager.getDirForApp(apkInsertionGroup.packageName))
+                )
+            }
+
+            println("refreshing app index")
+            AppRepoIndex.constructFromRepoFilesOnDisk(fileManager, timestampForMetadata)
+                .writeToDiskAndSign(
+                    privateKey = signingPrivateKey,
+                    openSSLInvoker = openSSLInvoker,
+                    fileManager = fileManager
+                )
+            println("wrote new app index at ${fileManager.appIndex}")
+
+            deltaGenerationActor.send(DeltaGenerationRequest.StartPrinting)
+            deltaGenerationActor.close()
+        }
+
+        BulkAppMetadata.createFromDisk(fileManager, timestampForMetadata)
+            .writeToDiskAndSign(fileManager, openSSLInvoker, signingPrivateKey)
+        println("refreshed bulk metadata file")
+    }
+
     /**
      * @throws IOException if validation of the public key failed (due to I/O error, public key mismatch, openssl
      * failing, etc
@@ -539,7 +570,16 @@ private class AppRepoManagerImpl(
         timestampForMetadata: UnixTimestamp
     ): Unit = withContext(repoDispatcher) {
         val appDir = fileManager.getDirForApp(apksToInsert.packageName)
-        validateOrCreateDirectories(appDir, apksToInsert)
+
+        val latestAppMetadata = try {
+            AppMetadata.getMetadataFromDiskForPackage(apksToInsert.packageName, fileManager)
+        } catch (e: IOException) {
+            throw AppRepoException.InvalidRepoState(
+                "missing metadata file for ${apksToInsert.packageName} despite its app directory being present",
+                e
+            )
+        }
+        validateOrCreateDirectories(appDir, apksToInsert, latestAppMetadata)
 
         val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = true)
         validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks.sortedApks)
@@ -552,7 +592,7 @@ private class AppRepoManagerImpl(
 
         val maxVersionApk = apksToInsert.sortedApks.last()
         try {
-            val newAppMetadata = AppMetadata(
+            val newAppMetadata = latestAppMetadata.copy(
                 packageName = maxVersionApk.packageName,
                 label = maxVersionApk.label,
                 latestVersionCode = maxVersionApk.versionCode,
@@ -606,18 +646,12 @@ private class AppRepoManagerImpl(
 
     private fun validateOrCreateDirectories(
         appDir: AppDir,
-        apksToInsert: PackageApkGroup
+        apksToInsert: PackageApkGroup,
+        latestAppMetadata: AppMetadata
     ) {
         if (appDir.dir.exists()) {
             println("${apksToInsert.packageName} is in repo.")
-            val latestAppMetadata = try {
-                AppMetadata.getMetadataFromDiskForPackage(apksToInsert.packageName, fileManager)
-            } catch (e: IOException) {
-                throw AppRepoException.InvalidRepoState(
-                    "missing metadata file for ${apksToInsert.packageName} despite its app directory being present",
-                    e
-                )
-            }
+
             val smallestVersionCodeApk = apksToInsert.sortedApks.first()
             if (smallestVersionCodeApk.versionCode <= latestAppMetadata.latestVersionCode) {
                 throw AppRepoException.InsertFailed(
@@ -653,7 +687,7 @@ private class AppRepoManagerImpl(
                     ?.let { currentApk.certificates intersect it }
                     ?: currentApk.certificates.toSet()
 
-                // TODO: verify using same or similar way as frameworks/base
+                // TODO: verify using same or similar way as frameworks/base or apksigner
                 if (currentSetIntersection!!.isEmpty()) {
                     throw AppRepoException.ApkSigningCertMismatch(
                         "some apks don't have the same signing certificates\ndumping details: $currentApks"
@@ -721,6 +755,127 @@ private class AppRepoManagerImpl(
             }
             .awaitAll()
     }
+
+    private fun processGroupId(groupId: String?) = groupId?.trim()?.lowercase()
+
+    override suspend fun setGroupForPackages(
+        groupId: String,
+        packages: List<String>,
+        signingPrivateKey: PKCS8PrivateKeyFile,
+        createNewGroupIfNotExists: Boolean
+    ) {
+        val allGroups: SortedSet<String?> = AppMetadata.getAllAppMetadataFromDisk(fileManager).asSequence()
+            .filter { it.groupId != null }
+            .mapTo(sortedSetOf()) { it.groupId }
+
+        val processedGroupId = processGroupId(groupId)
+        if (processedGroupId !in allGroups) {
+            if (createNewGroupIfNotExists) {
+                println("creating new group $groupId")
+            } else {
+                val groupInfoString = if (allGroups.isEmpty()) {
+                    "There are no available groups"
+                } else {
+                    "Available groups: $allGroups"
+                }
+                throw AppRepoException.GroupDoesntExist(
+                    """
+                        groupId $processedGroupId does not exist in the repository.
+                        ${if (allGroups.isEmpty()) "There are no available groups" else "Available groupIds: $allGroups"}
+                        Use --create (-c) instead of --add (-a) to create this group with these packages
+                    """.trimIndent()
+                )
+            }
+        }
+
+        setGroupForPackagesInternal(groupId, packages, signingPrivateKey)
+    }
+
+    override suspend fun removeGroupFromPackages(packages: List<String>, signingPrivateKey: PKCS8PrivateKeyFile) {
+        setGroupForPackagesInternal(groupId = null, packages, signingPrivateKey)
+    }
+
+    override suspend fun deleteGroup(groupId: String, signingPrivateKey: PKCS8PrivateKeyFile) {
+        val processedGroupId = processGroupId(groupId)
+
+        val packagesForThisGroup = AppMetadata.getAllAppMetadataFromDisk(fileManager).asSequence()
+            .filter { it.groupId == processedGroupId }
+            .mapTo(arrayListOf()) { it.packageName }
+        if (packagesForThisGroup.isEmpty()) {
+            println("group doesn't exist")
+            println("all groups:")
+            printAllGroups()
+            return
+        }
+
+        removeGroupFromPackages(packagesForThisGroup, signingPrivateKey)
+        println("removed groupId $processedGroupId from ${packagesForThisGroup.size} groups: $packagesForThisGroup")
+    }
+    override suspend fun printAllPackages() {
+        AppMetadata.getAllAppMetadataFromDisk(fileManager)
+            .forEach { println(it.packageName) }
+    }
+
+    override suspend fun printAllGroups() {
+        val groupToPackageMap: SortedMap<String, MutableList<String>> =
+            AppMetadata.getAllAppMetadataFromDisk(fileManager)
+                .groupByTo(sortedMapOf(), keySelector = { it.groupId ?: " none " }, valueTransform = { it.packageName })
+        groupToPackageMap.remove(" none ")
+
+        groupToPackageMap.ifEmpty { null }
+            ?.let { println(it) }
+            ?: println("no groups")
+    }
+
+    private suspend fun setGroupForPackagesInternal(
+        groupId: String?,
+        packages: List<String>,
+        signingPrivateKey: PKCS8PrivateKeyFile
+    ) {
+        validatePublicKeyInRepo(signingPrivateKey)
+        val groupIdToUse = groupId?.let {
+            require(groupId.isNotBlank())
+            processGroupId(it)
+        }
+
+        val packageToMetadataMap: Map<String, AppMetadata> =
+            AppMetadata.getAllAppMetadataFromDisk(fileManager).associateByTo(sortedMapOf()) { it.packageName }
+
+        val distinctInputPackages = packages.distinct()
+
+        distinctInputPackages.forEach { pkg ->
+            require(pkg in packageToMetadataMap.keys) { "$pkg is not in the repo" }
+        }
+
+        val timestampForMetadata = UnixTimestamp.now()
+        coroutineScope {
+            distinctInputPackages.forEach { pkg ->
+                launch {
+                    packageToMetadataMap[pkg]!!
+                        .copy(
+                            groupId = groupIdToUse,
+                            lastUpdateTimestamp = timestampForMetadata
+                        )
+                        .writeToDiskAndSign(
+                            signingPrivateKey,
+                            openSSLInvoker,
+                            fileManager
+                        )
+                }
+            }
+        }
+
+        println("regenerating repo index")
+        AppRepoIndex.constructFromRepoFilesOnDisk(fileManager, timestampForMetadata)
+            .writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
+        println("regenerating bulk app metadata")
+        BulkAppMetadata.createFromDisk(fileManager, timestampForMetadata)
+            .writeToDiskAndSign(fileManager, openSSLInvoker, signingPrivateKey)
+
+        groupId
+            ?.let { println("packages were successfully set to the group $groupIdToUse") }
+            ?: println("successfully removed groups from the given packages")
+    }
 }
 
 sealed class AppRepoException : Exception {
@@ -733,6 +888,9 @@ sealed class AppRepoException : Exception {
         constructor(message: String) : super(message)
         constructor(message: String, cause: Throwable) : super(message, cause)
         constructor(cause: Throwable) : super(cause)
+    }
+    class GroupDoesntExist : AppRepoException {
+        constructor(message: String) : super(message)
     }
     class ApkSigningCertMismatch : AppRepoException {
         constructor(message: String) : super(message)

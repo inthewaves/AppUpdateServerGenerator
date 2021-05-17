@@ -13,7 +13,7 @@ import java.io.IOException
 class InsertApkCommand : AppRepoSubcommand("insert-apk", "Inserts an APK into the local repository") {
     private val keyFile: String by option(
         ArgType.String,
-        description = "A decrypted key in PKCS8 format used to sign the metadata. Only RSA and EC keys are supported",
+        description = "A decrypted key in PKCS8 DER format used to sign the metadata. Only RSA and EC keys are supported",
         fullName = "key-file",
         shortName = "k"
     ).required()

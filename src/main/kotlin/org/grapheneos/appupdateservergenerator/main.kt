@@ -2,10 +2,7 @@ package org.grapheneos.appupdateservergenerator
 
 import kotlinx.cli.ArgParser
 import kotlinx.cli.ExperimentalCli
-import org.grapheneos.appupdateservergenerator.commands.ApplyDeltaCommand
-import org.grapheneos.appupdateservergenerator.commands.GenerateDeltaCommand
-import org.grapheneos.appupdateservergenerator.commands.InsertApkCommand
-import org.grapheneos.appupdateservergenerator.commands.ValidateCommand
+import org.grapheneos.appupdateservergenerator.commands.*
 import kotlin.system.exitProcess
 
 @OptIn(ExperimentalCli::class)
@@ -15,7 +12,14 @@ fun main(args: Array<String>) {
     // }
 
     val parser = ArgParser(programName = "appservergen")
-    parser.subcommands(GenerateDeltaCommand(), ApplyDeltaCommand(), InsertApkCommand(), ValidateCommand())
+    parser.subcommands(
+        InfoCommand(),
+        InsertApkCommand(),
+        GroupCommand(),
+        ValidateCommand(),
+        GenerateDeltaCommand(),
+        ApplyDeltaCommand(),
+    )
     // force the help command to show up if the user doesn't supply arguments
     parser.parse(if (args.isNotEmpty()) args else arrayOf("-h"))
 
