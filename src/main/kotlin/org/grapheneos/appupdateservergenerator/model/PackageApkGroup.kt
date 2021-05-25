@@ -62,21 +62,21 @@ sealed class PackageApkGroup private constructor(
          * Constructs a [PackageApkGroup.AscendingOrder] list from a given list of [apkFilePaths].
          * This will group every APK by the package.
          */
-        suspend fun fromStringPathsAscending(
-            apkFilePaths: Iterable<String>,
+        suspend fun fromFilesAscending(
+            apkFilePaths: Iterable<File>,
             aaptInvoker: AAPT2Invoker,
             apkSignerInvoker: ApkSignerInvoker
         ): List<AscendingOrder> {
             @Suppress("UNCHECKED_CAST")
-            return fromStringPaths(
+            return fromFiles(
                 apkFilePaths = apkFilePaths,
                 aaptInvoker = aaptInvoker,
                 apkSignerInvoker = apkSignerInvoker, ascendingOrder = true
             ) as List<AscendingOrder>
         }
 
-        private suspend fun fromStringPaths(
-            apkFilePaths: Iterable<String>,
+        private suspend fun fromFiles(
+            apkFilePaths: Iterable<File>,
             aaptInvoker: AAPT2Invoker,
             apkSignerInvoker: ApkSignerInvoker,
             ascendingOrder: Boolean
@@ -88,10 +88,9 @@ sealed class PackageApkGroup private constructor(
             }
 
             apkFilePaths
-                .map { apkFilePathString ->
-                    val apkFile = File(apkFilePathString)
+                .map { apkFile ->
                     if (!apkFile.exists() || !apkFile.canRead()) {
-                        throw IOException("unable to read APK file $apkFilePathString")
+                        throw IOException("unable to read APK file $apkFile")
                     }
 
                     async {

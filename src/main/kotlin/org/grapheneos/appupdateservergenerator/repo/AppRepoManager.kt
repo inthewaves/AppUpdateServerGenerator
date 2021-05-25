@@ -1,12 +1,21 @@
 package org.grapheneos.appupdateservergenerator.repo
 
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ObsoleteCoroutinesApi
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.actor
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppRepoIndex
 import org.grapheneos.appupdateservergenerator.api.BulkAppMetadata
@@ -18,12 +27,18 @@ import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.files.TempFile
-import org.grapheneos.appupdateservergenerator.model.*
+import org.grapheneos.appupdateservergenerator.model.AndroidApk
+import org.grapheneos.appupdateservergenerator.model.Base64String
+import org.grapheneos.appupdateservergenerator.model.HexString
+import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
+import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
+import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import org.grapheneos.appupdateservergenerator.util.digest
 import org.grapheneos.appupdateservergenerator.util.symmetricDifference
 import java.io.File
 import java.io.FileFilter
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.lang.Integer.min
 import java.security.MessageDigest
@@ -46,7 +61,7 @@ interface AppRepoManager {
      * @throws AppRepoException
      * @throws IOException
      */
-    suspend fun insertApksFromStringPaths(apkFilePaths: Collection<String>, signingPrivateKey: PKCS8PrivateKeyFile)
+    suspend fun insertApks(apkFilePaths: Collection<File>, signingPrivateKey: PKCS8PrivateKeyFile)
 
     /**
      * Validates the entire repository to ensure that the metadata is consistent with the actual files in the repo,
@@ -466,8 +481,8 @@ private class AppRepoManagerImpl(
      * @throws AppRepoException
      * @throws IOException
      */
-    override suspend fun insertApksFromStringPaths(
-        apkFilePaths: Collection<String>,
+    override suspend fun insertApks(
+        apkFilePaths: Collection<File>,
         signingPrivateKey: PKCS8PrivateKeyFile
     ): Unit = withContext(repoDispatcher) {
         validatePublicKeyInRepo(signingPrivateKey)
@@ -478,7 +493,7 @@ private class AppRepoManagerImpl(
         val packageApkGroup: List<PackageApkGroup.AscendingOrder>
         val timeTaken = measureTimeMillis {
             packageApkGroup = try {
-                PackageApkGroup.fromStringPathsAscending(
+                PackageApkGroup.fromFilesAscending(
                     apkFilePaths = apkFilePaths,
                     aaptInvoker = aaptInvoker,
                     apkSignerInvoker = apkSignerInvoker
@@ -561,6 +576,16 @@ private class AppRepoManagerImpl(
         }
     }
 
+    fun readAppMetadataFromDisk(packageName: String): AppMetadata? = try {
+        AppMetadata.getMetadataFromDiskForPackage(packageName, fileManager)
+    } catch (e: IOException) {
+        if (e is FileNotFoundException || e.cause is FileNotFoundException) {
+            null
+        } else {
+            throw e
+        }
+    }
+
     /**
      * Inserts multiple APKs for a single package.
      */
@@ -571,15 +596,27 @@ private class AppRepoManagerImpl(
     ): Unit = withContext(repoDispatcher) {
         val appDir = fileManager.getDirForApp(apksToInsert.packageName)
 
-        val latestAppMetadata = try {
-            AppMetadata.getMetadataFromDiskForPackage(apksToInsert.packageName, fileManager)
-        } catch (e: IOException) {
-            throw AppRepoException.InvalidRepoState(
-                "missing metadata file for ${apksToInsert.packageName} despite its app directory being present",
-                e
-            )
+        // Validate or create the directory for the package / app.
+        if (appDir.dir.exists()) {
+            val currentAppMetadata = readAppMetadataFromDisk(apksToInsert.packageName)
+                ?: throw AppRepoException.InvalidRepoState("app directories are present but missing metadata file")
+            println("${apksToInsert.packageName} is in repo.")
+
+            val smallestVersionCodeApk = apksToInsert.sortedApks.first()
+            if (smallestVersionCodeApk.versionCode <= currentAppMetadata.latestVersionCode) {
+                throw AppRepoException.InsertFailed(
+                    "trying to insert ${smallestVersionCodeApk.packageName} with version code " +
+                            "${smallestVersionCodeApk.versionCode.code} when the " +
+                            "repo has latest version ${currentAppMetadata.latestVersionCode.code}"
+                )
+            }
+            println("previous version in repo: ${currentAppMetadata.latestVersionCode.code}")
+        } else {
+            println("${apksToInsert.packageName} is not in the repo. Creating new directory and metadata")
+            if (!appDir.dir.mkdirs()) {
+                throw AppRepoException.InsertFailed("failed to create directory ${appDir.dir.absolutePath}")
+            }
         }
-        validateOrCreateDirectories(appDir, apksToInsert, latestAppMetadata)
 
         val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = true)
         validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks.sortedApks)
@@ -592,8 +629,10 @@ private class AppRepoManagerImpl(
 
         val maxVersionApk = apksToInsert.sortedApks.last()
         try {
-            val newAppMetadata = latestAppMetadata.copy(
+            val currentAppMetadata = readAppMetadataFromDisk(apksToInsert.packageName)
+            val newAppMetadata = AppMetadata(
                 packageName = maxVersionApk.packageName,
+                groupId = currentAppMetadata?.groupId,
                 label = maxVersionApk.label,
                 latestVersionCode = maxVersionApk.versionCode,
                 latestVersionName = maxVersionApk.versionName,
@@ -605,12 +644,13 @@ private class AppRepoManagerImpl(
                 deltaInfo = emptySet(),
                 lastUpdateTimestamp = timestampForMetadata
             )
+            println("metadata updated: $newAppMetadata")
+
             newAppMetadata.writeToDiskAndSign(
                 privateKey = signingPrivateKey,
                 openSSLInvoker = openSSLInvoker,
                 fileManager = fileManager
             )
-            println("metadata updated: $newAppMetadata")
         } catch (e: IOException) {
             throw IOException("failed to write metadata", e)
         }
@@ -640,31 +680,6 @@ private class AppRepoManagerImpl(
             println("deleting outdated delta ${oldDelta.name}")
             if (!oldDelta.delete()) {
                 throw IOException("failed to delete $oldDelta")
-            }
-        }
-    }
-
-    private fun validateOrCreateDirectories(
-        appDir: AppDir,
-        apksToInsert: PackageApkGroup,
-        latestAppMetadata: AppMetadata
-    ) {
-        if (appDir.dir.exists()) {
-            println("${apksToInsert.packageName} is in repo.")
-
-            val smallestVersionCodeApk = apksToInsert.sortedApks.first()
-            if (smallestVersionCodeApk.versionCode <= latestAppMetadata.latestVersionCode) {
-                throw AppRepoException.InsertFailed(
-                    "trying to insert ${smallestVersionCodeApk.packageName} with version code " +
-                            "${smallestVersionCodeApk.versionCode.code} when the " +
-                            "repo has latest version ${latestAppMetadata.latestVersionCode.code}"
-                )
-            }
-            println("previous version in repo: ${latestAppMetadata.latestVersionCode.code}")
-        } else {
-            println("${apksToInsert.packageName} is not in the repo. Creating new directory and metadata")
-            if (!appDir.dir.mkdirs()) {
-                throw AppRepoException.InsertFailed("failed to create directory ${appDir.dir.absolutePath}")
             }
         }
     }
@@ -779,9 +794,8 @@ private class AppRepoManagerImpl(
                     "Available groups: $allGroups"
                 }
                 throw AppRepoException.GroupDoesntExist(
-                    """
-                        groupId $processedGroupId does not exist in the repository.
-                        ${if (allGroups.isEmpty()) "There are no available groups" else "Available groupIds: $allGroups"}
+                    """groupId $processedGroupId does not exist in the repository.
+                        $groupInfoString
                         Use --create (-c) instead of --add (-a) to create this group with these packages
                     """.trimIndent()
                 )

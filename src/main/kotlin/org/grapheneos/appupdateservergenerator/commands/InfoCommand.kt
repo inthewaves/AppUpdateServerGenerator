@@ -1,21 +1,15 @@
 package org.grapheneos.appupdateservergenerator.commands
 
-import kotlinx.cli.ArgType
+import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.types.enum
 import kotlinx.coroutines.runBlocking
 
-class InfoCommand: AppRepoSubcommand("info", "Commands for information") {
+class InfoCommand : AppRepoSubcommand(name = "info", help = "Commands to get information about the repository.") {
     private enum class InfoType { GROUPS, PACKAGES }
+    private val infoType: InfoType by argument().enum { it.name.lowercase() }
 
-    private val option: InfoType by argument(
-        ArgType.Choice<InfoType>(
-            toVariant = { InfoType.valueOf(it.trim().uppercase()) },
-            toString = { it.name.lowercase() }
-        ),
-        fullName = "info-type"
-    )
-
-    override fun executeAfterInvokerChecks() = runBlocking {
-        when (option) {
+    override fun runAfterInvokerChecks() = runBlocking {
+        when (infoType) {
             InfoType.GROUPS -> appRepoManager.printAllGroups()
             InfoType.PACKAGES -> appRepoManager.printAllPackages()
         }

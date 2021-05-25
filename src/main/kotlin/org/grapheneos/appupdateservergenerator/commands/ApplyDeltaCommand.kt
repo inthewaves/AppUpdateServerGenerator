@@ -1,28 +1,31 @@
 package org.grapheneos.appupdateservergenerator.commands
 
-import kotlinx.cli.ArgType
-import kotlinx.cli.ExperimentalCli
-import kotlinx.cli.Subcommand
+import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.options.flag
+import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.types.file
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import java.io.File
 
-@OptIn(ExperimentalCli::class)
-class ApplyDeltaCommand : Subcommand("apply-delta", "Apply deltas directly") {
-    private val oldFile by argument(ArgType.String, description = "The old file to serve as the basis for delta generation.")
-    private val deltaFile by argument(ArgType.String, description = "The delta file")
-    private val newFileName by argument(ArgType.String, description = "The output file after delta application")
-    private val notGzipped: Boolean? by option(
-        ArgType.Boolean,
-        description = "Whether the input patch is gzip-compressed",
-        fullName = "no-gzip"
-    )
+class ApplyDeltaCommand : CliktCommand(name = "apply-delta", help = "Apply deltas directly") {
+    private val oldFile: File by argument(help = "The old file to serve as the basis for delta generation.")
+        .file(mustExist = true, canBeDir = false, mustBeReadable = true)
+    private val deltaFile: File by argument(help = "The new file to serve as the target of the delta")
+        .file(mustExist = true, canBeDir = false, mustBeReadable = true)
+    private val outputFile: File by argument(help = "The output delta file")
+        .file(canBeDir = false)
+    private val noGzip: Boolean by option(
+        names = arrayOf("-no-gzip"),
+        help = "By default, deltas are gzip-compressed. This flag disables gzip compression."
+    ).flag()
 
-    override fun execute() {
+    override fun run() {
         ArchivePatcherUtil.applyDelta(
-            File(oldFile),
-            File(deltaFile),
-            File(newFileName),
-            isDeltaGzipped = !(notGzipped ?: false)
+            oldFile,
+            deltaFile,
+            outputFile,
+            isDeltaGzipped = !noGzip
         )
     }
 }

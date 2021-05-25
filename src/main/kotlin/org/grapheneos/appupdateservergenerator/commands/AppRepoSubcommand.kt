@@ -1,8 +1,8 @@
 package org.grapheneos.appupdateservergenerator.commands
 
-import kotlinx.cli.ArgType
-import kotlinx.cli.ExperimentalCli
-import kotlinx.cli.Subcommand
+import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.types.file
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
@@ -12,21 +12,42 @@ import java.io.File
 import java.io.IOException
 import kotlin.system.exitProcess
 
-@OptIn(ExperimentalCli::class)
-abstract class AppRepoSubcommand(name: String, actionDescription: String) : Subcommand(name, actionDescription) {
-    protected val userSpecifiedRepoDirectory: String? by option(
-        ArgType.String,
-        description = "The directory to use for the app repo. Defaults to working directory.",
-        fullName = "repo-directory",
-        shortName = "d"
-    )
+/**
+ * @see [CliktCommand] for information on the rest of the arguments.
+ */
+abstract class AppRepoSubcommand(
+    help: String = "",
+    epilog: String = "",
+    name: String? = null,
+    invokeWithoutSubcommand: Boolean = false,
+    printHelpOnEmptyArgs: Boolean = false,
+    helpTags: Map<String, String> = emptyMap(),
+    autoCompleteEnvvar: String? = "",
+    allowMultipleSubcommands: Boolean = false,
+    treatUnknownOptionsAsArgs: Boolean = false
+) : CliktCommand(
+    help,
+    epilog,
+    name,
+    invokeWithoutSubcommand,
+    printHelpOnEmptyArgs,
+    helpTags,
+    autoCompleteEnvvar,
+    allowMultipleSubcommands,
+    treatUnknownOptionsAsArgs
+) {
+    protected val userSpecifiedRepoDirectory: File? by option(
+        names = arrayOf("--repo-directory", "-d"),
+        help = "The directory to use for the app repo. Defaults to working directory.",
+    ).file(canBeFile = false, canBeDir = true)
+
     protected val aaptInvoker = AAPT2Invoker()
     protected val apkSignerInvoker = ApkSignerInvoker()
     protected val openSSLInvoker = OpenSSLInvoker()
 
     protected val fileManager by lazy {
         try {
-            userSpecifiedRepoDirectory?.let { FileManager(File(it)) } ?: FileManager()
+            userSpecifiedRepoDirectory?.let { FileManager(it) } ?: FileManager()
         } catch (e: IOException) {
             printErrorAndExit("failed to create root dir $userSpecifiedRepoDirectory", e)
         }
@@ -47,7 +68,7 @@ abstract class AppRepoSubcommand(name: String, actionDescription: String) : Subc
         exitProcess(1)
     }
 
-    override fun execute() {
+    override fun run() {
         if (!aaptInvoker.isExecutablePresent()) {
             printErrorAndExit("unable to locate aapt2 at ${aaptInvoker.executablePath}; please add it to your PATH variable")
         }
@@ -57,8 +78,8 @@ abstract class AppRepoSubcommand(name: String, actionDescription: String) : Subc
         if (!openSSLInvoker.isExecutablePresent()) {
             printErrorAndExit("unable to locate openssl at ${openSSLInvoker.executablePath}")
         }
-        executeAfterInvokerChecks()
+        runAfterInvokerChecks()
     }
 
-    abstract fun executeAfterInvokerChecks(): Unit
+    abstract fun runAfterInvokerChecks()
 }
