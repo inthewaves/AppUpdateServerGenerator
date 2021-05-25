@@ -126,17 +126,16 @@ app_repo_data/
 
 #### Common commands
 
-To insert an APK (or multiple APKs) into the repo, run this command after building the jar with
-`./gradlew build`:
+To add multiple APKs into the repo, run this command after building the jar with `./gradlew build`:
 
 ```bash
-$ ./appservergen insert-apk [OPTIONS] -k decrypted_signing_key APKS
+$ ./appservergen add-apks [OPTIONS] -k decrypted_signing_key APKS
 ```
 
 This handles metadata and delta generation. If the repository directories don't already exist, the
 tool will create the directories. This will not delete / move the source APK provided to the tool.
 
-See `./app-update-server-generator insert-apk --help` for more options.
+See `./appservergen add-apks --help` for more options.
 
 To validate the repository (i.e. make sure the metadata is consistent, the signatures for the
 metadata actually verify, the APK information is correct, and the deltas apply correctly), run
@@ -156,8 +155,6 @@ See the help option `-h` for `OPTIONS`.
 ## TODO
 * The Android app
 * More unit tests
-* A group install system for apps that should be installed together at once (e.g., Chromium
-  packages)
 * System for pruning older versions of apps
 * Maybe a configuration file to configure things such as maximum number of deltas to generate which
   can be used to determine pruning.
