@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    kotlin("jvm") version "1.5.0"
+    kotlin("jvm") version "1.5.10"
     kotlin("plugin.serialization") version "1.5.0"
     application
 }
@@ -23,10 +23,10 @@ repositories {
 
 dependencies {
     implementation(fileTree("include" to "*.jar", "dir" to "libs"))
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-cli:0.3.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0-RC")
-    implementation("org.jetbrains.kotlin:kotlin-reflect:1.5.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:1.5.10")
 
     testImplementation("org.bouncycastle:bcprov-jdk15to18:1.68")
     testImplementation(kotlin("test-junit5"))
