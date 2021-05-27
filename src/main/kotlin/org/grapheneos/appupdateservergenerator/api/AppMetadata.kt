@@ -100,5 +100,34 @@ data class AppMetadata(
                 ?.toSortedSet(packageComparator)
                 ?: throw IOException("unable to get all app metadata from disk")
         }
+
+        /**
+         * Gets a map of groupIds to the packages that are tagged with the groupId.
+         *
+         * If [groupsToSelect] is not null, the keys in the returned map will only contain [groupsToSelect].
+         */
+        suspend fun getAllGroupsAndTheirPackages(
+            fileManager: FileManager,
+            groupsToSelect: Set<String>?
+        ): SortedMap<String, Set<String>> {
+            @Suppress("UNCHECKED_CAST")
+            return getAllAppMetadataFromDisk(fileManager).asSequence()
+                .filter {
+                    if (it.groupId == null) return@filter false
+                    if (groupsToSelect == null) return@filter true
+                    it.groupId in groupsToSelect
+                }
+                .groupingBy { it.groupId!! }
+                .foldTo(
+                    destination = sortedMapOf(),
+                    initialValueSelector = { _, _ -> hashSetOf() },
+                    operation = { _, accumulator: HashSet<String>, element ->
+                        accumulator.apply { add(element.packageName) }
+                    }
+                )
+            as SortedMap<String, Set<String>>
+        }
+
+
     }
 }

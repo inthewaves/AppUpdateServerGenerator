@@ -17,6 +17,12 @@ class AddCommand : AppRepoSubcommand(
         This handles metadata and delta generation. If the repository directories don't already exist, new directories
         will be created. This will not delete / move the source APK provided to the tool. This command will ask for
         release notes for every package being inserted and only for the most recent version of a package.
+        
+        Warnings will be printed when there areupdates in groups where some of the packages are not updated. For 
+        example, if there is a groupId "G" tagged onto packages A, B, and C, and if you insert new APKs for packages A
+        and B, then there will be warnings about missing an update for package C. These warnings occur because it is
+        expected that clients atomically update all packages in a group. See the group command for more detail about
+        groups.
     """.trimMargin()
 ) {
     private val privateSigningKeyFile: File by option(

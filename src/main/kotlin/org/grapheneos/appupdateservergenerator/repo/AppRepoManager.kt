@@ -531,47 +531,87 @@ private class AppRepoManagerImpl(
         println("found the following packages: ${packageApkGroup.map { it.packageName }}")
 
         val timestampForMetadata = UnixTimestamp.now()
-        coroutineScope {
-            val deltaGenerationChannel = createDeltaGenerationActor(signingPrivateKey)
 
-            packageApkGroup.forEach { apkInsertionGroup ->
-                val nowInsertingString = "Now inserting ${apkInsertionGroup.packageName}"
-                val versionCodeString = "Version codes: ${apkInsertionGroup.sortedApks.map { it.versionCode.code }}"
-                val width = max(versionCodeString.length, nowInsertingString.length)
-                println(
-                    """
+        coroutineScope {
+            val groupIdCheckChannel: SendChannel<AppMetadata> = actor(capacity = Channel.UNLIMITED) {
+                val groupIdToInsertedPackageMap = hashMapOf<String, MutableSet<String>>()
+                for (appMetadata in channel) {
+                    appMetadata.groupId?.let { groupId ->
+                        val setOfPackagesForThisGroup: MutableSet<String>? = groupIdToInsertedPackageMap[groupId]
+                        setOfPackagesForThisGroup?.add(appMetadata.packageName)
+                            ?: run { groupIdToInsertedPackageMap[groupId] = hashSetOf(appMetadata.packageName) }
+                    }
+                }
+                if (groupIdToInsertedPackageMap.isEmpty()) {
+                    return@actor
+                }
+
+                println("checking groups of inserted packages")
+                val allGroupsInRepo = AppMetadata.getAllGroupsAndTheirPackages(fileManager, groupIdToInsertedPackageMap.keys)
+                launch {
+                    val difference = groupIdToInsertedPackageMap.keys subtract allGroupsInRepo.keys
+                    if (difference.isNotEmpty()) {
+                        println("warning: repo doesn't have any packages for these groupIds $difference")
+                    }
+                }
+
+                groupIdToInsertedPackageMap.forEach { (groupId, insertedPackages) ->
+                    val allPackagesForThisGroup: Set<String>? = allGroupsInRepo[groupId]
+                    if (allPackagesForThisGroup == null) {
+                        println("warning: repo doesn't have any packages for groupId: $groupId")
+                        return@forEach
+                    }
+                    println("inserted these packages for groupId $groupId: $insertedPackages")
+                    val packagesInGroupNotInsertedInThisSession = allPackagesForThisGroup subtract insertedPackages
+                    if (packagesInGroupNotInsertedInThisSession.isNotEmpty()) {
+                        println("warning: for groupId $groupId, these packages were inserted: $insertedPackages")
+                        println(" but these packages in the same group didn't get an update: $packagesInGroupNotInsertedInThisSession")
+                    }
+                }
+            }
+            val deltaGenChannel: SendChannel<DeltaGenerationRequest> = createDeltaGenerationActor(signingPrivateKey)
+            try {
+                packageApkGroup.forEach { apkInsertionGroup ->
+                    val nowInsertingString = "Now inserting ${apkInsertionGroup.packageName}"
+                    val versionCodeString = "Version codes: ${apkInsertionGroup.sortedApks.map { it.versionCode.code }}"
+                    val width = max(versionCodeString.length, nowInsertingString.length)
+                    println(
+                        """
                         ${"=".repeat(width)}
                         $nowInsertingString
                         $versionCodeString
                         ${"=".repeat(width)}
                     """.trimIndent()
-                )
-
-                try {
-                    insertApkGroupForSinglePackage(
-                        apksToInsert = apkInsertionGroup,
-                        signingPrivateKey = signingPrivateKey,
-                        timestampForMetadata = timestampForMetadata,
-                        promptForReleaseNotes = promptForReleaseNotes
                     )
-                    deltaGenerationChannel.send(DeltaGenerationRequest.ForPackage(apkInsertionGroup.packageName))
-                } catch (e: AppRepoException.MoreRecentVersionInRepo) {
-                    println("warning: skipping insertion of ${apkInsertionGroup.packageName}:")
-                    println(e.message)
+
+                    try {
+                        insertApkGroupForSinglePackage(
+                            apksToInsert = apkInsertionGroup,
+                            signingPrivateKey = signingPrivateKey,
+                            timestampForMetadata = timestampForMetadata,
+                            promptForReleaseNotes = promptForReleaseNotes,
+                            groupIdCheckChannel
+                        )
+                        deltaGenChannel.send(DeltaGenerationRequest.ForPackage(apkInsertionGroup.packageName))
+                    } catch (e: AppRepoException.MoreRecentVersionInRepo) {
+                        println("warning: skipping insertion of ${apkInsertionGroup.packageName}:")
+                        println(e.message)
+                    }
                 }
+
+                println("refreshing app index")
+                AppRepoIndex.constructFromRepoFilesOnDisk(fileManager, timestampForMetadata)
+                    .writeToDiskAndSign(
+                        privateKey = signingPrivateKey,
+                        openSSLInvoker = openSSLInvoker,
+                        fileManager = fileManager
+                    )
+                println("wrote new app index at ${fileManager.appIndex}")
+            } finally {
+                deltaGenChannel.send(DeltaGenerationRequest.StartPrinting)
+                deltaGenChannel.close()
+                groupIdCheckChannel.close()
             }
-
-            println("refreshing app index")
-            AppRepoIndex.constructFromRepoFilesOnDisk(fileManager, timestampForMetadata)
-                .writeToDiskAndSign(
-                    privateKey = signingPrivateKey,
-                    openSSLInvoker = openSSLInvoker,
-                    fileManager = fileManager
-                )
-            println("wrote new app index at ${fileManager.appIndex}")
-
-            deltaGenerationChannel.send(DeltaGenerationRequest.StartPrinting)
-            deltaGenerationChannel.close()
         }
 
         BulkAppMetadata.createFromDisk(fileManager, timestampForMetadata)
@@ -621,7 +661,8 @@ private class AppRepoManagerImpl(
         apksToInsert: PackageApkGroup.AscendingOrder,
         signingPrivateKey: PKCS8PrivateKeyFile,
         timestampForMetadata: UnixTimestamp,
-        promptForReleaseNotes: Boolean
+        promptForReleaseNotes: Boolean,
+        groupIdCheckChannel: SendChannel<AppMetadata>
     ): Unit = withContext(repoDispatcher) {
         val appDir = fileManager.getDirForApp(apksToInsert.packageName)
 
@@ -687,6 +728,7 @@ private class AppRepoManagerImpl(
                 openSSLInvoker = openSSLInvoker,
                 fileManager = fileManager
             )
+            groupIdCheckChannel.send(newAppMetadata)
         } catch (e: IOException) {
             throw IOException("failed to write metadata", e)
         }
@@ -974,12 +1016,8 @@ private class AppRepoManagerImpl(
     }
 
     override suspend fun printAllGroups() {
-        val groupToPackageMap: SortedMap<String, MutableList<String>> =
-            AppMetadata.getAllAppMetadataFromDisk(fileManager)
-                .groupByTo(sortedMapOf(), keySelector = { it.groupId ?: " none " }, valueTransform = { it.packageName })
-        groupToPackageMap.remove(" none ")
-
-        groupToPackageMap.ifEmpty { null }
+        AppMetadata.getAllGroupsAndTheirPackages(fileManager, groupsToSelect = null)
+            .ifEmpty { null }
             ?.let { println(it) }
             ?: println("no groups")
     }
