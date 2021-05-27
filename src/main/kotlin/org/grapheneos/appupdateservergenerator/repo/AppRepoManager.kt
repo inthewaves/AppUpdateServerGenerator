@@ -547,14 +547,18 @@ private class AppRepoManagerImpl(
                     """.trimIndent()
                 )
 
-                insertApkGroupForSinglePackage(
-                    apksToInsert = apkInsertionGroup,
-                    signingPrivateKey = signingPrivateKey,
-                    timestampForMetadata = timestampForMetadata,
-                    promptForReleaseNotes = promptForReleaseNotes
-                )
-
-                deltaGenerationChannel.send(DeltaGenerationRequest.ForPackage(apkInsertionGroup.packageName))
+                try {
+                    insertApkGroupForSinglePackage(
+                        apksToInsert = apkInsertionGroup,
+                        signingPrivateKey = signingPrivateKey,
+                        timestampForMetadata = timestampForMetadata,
+                        promptForReleaseNotes = promptForReleaseNotes
+                    )
+                    deltaGenerationChannel.send(DeltaGenerationRequest.ForPackage(apkInsertionGroup.packageName))
+                } catch (e: AppRepoException.MoreRecentVersionInRepo) {
+                    println("warning: skipping insertion of ${apkInsertionGroup.packageName}:")
+                    println(e.message)
+                }
             }
 
             println("refreshing app index")
@@ -629,7 +633,7 @@ private class AppRepoManagerImpl(
 
             val smallestVersionCodeApk = apksToInsert.sortedApks.first()
             if (smallestVersionCodeApk.versionCode <= currentAppMetadata.latestVersionCode) {
-                throw AppRepoException.InsertFailed(
+                throw AppRepoException.MoreRecentVersionInRepo(
                     "trying to insert ${smallestVersionCodeApk.packageName} with version code " +
                             "${smallestVersionCodeApk.versionCode.code} when the " +
                             "repo has latest version ${currentAppMetadata.latestVersionCode.code}"
@@ -1040,6 +1044,7 @@ sealed class AppRepoException : Exception {
     class EditFailed : AppRepoException {
         constructor(message: String) : super(message)
     }
+    class MoreRecentVersionInRepo(message: String): AppRepoException(message)
     class InsertFailed : AppRepoException {
         constructor() : super()
         constructor(message: String) : super(message)
