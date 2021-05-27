@@ -12,7 +12,12 @@ import java.io.File
 import java.io.IOException
 
 class AddCommand : AppRepoSubcommand(
-    help = """Adds one or more APKs to the repository."""
+    help = """Adds one or more APKs to the repository.
+        
+        This handles metadata and delta generation. If the repository directories don't already exist, new directories
+        will be created. This will not delete / move the source APK provided to the tool. This command will ask for
+        release notes for every package being inserted and only for the most recent version of a package.
+    """.trimMargin()
 ) {
     private val privateSigningKeyFile: File by option(
         names = arrayOf("--signing-key", "-k"),

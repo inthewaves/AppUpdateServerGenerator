@@ -8,105 +8,6 @@ Some facts about the app update repository:
 * This app update server supports deltas using Google's archive-patcher library, forked at
   https://github.com/inthewaves/archive-patcher.
 
-### Example of repository structure
-A sample of what the directory tree for a repository looks like with the file sizes:
-
-<!-- tree --dirsfirst --du -h app_repo_data -->
-```plain
-app_repo_data/
-├── [ 121M]  apps
-│   ├── [ 7.1M]  app.attestation.auditor
-│   │   ├── [ 2.2M]  24.apk
-│   │   ├── [ 2.2M]  25.apk
-│   │   ├── [ 2.2M]  26.apk
-│   │   ├── [ 249K]  delta-24-to-26.gz
-│   │   ├── [ 247K]  delta-25-to-26.gz
-│   │   ├── [ 1.5K]  ic_launcher.png
-│   │   └── [  477]  latest.txt
-│   ├── [ 114M]  org.chromium.chrome
-│   │   ├── [  27M]  438910534.apk
-│   │   ├── [  27M]  443006634.apk
-│   │   ├── [  27M]  443008234.apk
-│   │   ├── [  27M]  443009134.apk
-│   │   ├── [ 4.2M]  delta-438910534-to-443009134.gz
-│   │   ├── [ 674K]  delta-443006634-to-443009134.gz
-│   │   ├── [ 583K]  delta-443008234-to-443009134.gz
-│   │   └── [  595]  latest.txt
-│   ├── [  988]  latest-bulk-metadata.txt
-│   └── [  187]  latest-index.txt
-└── [  178]  public-signing-key.pem
-```
-
-* **public-signing-key.pem**: The public key will be used to validate the signatures in the repo for
-  the `validate` command, and it will also validate the private key passed into the `insert-apk`
-  command to prevent the use of a different key. This public key file in the root directory isn't
-  meant to be consumed by the client app, so it could be preferable to not include it in a sync to
-  the static file server.  (Instead, the client apps should have the public key included in the app
-  by default.)
-
-  On initial insertion into an empty repository, this public key is generated from the private
-  signing key used in the `insert-apk` command.
-
-* **latest-index.txt**: Sample:
-
-  ```plain
-  MEUCIEBMFgd7tSXZUkDgTs4BnNCIx05w2WbXvEFrSHCN8DaRAiEAmixIEQlU68BXU+5TD6Bou4216OdYeeZlOF8i8HbOsmQ=
-  1621142129
-  app.attestation.auditor 26 1621142129
-  org.chromium.chrome 443009134 1621142129
-  ```
-
-  The first line contains a base64-encoded signature, the second line contains the last update
-  timestamp, and the rest of the lines contain versions with last-update timestamps.
-
-* **latest.txt**: Sample for `org.chromium.chrome`:
-
-  ```plain
-  MEQCIBln9g8VaGaVjUnlazklxrY4Vl2Yb2h/RWzeST5U8YzzAiB39klMJhUSNrx0CisZ3jQpZ9FjBKFOTRntJQdPmxq4KA==
-  {"package":"org.chromium.chrome","label":"Vanadium","latestVersionCode":443009134,"latestVersionName":"90.0.4430.91","lastUpdateTimestamp":1621142129,"sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaInfo":[{"versionCode":443008234,"sha256Checksum":"0JEp1W1w6rnTpv2dWyqFI9W1ZFIHQMSF/1ZATjkdjXA="},{"versionCode":443006634,"sha256Checksum":"24XV98Qz26gn6dV44Kr8aTSJCf8oyIXxfomFGL87HGI="},{"versionCode":438910534,"sha256Checksum":"zt0pH24gFTDLSjuRFwXzP4GmH6dWLvTrmuC1xh1SxvM="}]}
-  ```
-
-  The first line contains a base64-encoded signature of the JSON metadata.
-
-  The prettified JSON for the second line is:
-
-  ```json
-  {
-    "package": "org.chromium.chrome",
-    "label": "Vanadium",
-    "latestVersionCode": 443009134,
-    "latestVersionName": "90.0.4430.91",
-    "lastUpdateTimestamp": 1621142129,
-    "sha256Checksum": "V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=",
-    "deltaInfo": [
-      {
-        "versionCode": 443008234,
-        "sha256Checksum": "0JEp1W1w6rnTpv2dWyqFI9W1ZFIHQMSF/1ZATjkdjXA="
-      },
-      {
-        "versionCode": 443006634,
-        "sha256Checksum": "24XV98Qz26gn6dV44Kr8aTSJCf8oyIXxfomFGL87HGI="
-      },
-      {
-        "versionCode": 438910534,
-        "sha256Checksum": "zt0pH24gFTDLSjuRFwXzP4GmH6dWLvTrmuC1xh1SxvM="
-      }
-    ]
-  }
-  ```
-
-* **latest-bulk-metadata.txt**: This is a file of all the metadata in the repository:
-
-  ```plain
-  MEYCIQDeEGpCCCQgHrE37cp5Uhds6THRjFCfr/c5D5q/3CBQIQIhAOMecdQjHUg3qIxBtdMqWQ3g8tAbL2f/D7ZdVeJUsHxs
-  1621142129
-  {"package":"app.attestation.auditor","label":"Auditor","latestVersionCode":26,"latestVersionName":"26","lastUpdateTimestamp":1621142129,"sha256Checksum":"LZo/7Hr/tCoSidZGAr67iz/O1nhHBdUIkpWqrEVJh7I=","deltaInfo":[{"versionCode":25,"sha256Checksum":"xUsN2tuUQWtxdrscGF8rEvpdilq6BSb6fe8xLwaviAA="},{"versionCode":24,"sha256Checksum":"HwI4GQGC1E+Xc5BVKwzSZhAOgZWG3KZzfkTYk0mO5pg="}]}
-  {"package":"org.chromium.chrome","label":"Vanadium","latestVersionCode":443009134,"latestVersionName":"90.0.4430.91","lastUpdateTimestamp":1621142129,"sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaInfo":[{"versionCode":443008234,"sha256Checksum":"0JEp1W1w6rnTpv2dWyqFI9W1ZFIHQMSF/1ZATjkdjXA="},{"versionCode":443006634,"sha256Checksum":"24XV98Qz26gn6dV44Kr8aTSJCf8oyIXxfomFGL87HGI="},{"versionCode":438910534,"sha256Checksum":"zt0pH24gFTDLSjuRFwXzP4GmH6dWLvTrmuC1xh1SxvM="}]}
-  ```
-
-  This is used for bulk downloads (e.g., first-time startup or force refreshes).
-
-
 ## Usage
 
 ### Repository management
@@ -126,16 +27,30 @@ app_repo_data/
 
 #### Common commands
 
-To add multiple APKs into the repo, run this command after building the jar with `./gradlew build`:
+##### Adding
+
+To add one or more APKs into the repo, run this command after building the jar with `./gradlew build`:
 
 ```bash
-$ ./appservergen add-apks [OPTIONS] -k decrypted_signing_key APKS
+$ ./appservergen add [OPTIONS] -k decrypted_signing_key APKS
 ```
 
 This handles metadata and delta generation. If the repository directories don't already exist, the
 tool will create the directories. This will not delete / move the source APK provided to the tool.
+This command will ask for release notes for every package being inserted and only for the most
+recent version of a package.
 
-See `./appservergen add-apks --help` for more options.
+See `./appservergen add --help` for more options.
+
+##### Groups
+
+Packages can be tagged with a `groupId` that indicates to clients should atomically install new
+updates for APKs in a group. This is useful when there are apps that have shared libraries such as
+Chromium.
+
+See `./appservergen group --help` for details.
+
+##### Validation of repository state
 
 To validate the repository (i.e. make sure the metadata is consistent, the signatures for the
 metadata actually verify, the APK information is correct, and the deltas apply correctly), run
@@ -144,13 +59,156 @@ metadata actually verify, the APK information is correct, and the deltas apply c
 $ ./appservergen validate [OPTIONS]
 ```
 
-### Delta generation
-The jar also supports generating deltas directly for convenience:
+##### Delta generation
+The tool also supports generating deltas directly for convenience:
 ```bash
 $ ./appservergen generate-delta [OPTIONS] OLDFILE NEWFILE OUTPUTDELTA
 $ ./appservergen apply-delta [OPTIONS] OLDFILE DELTAFILE NEWFILE
 ```
 See the help option `-h` for `OPTIONS`.
+
+## Example of repository structure
+
+This is a directory full of apps to be inserted into a repository:
+
+```plain
+TestAPKs/
+├── Auditor-24.apk
+├── Auditor-25.apk
+├── Auditor-26.apk
+├── Auditor-27.apk
+├── TrichromeChrome-90.0.4430.210.apk
+├── TrichromeChrome-90.0.4430.91.apk
+├── TrichromeChrome-91.0.4472.77.apk
+├── TrichromeLibrary-90.0.4430.210.apk
+├── TrichromeLibrary-90.0.4430.91.apk
+├── TrichromeLibrary-91.0.4472.77.apk
+├── TrichromeWebView-90.0.4430.210.apk
+├── TrichromeWebView-90.0.4430.91.apk
+├── TrichromeWebView-91.0.4472.77.apk
+```
+
+These commands were run to create the following sample repository:
+```bash
+$ ./appservergen add -k testkey_ec.pk8 TestAPKs/*.apk
+$ ./appservergen group create -k testkey_ec.pk8 chromium app.vanadium.trichromelibrary app.vanadium.webview org.chromium.chrome
+```
+
+Note: The `add` command asks for optional release notes for every package. The `add` command also
+takes extra time to generate all of the deltas.
+
+<!-- tree --dirsfirst --du -h app_repo_data -->
+```plain
+app_repo_data
+├── [ 635M]  apps
+│   ├── [  10M]  app.attestation.auditor
+│   │   ├── [ 2.2M]  24.apk
+│   │   ├── [ 2.2M]  25.apk
+│   │   ├── [ 2.2M]  26.apk
+│   │   ├── [ 2.2M]  27.apk
+│   │   ├── [ 509K]  delta-24-to-27.gz
+│   │   ├── [ 509K]  delta-25-to-27.gz
+│   │   ├── [ 495K]  delta-26-to-27.gz
+│   │   └── [  874]  latest.txt
+│   ├── [ 320M]  app.vanadium.trichromelibrary
+│   │   ├── [  94M]  443009134.apk
+│   │   ├── [  94M]  443021034.apk
+│   │   ├── [  97M]  447207734.apk
+│   │   ├── [  18M]  delta-443009134-to-447207734.gz
+│   │   ├── [  18M]  delta-443021034-to-447207734.gz
+│   │   └── [  565]  latest.txt
+│   ├── [ 226M]  app.vanadium.webview
+│   │   ├── [  63M]  443009134.apk
+│   │   ├── [  63M]  443021034.apk
+│   │   ├── [  66M]  447207734.apk
+│   │   ├── [  18M]  delta-443009134-to-447207734.gz
+│   │   ├── [  18M]  delta-443021034-to-447207734.gz
+│   │   └── [  562]  latest.txt
+│   ├── [  78M]  org.chromium.chrome
+│   │   ├── [  27M]  443009134.apk
+│   │   ├── [  27M]  443021034.apk
+│   │   ├── [  17M]  447207733.apk
+│   │   ├── [ 3.5M]  delta-443009134-to-447207733.gz
+│   │   ├── [ 3.5M]  delta-443021034-to-447207733.gz
+│   │   └── [  546]  latest.txt
+│   ├── [ 2.2K]  latest-bulk-metadata.txt
+│   └── [  280]  latest-index.txt
+└── [  178]  public-signing-key.pem
+```
+
+* **public-signing-key.pem**: The public key will be used to validate the signatures in the repo for
+  the `validate` command, and it will also validate the private key passed into the `insert-apk`
+  command to prevent the use of a different key. This public key file in the root directory isn't
+  meant to be consumed by the client app, so it could be preferable to not include it in a sync to
+  the static file server.  (Instead, the client apps should have the public key included in the app
+  by default.)
+
+  On initial insertion into an empty repository, this public key is generated from the private
+  signing key used in the `insert-apk` command.
+
+* **latest-index.txt**: Sample:
+
+  ```plain
+  MEUCIDGlrdFl2KqXro+OvRGzZPrWMZJNrVCH/BKrRvwLTyHzAiEAkw2yySyF14AVDf5sP3/fsPc4krgv8C/v0+QxD6y/uw0=
+  1622153179
+  app.attestation.auditor 27 1622152923
+  app.vanadium.trichromelibrary 447207734 1622153179
+  app.vanadium.webview 447207734 1622153179
+  org.chromium.chrome 447207733 1622153179
+  ```
+
+  The first line contains a base64-encoded signature, the second line contains the last update
+  timestamp, and the rest of the lines contain versions with last-update timestamps.
+
+* **latest.txt**: Sample for `org.chromium.chrome`:
+
+  ```plain
+  MEYCIQDKAulMgytIpX4XrNlgbdz4EJUblPPCI7OkyfB0pARRbwIhALU9+LzF6rQXe/NPZLbvf9WRbbFpNQGdLPZ0L1XzCwie
+  {"package":"org.chromium.chrome","groupId":"chromium","label":"Vanadium","latestVersionCode":447207733,"latestVersionName":"91.0.4472.77","lastUpdateTimestamp":1622153179,"sha256Checksum":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","deltaInfo":[{"versionCode":443021034,"sha256Checksum":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="},{"versionCode":443009134,"sha256Checksum":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="}],"releaseNotes":null}
+  ```
+
+  The first line contains a base64-encoded signature of the JSON metadata.
+
+  The prettified JSON for the second line is:
+
+  ```json
+  {
+      "package": "org.chromium.chrome",
+      "groupId": "chromium",
+      "label": "Vanadium",
+      "latestVersionCode": 447207733,
+      "latestVersionName": "91.0.4472.77",
+      "lastUpdateTimestamp": 1622153179,
+      "sha256Checksum": "yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=",
+      "deltaInfo": [
+          {
+              "versionCode": 443021034,
+              "sha256Checksum": "ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="
+          },
+          {
+              "versionCode": 443009134,
+              "sha256Checksum": "jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="
+          }
+      ],
+      "releaseNotes": null
+  }
+  ```
+
+  Note: `groupId` is used to indicate to clients about apps that should be installed atomically.
+  In this case, it is used to group the Trichromium packages together.
+
+* **latest-bulk-metadata.txt**: This is a file of all the metadata in the repository:
+
+  ```plain
+  MEUCIB8/EeRxvuqELcjiDpecqNz9UqLjmIQcmyU/UvE6KfekAiEAsNjIgFGG/anV0Zo1tecbAIHix3fJ4Tt84RxjQ2+f9cs=
+  1622153179
+  {"package":"app.attestation.auditor","groupId":null,"label":"Auditor","latestVersionCode":27,"latestVersionName":"27","lastUpdateTimestamp":1622152923,"sha256Checksum":"CNpHPoTVixSI7TRuRpiMbWA1A28ZBrMTDophzdjfZ6g=","deltaInfo":[{"versionCode":26,"sha256Checksum":"eX7VGj7905BR4T/kmAVkkJp74oqOlSFEbPL8sy/c7pc="},{"versionCode":25,"sha256Checksum":"hV+pV13g/JSeMF4yYzGpxtE9o6BPYjsp5LAbbDKzNfA="},{"versionCode":24,"sha256Checksum":"Xrm5wxQOXLoaoGk7/UtfTce9JL24LppPrBcuwgfeNHM="}],"releaseNotes":"<p><a href=\"https://github.com/GrapheneOS/Auditor/compare/26...27\">Full list of changes from the previous release (version 26)</a>. Notable changes:</p>\n<ul>\n  <li>modernize UI (dark mode, etc.)</li>\n  <li>modernize implementation</li>\n  <li>update dependencies</li>\n</ul>\n"}
+  {"package":"app.vanadium.trichromelibrary","groupId":"chromium","label":"Trichrome Library","latestVersionCode":447207734,"latestVersionName":"91.0.4472.77","lastUpdateTimestamp":1622153179,"sha256Checksum":"NLpi8yQgYJAfWBj2/l3C2QMdfJncRC/t8aPA3RlE1hM=","deltaInfo":[{"versionCode":443021034,"sha256Checksum":"QZve0/D+qqGzIozptH+D5saUCxrdNSGjWWcmJFbb16I="},{"versionCode":443009134,"sha256Checksum":"RoZbWjLPvxENxcMWnV7LDBRulpQJjC2P4MpBdcKdjCo="}],"releaseNotes":null}
+  {"package":"app.vanadium.webview","groupId":"chromium","label":"Vanadium System WebView","latestVersionCode":447207734,"latestVersionName":"91.0.4472.77","lastUpdateTimestamp":1622153179,"sha256Checksum":"Xo1wfFSTg7Gi4Z+1didiJJX/IlDcy7gw9mS3CRCv78s=","deltaInfo":[{"versionCode":443021034,"sha256Checksum":"Sq+tXujrv4Fe6o6MnIYEOTGB62amygiOhS6chgd3bC8="},{"versionCode":443009134,"sha256Checksum":"PKuxV8pF72nrK5M1tB/Hnra0cI7yPRdiucSlm6aHGLc="}],"releaseNotes":null}
+  {"package":"org.chromium.chrome","groupId":"chromium","label":"Vanadium","latestVersionCode":447207733,"latestVersionName":"91.0.4472.77","lastUpdateTimestamp":1622153179,"sha256Checksum":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","deltaInfo":[{"versionCode":443021034,"sha256Checksum":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="},{"versionCode":443009134,"sha256Checksum":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="}],"releaseNotes":null}
+  ```
+
+  This is used for bulk downloads (e.g., first-time startup or force refreshes).
 
 ## TODO
 * The Android app

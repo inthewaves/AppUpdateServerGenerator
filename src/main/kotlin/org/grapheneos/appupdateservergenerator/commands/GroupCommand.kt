@@ -13,12 +13,27 @@ import java.io.File
 import java.io.IOException
 import kotlin.system.exitProcess
 
-class Group private constructor(): CliktCommand(name = "group", help = "Manages groups") {
+class GroupCommand private constructor(): CliktCommand(
+    name = "group",
+    help = """Manages the groups in the repository.
+        
+        Packages can be tagged with a groupId that indicates to clients about packages that should be atomically 
+        installed / updated. This is useful when there are apps that have shared libraries such as Chromium.
+        
+        Note: The repository does not do any special checks around groups; on the serverside, it's purely used as a tag.
+        It is the client's responsibility to download all APKs in a group that have updates and to install them
+        atomically. For this reason, it's important that the updates for packages in a group are pushed to the server
+        all at once.
+        
+        For example, for a new Chromium update, the `add` command should be run on the new APKs for WebView, the
+        Trichrome Library, and the Chrome app.
+    """.trimIndent()
+) {
     override fun run() {
     }
 
     companion object {
-        fun createWithSubcommands(): Group = Group()
+        fun createWithSubcommands(): GroupCommand = GroupCommand()
             .subcommands(
                 GroupSubcommand.Remove(),
                 GroupSubcommand.Create(),
@@ -40,9 +55,12 @@ private open class GroupSubcommand(name: String?, help: String) : AppRepoSubcomm
             appRepoManager.deleteGroup(groupId, signingPrivateKey)
         }
     }
-    class Create : GroupSubcommand(name = "create", help = "Creates a group with the given group id") {
+    class Create : GroupSubcommand(
+        name = "create",
+        help = "Creates a group with the given group id and adds packages to it"
+    ) {
         private val packages: List<String> by argument(
-            help = "The package(s) to edit group information of",
+            help = "The package(s) to add to this new group",
         ).multiple(required = true)
 
         override fun runAfterInvokerChecks() = runBlocking {
@@ -51,7 +69,7 @@ private open class GroupSubcommand(name: String?, help: String) : AppRepoSubcomm
     }
     class Add : GroupSubcommand(name = "add", help = "Adds packages to an existing group id") {
         private val packages: List<String> by argument(
-            help = "The package(s) to edit group information of",
+            help = "The package(s) to add to the given group",
         ).multiple(required = true)
 
         override fun runAfterInvokerChecks() = runBlocking {

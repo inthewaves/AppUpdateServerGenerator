@@ -6,7 +6,7 @@ import org.grapheneos.appupdateservergenerator.commands.AddCommand
 import org.grapheneos.appupdateservergenerator.commands.ApplyDeltaCommand
 import org.grapheneos.appupdateservergenerator.commands.EditCommand
 import org.grapheneos.appupdateservergenerator.commands.GenerateDeltaCommand
-import org.grapheneos.appupdateservergenerator.commands.Group
+import org.grapheneos.appupdateservergenerator.commands.GroupCommand
 import org.grapheneos.appupdateservergenerator.commands.ListPackagesCommand
 import org.grapheneos.appupdateservergenerator.commands.ValidateRepoCommand
 import kotlin.system.exitProcess
@@ -20,7 +20,7 @@ fun main(args: Array<String>) {
         .subcommands(
             AddCommand(),
             ValidateRepoCommand(),
-            Group.createWithSubcommands(),
+            GroupCommand.createWithSubcommands(),
             EditCommand.createWithSubcommands(),
             ListPackagesCommand(),
             ApplyDeltaCommand(),
