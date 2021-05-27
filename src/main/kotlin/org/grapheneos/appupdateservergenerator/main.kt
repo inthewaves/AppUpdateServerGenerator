@@ -2,11 +2,12 @@ package org.grapheneos.appupdateservergenerator
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
-import org.grapheneos.appupdateservergenerator.commands.AddApksCommand
+import org.grapheneos.appupdateservergenerator.commands.AddCommand
 import org.grapheneos.appupdateservergenerator.commands.ApplyDeltaCommand
+import org.grapheneos.appupdateservergenerator.commands.EditCommand
 import org.grapheneos.appupdateservergenerator.commands.GenerateDeltaCommand
 import org.grapheneos.appupdateservergenerator.commands.Group
-import org.grapheneos.appupdateservergenerator.commands.InfoCommand
+import org.grapheneos.appupdateservergenerator.commands.ListPackagesCommand
 import org.grapheneos.appupdateservergenerator.commands.ValidateRepoCommand
 import kotlin.system.exitProcess
 
@@ -17,10 +18,11 @@ fun main(args: Array<String>) {
 
     AppRepo()
         .subcommands(
-            AddApksCommand(),
+            AddCommand(),
             ValidateRepoCommand(),
-            Group.create(),
-            InfoCommand(),
+            Group.createWithSubcommands(),
+            EditCommand.createWithSubcommands(),
+            ListPackagesCommand(),
             ApplyDeltaCommand(),
             GenerateDeltaCommand(),
         )
@@ -30,6 +32,7 @@ fun main(args: Array<String>) {
 }
 
 class AppRepo : CliktCommand(
+    name = "appservergen",
     help = """This is a command-line tool to manage a repository for an Android app update server."""
 ) {
     override fun run() {

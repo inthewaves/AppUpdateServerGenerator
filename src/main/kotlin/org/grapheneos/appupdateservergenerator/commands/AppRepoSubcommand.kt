@@ -1,6 +1,7 @@
 package org.grapheneos.appupdateservergenerator.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.file
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
@@ -41,6 +42,11 @@ abstract class AppRepoSubcommand(
         help = "The directory to use for the app repo. Defaults to working directory.",
     ).file(canBeFile = false, canBeDir = true)
 
+    protected val verbose: Boolean by option(
+        names = arrayOf("--verbose", "-v"),
+        help = "Whether to turn on verbosity (exception stack traces will be printed)"
+    ).flag()
+
     protected val aaptInvoker = AAPT2Invoker()
     protected val apkSignerInvoker = ApkSignerInvoker()
     protected val openSSLInvoker = OpenSSLInvoker()
@@ -63,8 +69,16 @@ abstract class AppRepoSubcommand(
     }
 
     protected open fun printErrorAndExit(errorMessage: String?, cause: Throwable? = null): Nothing {
-        errorMessage?.let { println("error: $it") } ?: println("error during repo validation")
-        cause?.printStackTrace()
+        val firstLineToPrint = errorMessage?.let { "error: $it" } ?:"error during repo validation"
+        println(firstLineToPrint)
+        cause?.let {
+            if (verbose) {
+                it.printStackTrace()
+            } else if (it.message != null && !firstLineToPrint.contains(it.message!!)) {
+                println(it.message)
+            }
+        }
+
         exitProcess(1)
     }
 

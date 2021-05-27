@@ -45,7 +45,7 @@ sealed class PackageApkGroup private constructor(
     }
 
     override fun toString(): String {
-        return "ApkInsertionGroup(packageName='$packageName', sortedApks=$sortedApks)"
+        return "PackageApkGroup(packageName='$packageName', sortedApks=$sortedApks)"
     }
 
     /**
@@ -71,7 +71,8 @@ sealed class PackageApkGroup private constructor(
             return fromFiles(
                 apkFilePaths = apkFilePaths,
                 aaptInvoker = aaptInvoker,
-                apkSignerInvoker = apkSignerInvoker, ascendingOrder = true
+                apkSignerInvoker = apkSignerInvoker,
+                ascendingOrder = true
             ) as List<AscendingOrder>
         }
 

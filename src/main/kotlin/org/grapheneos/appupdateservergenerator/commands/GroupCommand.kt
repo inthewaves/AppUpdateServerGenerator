@@ -18,7 +18,7 @@ class Group private constructor(): CliktCommand(name = "group", help = "Manages 
     }
 
     companion object {
-        fun create(): Group = Group()
+        fun createWithSubcommands(): Group = Group()
             .subcommands(
                 GroupSubcommand.Remove(),
                 GroupSubcommand.Create(),

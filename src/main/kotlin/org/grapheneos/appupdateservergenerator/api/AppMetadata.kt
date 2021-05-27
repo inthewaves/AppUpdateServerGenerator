@@ -3,7 +3,11 @@ package org.grapheneos.appupdateservergenerator.api
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.serialization.*
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
@@ -32,6 +36,10 @@ data class AppMetadata(
      * The versions that have a delta available
      */
     val deltaInfo: Set<DeltaInfo>,
+    /**
+     * Release notes for the latest version of the app ([latestVersionCode])
+     */
+    val releaseNotes: String?
 ) {
     @Serializable
     data class DeltaInfo(val versionCode: VersionCode, val sha256Checksum: Base64String)
