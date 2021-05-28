@@ -1,7 +1,7 @@
 package org.grapheneos.appupdateservergenerator.model
 
 import kotlinx.serialization.Serializable
-import java.util.*
+import java.util.Base64
 
 @Serializable
 @JvmInline
@@ -19,6 +19,8 @@ value class Base64String(val s: String) {
         fun fromBytes(bytes: ByteArray) = Base64String(Base64.getEncoder().encodeToString(bytes))
     }
 }
+
+fun ByteArray.toBase64String() = Base64String.fromBytes(this)
 
 @Serializable
 @JvmInline

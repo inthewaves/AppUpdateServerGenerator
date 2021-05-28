@@ -7,7 +7,8 @@ import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import java.io.IOException
-import java.util.*
+import java.util.SortedMap
+import java.util.TreeMap
 
 /**
  * The index of all the apps in the repo.
@@ -94,7 +95,7 @@ data class AppRepoIndex private constructor(
         ): AppRepoIndex = coroutineScope {
             // sort by keys
             val map = AppMetadata.getAllAppMetadataFromDisk(fileManager)
-                .associateTo(TreeMap()) { it.packageName to (it.latestVersionCode to it.lastUpdateTimestamp) }
+                .associateTo(TreeMap()) { it.packageName to (it.latestRelease().versionCode to it.lastUpdateTimestamp) }
             AppRepoIndex(timestamp, map)
         }
     }

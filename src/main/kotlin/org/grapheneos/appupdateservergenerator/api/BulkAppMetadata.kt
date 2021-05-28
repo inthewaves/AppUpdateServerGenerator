@@ -2,13 +2,13 @@ package org.grapheneos.appupdateservergenerator.api
 
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
+import org.grapheneos.appupdateservergenerator.serialization.ToolJson
 import java.io.IOException
-import java.util.*
+import java.util.SortedSet
 
 /**
  * Represents a file where every (non-signature and timestamp) line is a JSON string of [AppMetadata]
@@ -48,7 +48,7 @@ data class BulkAppMetadata private constructor(
                             timestamp = UnixTimestamp(line.toLong())
                         } else {
                             val appMetadata: AppMetadata = try {
-                                Json.decodeFromString(line)
+                                ToolJson.json.decodeFromString(line)
                             } catch (e: SerializationException) {
                                 throw IOException(e)
                             }

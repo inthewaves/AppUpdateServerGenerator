@@ -35,6 +35,7 @@ import org.grapheneos.appupdateservergenerator.model.HexString
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
+import org.grapheneos.appupdateservergenerator.model.toBase64String
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import org.grapheneos.appupdateservergenerator.util.Either
 import org.grapheneos.appupdateservergenerator.util.asLeft
@@ -52,7 +53,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import java.util.*
+import java.util.SortedSet
+import java.util.TreeSet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -120,7 +122,12 @@ interface AppRepoManager {
 
     fun getMetadataForPackage(pkg: String): AppMetadata?
 
-    suspend fun editReleaseNotesForPackage(pkg: String, delete: Boolean, signingPrivateKey: PKCS8PrivateKeyFile)
+    suspend fun editReleaseNotesForPackage(
+        pkg: String,
+        versionCode: VersionCode? = null,
+        delete: Boolean,
+        signingPrivateKey: PKCS8PrivateKeyFile
+    )
 
     suspend fun resignMetadataForPackage(pkg: String, signingPrivateKey: PKCS8PrivateKeyFile)
 }
@@ -255,15 +262,21 @@ private class AppRepoManagerImpl(
         }
 
         val latestVersionCodeFromFileName: Int = apks.last().nameWithoutExtension.toInt()
-        if (metadata.latestVersionCode.code != latestVersionCodeFromFileName) {
+        if (metadata.latestRelease().versionCode.code != latestVersionCodeFromFileName) {
             throw AppRepoException.InvalidRepoState(
-                "$pkg: metadata latestVersionCode (${metadata.latestVersionCode.code}) " +
+                "$pkg: metadata latestVersionCode (${metadata.latestRelease().versionCode.code}) " +
                         "> apk version from file name (${apks.last()})"
             )
         }
-        val latestApk =
-            AndroidApk.verifyApkSignatureAndBuildFromApkFile(apks.last(), aaptInvoker, apkSignerInvoker)
-        if (metadata.latestVersionCode != latestApk.versionCode) {
+        if (metadata.latestRelease().versionCode != metadata.latestRelease().versionCode) {
+            throw AppRepoException.InvalidRepoState(
+                "$pkg: metadata latestVersionCode (${metadata.latestRelease().versionCode.code}) " +
+                        "doesn't match the actual most recent release's version code in the releases array"
+            )
+        }
+
+        val latestApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(apks.last(), aaptInvoker, apkSignerInvoker)
+        if (metadata.latestRelease().versionCode != latestApk.versionCode) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: latest APK versionCode in manifest mismatches with filename"
             )
@@ -271,7 +284,8 @@ private class AppRepoManagerImpl(
         val latestApkDigest = Base64String.fromBytes(
             latestApk.apkFile.digest(MessageDigest.getInstance("SHA-256"))
         )
-        if (metadata.sha256Checksum != latestApkDigest) {
+        val latestRelease = metadata.latestRelease()
+        if (latestRelease.sha256Checksum != latestApkDigest) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: sha256 checksum from latest apk file doesn't match the checksum in the metadata"
             )
@@ -300,9 +314,9 @@ private class AppRepoManagerImpl(
         val baseDeltaVersionsFromDirFiles: List<VersionCode> = versionsToDeltaMap
             .map { (versionPair, file)  ->
                 val (baseVersion, targetVersion) = versionPair
-                if (targetVersion != metadata.latestVersionCode) {
+                if (targetVersion != metadata.latestRelease().versionCode) {
                     throw AppRepoException.InvalidRepoState(
-                        "$pkg: delta file ${file.name} doesn't target latest version ${metadata.latestVersionCode.code}"
+                        "$pkg: delta file ${file.name} doesn't target latest version ${metadata.latestRelease().versionCode}"
                     )
                 }
 
@@ -310,7 +324,7 @@ private class AppRepoManagerImpl(
             }
             .sorted()
         val baseDeltaVersionsToFileMapFromMetadata: Map<VersionCode, AppMetadata.DeltaInfo> =
-            metadata.deltaInfo.associateBy { it.versionCode }
+            latestRelease.deltaInfo.associateBy { it.baseVersionCode }
 
         if (baseDeltaVersionsToFileMapFromMetadata.keys.sorted() != baseDeltaVersionsFromDirFiles) {
             val problemVersions = (baseDeltaVersionsToFileMapFromMetadata.keys symmetricDifference
@@ -323,12 +337,13 @@ private class AppRepoManagerImpl(
             )
         }
 
+        val versionCodesFromApksInDir = apks.mapTo(sortedSetOf()) { VersionCode(it.nameWithoutExtension.toInt()) }
         // check if there are deltas that have missing base APKs
-        val baseDeltaVersionsFromMetadata = baseDeltaVersionsToFileMapFromMetadata.mapTo(sortedSetOf()) { it.key.code }
+        val baseDeltaVersionsFromMetadata = baseDeltaVersionsToFileMapFromMetadata.mapTo(sortedSetOf()) { it.key }
         if (baseDeltaVersionsFromMetadata.isNotEmpty()) {
-            val baseVersionCodesFromApksInDir = apks
-                .mapTo(sortedSetOf()) { it.nameWithoutExtension.toInt() }
-                .run { subSet(baseDeltaVersionsFromMetadata.first(), metadata.latestVersionCode.code) }
+            val baseVersionCodesFromApksInDir = versionCodesFromApksInDir
+                .subSet(baseDeltaVersionsFromMetadata.first(), metadata.latestRelease().versionCode)
+
             if (baseDeltaVersionsFromMetadata != baseVersionCodesFromApksInDir) {
                 throwExceptionWithMissingIntersectionElements(
                     first = baseDeltaVersionsFromMetadata,
@@ -340,7 +355,7 @@ private class AppRepoManagerImpl(
         }
 
         /** Accepts a triple of the form (baseFile, deltaFile, expectedFile) */
-        val deltaApplicationChannel = actor<Triple<AndroidApk, File, AndroidApk>> {
+        val deltaVerificationChannel = actor<Triple<AndroidApk, File, AndroidApk>> {
             val deltaApplicationSemaphore = Semaphore(MAX_CONCURRENT_DELTA_APPLIES_FOR_VERIFICATION)
             coroutineScope {
                 for ((baseFile, deltaFile, expectedFile) in channel) {
@@ -352,6 +367,18 @@ private class AppRepoManagerImpl(
                 }
             }
         }
+
+        val releasesInMetadata: TreeSet<AppMetadata.ReleaseInfo> = metadata.releases
+        val versionCodesFromReleasesInMetadata = releasesInMetadata.mapTo(sortedSetOf()) { it.versionCode }
+        if (versionCodesFromApksInDir != versionCodesFromReleasesInMetadata) {
+            throwExceptionWithMissingIntersectionElements(
+                first = versionCodesFromApksInDir,
+                missingFromFirstError = "$pkg: dir has some APKs not in the metadata releases",
+                second = versionCodesFromReleasesInMetadata,
+                missingFromSecondError = "$pkg: metadata has releases that don't have APKs in the dir"
+            )
+        }
+
         val parsedApks: List<AndroidApk> = coroutineScope {
             apks.map { apkFile ->
                 async {
@@ -360,14 +387,42 @@ private class AppRepoManagerImpl(
                         aaptInvoker,
                         apkSignerInvoker
                     )
+                    if (parsedApk.packageName != metadata.packageName) {
+                        throw AppRepoException.InvalidRepoState(
+                            "$pkg: mismatch between metadata package and package from manifest ($apkFile)"
+                        )
+                    }
+
+                    val releaseInfoForThisVersion = metadata.releases.find { it.versionCode == parsedApk.versionCode }
+                        ?: throw AppRepoException.InvalidRepoState(
+                            "$pkg: can't find release for APK version ${parsedApk.versionCode}"
+                        )
+
                     if (parsedApk.versionCode.code != apkFile.nameWithoutExtension.toInt()) {
                         throw AppRepoException.InvalidRepoState(
                             "$pkg: mismatch between filename version code and version from manifest ($apkFile)"
                         )
                     }
-                    if (parsedApk.versionCode > metadata.latestVersionCode) {
+                    if (parsedApk.versionCode != releaseInfoForThisVersion.versionCode) {
+                        throw AppRepoException.InvalidRepoState(
+                            "$pkg: mismatch between metadata release version and version from manifest ($apkFile)"
+                        )
+                    }
+                    if (parsedApk.versionName != releaseInfoForThisVersion.versionName) {
+                        throw AppRepoException.InvalidRepoState(
+                            "$pkg: mismatch between metadata release version name and version from manifest ($apkFile)"
+                        )
+                    }
+                    if (parsedApk.versionCode > metadata.latestRelease().versionCode) {
                         throw AppRepoException.InvalidRepoState(
                             "$pkg: APK ($apkFile) exceeds the latest version code from metadata"
+                        )
+                    }
+                    if (parsedApk.apkFile.digest("SHA-256").toBase64String() !=
+                        releaseInfoForThisVersion.sha256Checksum
+                    ) {
+                        throw AppRepoException.InvalidRepoState(
+                            "$pkg: APK ($apkFile) sha256 checksum mismatches the release's checksum"
                         )
                     }
 
@@ -375,12 +430,12 @@ private class AppRepoManagerImpl(
                         val deltaFile = fileManager.getDeltaFileForApp(
                             metadata.packageName,
                             parsedApk.versionCode,
-                            metadata.latestVersionCode
+                            metadata.latestRelease().versionCode
                         )
                         if (!deltaFile.exists()) {
                             throw AppRepoException.InvalidRepoState(
                                 "$pkg: missing a delta file from ${parsedApk.versionCode} " +
-                                        "to ${metadata.latestVersionCode}"
+                                        "to ${metadata.latestRelease().versionCode}"
                             )
                         }
                         val deltaInfo = baseDeltaVersionsToFileMapFromMetadata[parsedApk.versionCode]
@@ -392,14 +447,14 @@ private class AppRepoManagerImpl(
                             )
                         }
 
-                        deltaApplicationChannel.send(Triple(parsedApk, deltaFile, latestApk))
+                        deltaVerificationChannel.send(Triple(parsedApk, deltaFile, latestApk))
                     }
 
                     parsedApk
                 }
             }.awaitAll()
         }
-        deltaApplicationChannel.close()
+        deltaVerificationChannel.close()
         validateApkSigningCertChain(newApks = null, parsedApks)
     }
 
@@ -555,16 +610,18 @@ private class AppRepoManagerImpl(
                     val appDir = fileManager.getDirForApp(request.pkg)
                     launch {
                         try {
-                            val deltaAvailableVersions: List<AppMetadata.DeltaInfo> =
+                            val deltaAvailableVersions: SortedSet<AppMetadata.DeltaInfo> =
                                 regenerateDeltas(appDir, printMessageChannel = printMessageChannel)
+
                             if (deltaAvailableVersions.isNotEmpty()) {
                                 anyDeltasGenerated.set(true)
                             }
 
                             // Update the metadata with the updated delta info
-                            AppMetadata.getMetadataFromDiskForPackage(appDir.packageName, fileManager)
-                                .copy(deltaInfo = deltaAvailableVersions.toSet())
-                                .writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
+                            AppMetadata.getMetadataFromDiskForPackage(appDir.packageName, fileManager).apply {
+                                updateLatestReleaseWithDeltaInfo(deltaAvailableVersions)
+                                writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
+                            }
                             printMessageChannel.trySend(PrintMessageType.NewLine(
                                 "updated metadata for ${appDir.packageName} with delta information"
                             ))
@@ -771,14 +828,14 @@ private class AppRepoManagerImpl(
             println("${apksToInsert.packageName} is in repo.")
 
             val smallestVersionCodeApk = apksToInsert.lowestVersionApk!!
-            if (smallestVersionCodeApk.versionCode <= currentAppMetadata.latestVersionCode) {
+            if (smallestVersionCodeApk.versionCode <= currentAppMetadata.latestRelease().versionCode) {
                 throw AppRepoException.MoreRecentVersionInRepo(
                     "trying to insert ${smallestVersionCodeApk.packageName} with version code " +
                             "${smallestVersionCodeApk.versionCode.code} when the " +
-                            "repo has latest version ${currentAppMetadata.latestVersionCode.code}"
+                            "repo has latest version ${currentAppMetadata.latestRelease().versionCode.code}"
                 )
             }
-            println("previous version in repo: ${currentAppMetadata.latestVersionCode.code}")
+            println("previous version in repo: ${currentAppMetadata.latestRelease().versionCode.code}")
         } else {
             println("${apksToInsert.packageName} is not in the repo. Creating new directory and metadata")
             if (!appDir.dir.mkdirs()) {
@@ -790,37 +847,41 @@ private class AppRepoManagerImpl(
         validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks.sortedApks)
 
         val maxVersionApk = apksToInsert.highestVersionApk!!
-        val releaseNotes: String? = if (promptForReleaseNotes) {
+        val releaseNotesForMostRecentVersion: String? = if (promptForReleaseNotes) {
             promptUserForReleaseNotes(maxVersionApk.asRight())?.takeIf { it.isNotBlank() }
         } else {
             null
         }
 
+        val newReleases = sortedSetOf<AppMetadata.ReleaseInfo>()
         apksToInsert.sortedApks.forEach { apkToInsert ->
             val newApkFile = File(appDir.dir, "${apkToInsert.versionCode.code}.apk")
             apkToInsert.apkFile.copyTo(newApkFile)
             println("copied ${apkToInsert.apkFile.absolutePath} to ${newApkFile.absolutePath}")
+
+            newReleases.add(
+                AppMetadata.ReleaseInfo.fromApk(
+                    apkToInsert,
+                    timestampForMetadata,
+                    releaseNotes = if (apkToInsert.versionCode == maxVersionApk.versionCode) {
+                        releaseNotesForMostRecentVersion
+                    } else {
+                        null
+                    }
+                )
+            )
         }
 
         try {
-            val currentAppMetadata = getMetadataForPackage(apksToInsert.packageName)
+            val currentAppMetadata: AppMetadata? = getMetadataForPackage(apksToInsert.packageName)
             val newAppMetadata = AppMetadata(
                 packageName = maxVersionApk.packageName,
                 groupId = currentAppMetadata?.groupId,
                 label = maxVersionApk.label,
-                latestVersionCode = maxVersionApk.versionCode,
-                latestVersionName = maxVersionApk.versionName,
-                sha256Checksum = Base64String.fromBytes(
-                    maxVersionApk.apkFile.digest(MessageDigest.getInstance("SHA-256"))
-                ),
-                // This will be filled in later.
-                // Deltas are generated asynchronously
-                deltaInfo = emptySet(),
                 lastUpdateTimestamp = timestampForMetadata,
-                releaseNotes = releaseNotes
+                releases = currentAppMetadata?.releases?.apply { addAll(newReleases) } ?: newReleases
             )
             println("metadata updated: $newAppMetadata")
-
             newAppMetadata.writeToDiskAndSign(
                 privateKey = signingPrivateKey,
                 openSSLInvoker = openSSLInvoker,
@@ -898,11 +959,11 @@ private class AppRepoManagerImpl(
         appDir: AppDir,
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS,
         printMessageChannel: SendChannel<PrintMessageType>?
-    ): List<AppMetadata.DeltaInfo> = withContext(repoDispatcher) {
+    ): SortedSet<AppMetadata.DeltaInfo> = withContext(repoDispatcher) {
         deleteAllDeltas(appDir)
         val apks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = false)
         if (apks.size <= 1) {
-            return@withContext emptyList()
+            return@withContext sortedSetOf()
         }
         check(apks is PackageApkGroup.DescendingOrder)
 
@@ -915,7 +976,7 @@ private class AppRepoManagerImpl(
         // Drop the first element, because that's the most recent one and hence the target
         apks.sortedApks.drop(1)
             .take(numberOfDeltasToGenerate)
-            .mapTo(ArrayList(numberOfDeltasToGenerate)) { previousApk ->
+            .map { previousApk ->
                 async {
                     yield()
                     deltaGenerationSemaphore.withPermit {
@@ -949,13 +1010,13 @@ private class AppRepoManagerImpl(
                     }
                 }
             }
-            .awaitAll()
+            .mapTo(sortedSetOf()) { it.await() }
             .also { deltaAvailableVersions ->
                 printMessageChannel?.trySend(PrintMessageType.NewLine(
                     "took $deltaGenTime ms to generate ${deltaAvailableVersions.size} deltas " +
                             "for ${appDir.packageName}. " +
                             "Versions with deltas available: " +
-                            "${deltaAvailableVersions.map { it.versionCode.code }}"
+                            "${deltaAvailableVersions.map { it.baseVersionCode.code }}"
                 ))
             }
     }
@@ -1031,6 +1092,7 @@ private class AppRepoManagerImpl(
 
     override suspend fun editReleaseNotesForPackage(
         pkg: String,
+        versionCode: VersionCode?,
         delete: Boolean,
         signingPrivateKey: PKCS8PrivateKeyFile
     ) {
@@ -1042,11 +1104,18 @@ private class AppRepoManagerImpl(
             throw AppRepoException.EditFailed("package $pkg doesn't exist")
         }
 
+        val releaseInfo = if (versionCode == null) {
+            metadata.releases.find { it.versionCode == versionCode }
+                ?: throw AppRepoException.EditFailed("$pkg: unable to find release $versionCode")
+        } else {
+            metadata.latestRelease()
+        }
+
         val newReleaseNotes: String? = if (!delete) {
-            promptUserForReleaseNotes(metadata.asLeft())
+            promptUserForReleaseNotes((metadata to releaseInfo.versionCode).asLeft())
                 .also { newReleaseNotes ->
                     if (newReleaseNotes == null) {
-                        if (metadata.releaseNotes == null) {
+                        if (releaseInfo.releaseNotes == null) {
                             println("error: no release notes specified")
                         } else {
                             println("error: no changes to release notes")
@@ -1060,10 +1129,11 @@ private class AppRepoManagerImpl(
 
         val newTimestamp = UnixTimestamp.now()
         AppMetadata.getMetadataFromDiskForPackage(pkg, fileManager)
-            .copy(
-                releaseNotes = newReleaseNotes,
-                lastUpdateTimestamp = newTimestamp
-            )
+            .apply {
+                releases.remove(releaseInfo)
+                releases.add(releaseInfo.copy(releaseNotes = newReleaseNotes))
+            }
+            .copy(lastUpdateTimestamp = newTimestamp)
             .writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
         println("updated release notes for $pkg")
         println("regenerating repo index")
@@ -1083,28 +1153,32 @@ private class AppRepoManagerImpl(
     }
 
     private suspend fun promptUserForReleaseNotes(
-        appInfo: Either<AppMetadata, AndroidApk>
+        appInfo: Either<Pair<AppMetadata, VersionCode>, AndroidApk>
     ): String? {
         val textToEdit = buildString {
-            val packageAndVersionLine = when (appInfo) {
+            val packageAndVersionLine: String
+            val existingReleaseNotes: String?
+            when (appInfo) {
                 is Either.Left -> {
-                    val metadata: AppMetadata = appInfo.value
-                    "$EDITOR_IGNORE_PREFIX ${metadata.label} (${metadata.packageName}), " +
-                            "version ${metadata.latestVersionName} (versionCode ${metadata.latestVersionCode.code})."
+                    val (metadata, targetVersion) = appInfo.value
+                    val releaseToEdit = metadata.releases.find { it.versionCode == targetVersion }
+                        ?: throw AppRepoException.EditFailed("unable to find release $targetVersion")
+                    packageAndVersionLine = "$EDITOR_IGNORE_PREFIX ${metadata.label} (${metadata.packageName}), " +
+                            "version ${releaseToEdit.versionName} (versionCode ${releaseToEdit.versionCode.code})."
+                    existingReleaseNotes = releaseToEdit.releaseNotes
                 }
                 is Either.Right -> {
                     val androidApk: AndroidApk = appInfo.value
-                    "$EDITOR_IGNORE_PREFIX ${androidApk.label} (${androidApk.packageName}), " +
+                    packageAndVersionLine = "$EDITOR_IGNORE_PREFIX ${androidApk.label} (${androidApk.packageName}), " +
                             "version ${androidApk.versionName} (versionCode ${androidApk.versionCode.code})."
+                    existingReleaseNotes = null
                 }
             }
 
-            if (appInfo is Either.Left && appInfo.value.releaseNotes != null) {
-                val metadata: AppMetadata = appInfo.value
-                val releaseNotes: String = metadata.releaseNotes!!
-
-                append(releaseNotes)
-                if (!releaseNotes.endsWith('\n')) appendLine()
+            if (appInfo is Either.Left && existingReleaseNotes != null) {
+                val (metadata, _) = appInfo.value
+                append(existingReleaseNotes)
+                if (!existingReleaseNotes.endsWith('\n')) appendLine()
                 appendLine("$EDITOR_IGNORE_PREFIX Editing existing release notes for")
                 appendLine(packageAndVersionLine)
                 appendLine(
