@@ -16,7 +16,7 @@ class GenerateDeltaCommand : CliktCommand(name = "generate-delta", help = "Gener
     private val outputDelta: File by argument(help = "The output delta file")
         .file(canBeDir = false)
     private val noGzip: Boolean by option(
-        names = arrayOf("-no-gzip"),
+        names = arrayOf("--no-gzip"),
         help = "By default, deltas are gzip-compressed. This flag disables gzip compression."
     ).flag()
 
