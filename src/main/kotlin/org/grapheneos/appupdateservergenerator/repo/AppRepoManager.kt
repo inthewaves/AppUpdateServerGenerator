@@ -1098,7 +1098,7 @@ private class AppRepoManagerImpl(
                 appendLine("$EDITOR_IGNORE_PREFIX Enter new release notes for")
                 appendLine(packageAndVersionLine)
             }
-            appendLine("$EDITOR_IGNORE_PREFIX Lines or sections starting with // are ignored.")
+            appendLine("$EDITOR_IGNORE_PREFIX Lines or sections starting with $EDITOR_IGNORE_PREFIX are ignored.")
             append("$EDITOR_IGNORE_PREFIX Text can be plaintext or HTML.")
         }
 
