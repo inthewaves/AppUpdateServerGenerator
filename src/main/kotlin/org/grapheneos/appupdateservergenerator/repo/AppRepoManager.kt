@@ -47,6 +47,7 @@ import java.io.FileNotFoundException
 import java.io.IOException
 import java.lang.Integer.min
 import java.security.MessageDigest
+import java.text.DecimalFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -151,8 +152,6 @@ private class AppRepoManagerImpl(
     val deltaGenerationSemaphore = Semaphore(permits = MAX_CONCURRENT_DELTA_GENERATION)
     private val executorService: ExecutorService = Executors.newFixedThreadPool(64)
     private val repoDispatcher = executorService.asCoroutineDispatcher()
-
-
 
     /**
      * @see AppRepoManager.validateRepo
@@ -425,9 +424,26 @@ private class AppRepoManagerImpl(
         }
     }
 
-    private sealed class DeltaGenerationRequest {
-        class ForPackage(val pkg: String) : DeltaGenerationRequest()
-        object StartPrinting : DeltaGenerationRequest()
+    private sealed interface DeltaGenerationRequest {
+        @JvmInline
+        value class ForPackage(val pkg: String) : DeltaGenerationRequest
+        object StartPrinting : DeltaGenerationRequest
+    }
+
+    /**
+     * A Mutex to control asynchronous printing so that print messages don't leak into the editor when the user is
+     * prompted to edit some text such as release notes.
+     */
+    private val asyncPrintMutex = Mutex()
+
+    private sealed interface PrintMessageType {
+        object ShowDeltaProgress : PrintMessageType
+        class NewPackage(val pkg: String, val numberOfDeltas: Int) : PrintMessageType
+        @JvmInline
+        value class DeltaFinished(val pkg: String) : PrintMessageType
+        object ProgressPrint : PrintMessageType
+        @JvmInline
+        value class NewLine(val string: String) : PrintMessageType
     }
 
     private fun CoroutineScope.createDeltaGenerationActor(
@@ -437,11 +453,82 @@ private class AppRepoManagerImpl(
         val failedDeltaApps = ArrayList<AppDir>()
         val anyDeltasGenerated = AtomicBoolean(false)
 
-        val printMessageChannel = Channel<String>(capacity = Channel.UNLIMITED)
+        val printMessageChannel = Channel<PrintMessageType>(capacity = Channel.UNLIMITED)
         val printMessageJob = launch(start = CoroutineStart.LAZY) {
-            for (printMessage in printMessageChannel) {
-                println(printMessage)
+            var showDeltaProgress = false
+            var lastProgressMessage = ""
+            var totalNumberOfDeltasToGenerate = 0L
+            var numberOfDeltasGenerated = 0L
+            val packageToDeltasLeftMap = sortedMapOf<String, Int>()
+            fun printProgress(carriageReturn: Boolean) {
+                if (!showDeltaProgress) {
+                    lastProgressMessage = ""
+                    return
+                }
+
+                val stringToPrint = if (totalNumberOfDeltasToGenerate > 0) {
+                    val percentage = DecimalFormat.getPercentInstance().format(
+                        numberOfDeltasGenerated / totalNumberOfDeltasToGenerate.toDouble()
+                    )
+                    "generating delta $numberOfDeltasGenerated of $totalNumberOfDeltasToGenerate ($percentage)" +
+                            " ${packageToDeltasLeftMap.keys}"
+                } else {
+                    ""
+                }
+                val extraSpaceNeeded = lastProgressMessage.length - stringToPrint.length
+                val lineToPrint = buildString {
+                    if (carriageReturn) {
+                        append("\r$stringToPrint")
+                    } else {
+                        append(stringToPrint)
+                    }
+                    if (extraSpaceNeeded > 0) {
+                        append(" ".repeat(extraSpaceNeeded) + "\b".repeat(extraSpaceNeeded))
+                    }
+                }
+                print(lineToPrint)
+                lastProgressMessage = stringToPrint
             }
+
+            for (printMessage in printMessageChannel) {
+                asyncPrintMutex.withLock {
+                    when (printMessage) {
+                        is PrintMessageType.ProgressPrint -> printProgress(true)
+                        is PrintMessageType.NewLine -> {
+                            val extraSpaceNeeded = lastProgressMessage.length - printMessage.string.length
+                            if (extraSpaceNeeded > 0) {
+                                println('\r' + printMessage.string
+                                        + " ".repeat(extraSpaceNeeded)
+                                        + "\b".repeat(extraSpaceNeeded))
+                            } else {
+                                println('\r' + printMessage.string)
+                            }
+                            printProgress(false)
+                        }
+                        is PrintMessageType.DeltaFinished -> {
+                            numberOfDeltasGenerated++
+
+                            val numDeltasLeftForPackage = packageToDeltasLeftMap[printMessage.pkg] ?: return@withLock
+                            if (numDeltasLeftForPackage - 1 <= 0) {
+                                packageToDeltasLeftMap.remove(printMessage.pkg)
+                            } else {
+                                packageToDeltasLeftMap[printMessage.pkg] = numDeltasLeftForPackage - 1
+                            }
+                            printProgress(true)
+                        }
+                        is PrintMessageType.NewPackage -> {
+                            totalNumberOfDeltasToGenerate += printMessage.numberOfDeltas
+                            packageToDeltasLeftMap[printMessage.pkg] = printMessage.numberOfDeltas
+                            printProgress(true)
+                        }
+                        is PrintMessageType.ShowDeltaProgress -> {
+                            showDeltaProgress = true
+                            printProgress(true)
+                        }
+                    }
+                }
+            }
+            println()
         }
 
         coroutineScope {
@@ -454,18 +541,17 @@ private class AppRepoManagerImpl(
 
                             val deltaGenTime =
                                 measureTimeMillis {
-                                    deltaAvailableVersions = regenerateDeltas(
-                                        appDir,
+                                    deltaAvailableVersions = regenerateDeltas(appDir,
                                         printMessageChannel = printMessageChannel
                                     )
                                 }
                             if (deltaAvailableVersions.isNotEmpty()) {
-                                printMessageChannel.trySend(
+                                printMessageChannel.trySend(PrintMessageType.NewLine(
                                     "took $deltaGenTime ms to generate ${deltaAvailableVersions.size} deltas " +
                                             "for ${appDir.packageName}. " +
                                             "Versions with deltas available: " +
                                             "${deltaAvailableVersions.map { it.versionCode.code }}"
-                                )
+                                ))
                                 anyDeltasGenerated.set(true)
                             }
 
@@ -473,15 +559,20 @@ private class AppRepoManagerImpl(
                             AppMetadata.getMetadataFromDiskForPackage(appDir.packageName, fileManager)
                                 .copy(deltaInfo = deltaAvailableVersions.toSet())
                                 .writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
-                            println("updated metadata for ${appDir.packageName} with delta information")
+                            printMessageChannel.trySend(PrintMessageType.NewLine(
+                                "updated metadata for ${appDir.packageName} with delta information"
+                            ))
                         } catch (e: Throwable) {
-                            println("error during delta generation for ${appDir.packageName}")
+                            printMessageChannel.trySend(PrintMessageType.NewLine(
+                                "error during delta generation for ${appDir.packageName}"
+                            ))
                             e.printStackTrace()
                             failedDeltaAppsMutex.withLock { failedDeltaApps.add(appDir) }
                         }
                     }
                 } else {
                     check(request is DeltaGenerationRequest.StartPrinting)
+                    printMessageChannel.send(PrintMessageType.ShowDeltaProgress)
                     printMessageJob.start()
                 }
             }
@@ -799,7 +890,7 @@ private class AppRepoManagerImpl(
     private suspend fun regenerateDeltas(
         appDir: AppDir,
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS,
-        printMessageChannel: Channel<String>?
+        printMessageChannel: SendChannel<PrintMessageType>?
     ): List<AppMetadata.DeltaInfo> = withContext(repoDispatcher) {
         deleteAllDeltas(appDir)
         val apks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = false)
@@ -810,7 +901,7 @@ private class AppRepoManagerImpl(
 
         val newestApk = apks.sortedApks.first()
         val numberOfDeltasToGenerate = min(apks.size - 1, maxPreviousVersions)
-
+        printMessageChannel?.trySend(PrintMessageType.NewPackage(apks.packageName, numberOfDeltasToGenerate))
         yield()
         // Drop the first element, because that's the most recent one and hence the target
         apks.sortedApks.drop(1)
@@ -824,9 +915,7 @@ private class AppRepoManagerImpl(
                             previousApk.versionCode,
                             newestApk.versionCode
                         )
-                        printMessageChannel?.trySend(
-                            "generating delta for ${appDir.packageName}: ${outputDeltaFile.name}"
-                        )
+                        printMessageChannel?.trySend(PrintMessageType.ProgressPrint)
                         ArchivePatcherUtil.generateDelta(
                             previousApk.apkFile,
                             newestApk.apkFile,
@@ -834,10 +923,13 @@ private class AppRepoManagerImpl(
                             outputGzip = true
                         )
                         val digest = outputDeltaFile.digest("SHA-256")
-                        printMessageChannel?.trySend(
-                            " generated delta ${outputDeltaFile.name} (${appDir.packageName}) is " +
-                                    "${outputDeltaFile.length().toDouble() / (0x1 shl 20)} MiB"
-                        )
+                        printMessageChannel?.apply {
+                            trySend(PrintMessageType.NewLine(
+                                " generated delta ${outputDeltaFile.name} (${appDir.packageName}) is " +
+                                        "${outputDeltaFile.length().toDouble() / (0x1 shl 20)} MiB"
+                            ))
+                            trySend(PrintMessageType.DeltaFinished(apks.packageName))
+                        }
 
                         return@async AppMetadata.DeltaInfo(
                             previousApk.versionCode,
@@ -967,7 +1059,7 @@ private class AppRepoManagerImpl(
             .writeToDiskAndSign(fileManager, openSSLInvoker, signingPrivateKey)
     }
 
-    private fun promptUserForReleaseNotes(
+    private suspend fun promptUserForReleaseNotes(
         appInfo: Either<AppMetadata, AndroidApk>
     ): String? {
         val textToEdit = buildString {
@@ -1009,10 +1101,12 @@ private class AppRepoManagerImpl(
             append("$EDITOR_IGNORE_PREFIX Text can be plaintext or HTML.")
         }
 
-        return TermUi.editText(
-            text = textToEdit,
-            requireSave = true
-        )?.replace(Regex("$EDITOR_IGNORE_PREFIX[^\n]*\n"), "")
+        return asyncPrintMutex.withLock {
+            TermUi.editText(
+                text = textToEdit,
+                requireSave = true
+            )?.replace(Regex("$EDITOR_IGNORE_PREFIX[^\n]*\n"), "")
+        }
     }
 
     override suspend fun printAllGroups() {
