@@ -118,9 +118,11 @@ interface AppRepoManager {
 
     fun doesPackageExist(pkg: String): Boolean
 
-    fun getMetadataForPackage(pkg: String): AppMetadata
+    fun getMetadataForPackage(pkg: String): AppMetadata?
 
     suspend fun editReleaseNotesForPackage(pkg: String, delete: Boolean, signingPrivateKey: PKCS8PrivateKeyFile)
+
+    suspend fun resignMetadataForPackage(pkg: String, signingPrivateKey: PKCS8PrivateKeyFile)
 }
 
 fun AppRepoManager(
@@ -740,8 +742,8 @@ private class AppRepoManagerImpl(
         }
     }
 
-    fun readAppMetadataFromDisk(packageName: String): AppMetadata? = try {
-        AppMetadata.getMetadataFromDiskForPackage(packageName, fileManager)
+    override fun getMetadataForPackage(pkg: String): AppMetadata? = try {
+        AppMetadata.getMetadataFromDiskForPackage(pkg, fileManager)
     } catch (e: IOException) {
         if (e is FileNotFoundException || e.cause is FileNotFoundException) {
             null
@@ -764,7 +766,7 @@ private class AppRepoManagerImpl(
 
         // Validate or create the directory for the package / app.
         if (appDir.dir.exists()) {
-            val currentAppMetadata = readAppMetadataFromDisk(apksToInsert.packageName)
+            val currentAppMetadata = getMetadataForPackage(apksToInsert.packageName)
                 ?: throw AppRepoException.InvalidRepoState("app directories are present but missing metadata file")
             println("${apksToInsert.packageName} is in repo.")
 
@@ -801,7 +803,7 @@ private class AppRepoManagerImpl(
         }
 
         try {
-            val currentAppMetadata = readAppMetadataFromDisk(apksToInsert.packageName)
+            val currentAppMetadata = getMetadataForPackage(apksToInsert.packageName)
             val newAppMetadata = AppMetadata(
                 packageName = maxVersionApk.packageName,
                 groupId = currentAppMetadata?.groupId,
@@ -1027,10 +1029,6 @@ private class AppRepoManagerImpl(
         }
     }
 
-    override fun getMetadataForPackage(pkg: String): AppMetadata {
-        return AppMetadata.getMetadataFromDiskForPackage(pkg, fileManager)
-    }
-
     override suspend fun editReleaseNotesForPackage(
         pkg: String,
         delete: Boolean,
@@ -1074,6 +1072,14 @@ private class AppRepoManagerImpl(
         println("regenerating bulk app metadata")
         BulkAppMetadata.createFromDisk(fileManager, newTimestamp)
             .writeToDiskAndSign(fileManager, openSSLInvoker, signingPrivateKey)
+    }
+
+    override suspend fun resignMetadataForPackage(pkg: String, signingPrivateKey: PKCS8PrivateKeyFile) {
+        validatePublicKeyInRepo(signingPrivateKey)
+
+        getMetadataForPackage(pkg)
+            ?.writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
+            ?: throw AppRepoException.EditFailed("$pkg doesn't exist in repo")
     }
 
     private suspend fun promptUserForReleaseNotes(

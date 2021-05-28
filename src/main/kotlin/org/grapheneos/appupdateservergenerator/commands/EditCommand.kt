@@ -12,10 +12,37 @@ import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import java.io.File
 import java.io.IOException
 
-class EditCommand private constructor(): CliktCommand(name = "edit", help = "Commands to edit release notes") {
+class EditCommand private constructor(): CliktCommand(name = "edit", help = "Commands to edit the repository directly.") {
     companion object {
         fun createWithSubcommands() = EditCommand()
-            .subcommands(ReleaseNotesCommand())
+            .subcommands(ResignMetadataCommand(), ReleaseNotesCommand())
+    }
+
+    class ResignMetadataCommand : AppRepoSubcommand(
+        name = "resign",
+        help = """Parses a package's metadata and then signs it again.
+        """.trimIndent()
+    ) {
+        private val privateSigningKeyFile: File by option(names = arrayOf("--signing-key", "-k"))
+            .file(mustExist = true, canBeDir = false, mustBeReadable = true)
+            .required()
+        private val packageToEdit: String by argument(
+            name = "package",
+            help = "The package to edit",
+        )
+
+        override fun runAfterInvokerChecks() = runBlocking {
+            val signingPrivateKey: PKCS8PrivateKeyFile = try {
+                openSSLInvoker.getKeyWithType(privateSigningKeyFile)
+            } catch (e: IOException) {
+                printErrorAndExit("failed to parse key type from provided key file", e)
+            }
+
+            appRepoManager.resignMetadataForPackage(
+                pkg = packageToEdit,
+                signingPrivateKey = signingPrivateKey
+            )
+        }
     }
 
     class ReleaseNotesCommand : AppRepoSubcommand(
@@ -38,7 +65,6 @@ class EditCommand private constructor(): CliktCommand(name = "edit", help = "Com
             help = "The package to edit",
         )
 
-
         override fun runAfterInvokerChecks() = runBlocking {
             val signingPrivateKey: PKCS8PrivateKeyFile = try {
                 openSSLInvoker.getKeyWithType(privateSigningKeyFile)
@@ -48,8 +74,9 @@ class EditCommand private constructor(): CliktCommand(name = "edit", help = "Com
 
             val metadata = try {
                 appRepoManager.getMetadataForPackage(packageToEdit)
+                    ?: throw IOException("unable to find package $packageToEdit")
             } catch (e: IOException) {
-                printErrorAndExit("unable to find package $packageToEdit")
+                printErrorAndExit(e.message, e)
             }
 
             if (delete) {
