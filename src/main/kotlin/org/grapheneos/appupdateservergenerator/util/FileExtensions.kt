@@ -14,11 +14,11 @@ import java.security.NoSuchAlgorithmException
  * @throws IOException if an I/O error occurs.
  */
 fun File.digest(messageDigest: MessageDigest): ByteArray {
-    DigestInputStream(inputStream().buffered(DEFAULT_BUFFER_SIZE), messageDigest).apply {
+    DigestInputStream(inputStream().buffered(DEFAULT_BUFFER_SIZE), messageDigest).use { inputStream ->
         val unusedBuffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        var bytes = read(unusedBuffer)
+        var bytes = inputStream.read(unusedBuffer)
         while (bytes >= 0) {
-            bytes = read(unusedBuffer)
+            bytes = inputStream.read(unusedBuffer)
         }
         return messageDigest.digest()
     }
