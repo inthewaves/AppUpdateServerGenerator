@@ -29,6 +29,11 @@ sealed class PackageApkGroup private constructor(
     val size: Int
         get() = sortedApks.size
 
+    /** The APK with the highest version code, or null if empty */
+    abstract val highestVersionApk: AndroidApk?
+    /** The APK with the lowest version code, or null if empty */
+    abstract val lowestVersionApk: AndroidApk?
+
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
@@ -51,16 +56,42 @@ sealed class PackageApkGroup private constructor(
     /**
      * Variant of [PackageApkGroup] where the [sortedApks] are sorted in ascending order by version code.
      */
-    class AscendingOrder constructor(packageName: String, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks)
+    class AscendingOrder(packageName: String, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks) {
+        override val highestVersionApk: AndroidApk? get() =
+            try {
+                sortedApks.last()
+            } catch (e: NoSuchElementException) {
+                null
+            }
+        override val lowestVersionApk: AndroidApk? get() =
+            try {
+                sortedApks.first()
+            } catch (e: NoSuchElementException) {
+                null
+            }
+    }
     /**
      * Variant of [PackageApkGroup] where the [sortedApks] are sorted in descending order by version code.
      */
-    class DescendingOrder constructor(packageName: String, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks)
+    class DescendingOrder(packageName: String, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks) {
+        override val highestVersionApk: AndroidApk? get() =
+            try {
+                sortedApks.first()
+            } catch (e: NoSuchElementException) {
+                null
+            }
+        override val lowestVersionApk: AndroidApk? get() =
+            try {
+                sortedApks.last()
+            } catch (e: NoSuchElementException) {
+                null
+            }
+    }
 
     companion object {
         /**
          * Constructs a [PackageApkGroup.AscendingOrder] list from a given list of [apkFilePaths].
-         * This will group every APK by the package.
+         * This will group every APK by package.
          */
         suspend fun fromFilesAscending(
             apkFilePaths: Iterable<File>,

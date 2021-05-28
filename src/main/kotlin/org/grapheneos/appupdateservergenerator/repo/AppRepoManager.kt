@@ -247,7 +247,7 @@ private class AppRepoManagerImpl(
                         "> index timestamp (${existingIndex.timestamp})"
             )
         }
-        val apks = appDir.listApkFilesUnsorted().sortedBy { it.nameWithoutExtension }
+        val apks = appDir.listApkFilesUnsorted().sortedBy { it.nameWithoutExtension.toInt() }
         if (apks.isEmpty()) {
             throw AppRepoException.InvalidRepoState("$pkg: app directory with no APKs in it")
         }
@@ -752,7 +752,7 @@ private class AppRepoManagerImpl(
                 ?: throw AppRepoException.InvalidRepoState("app directories are present but missing metadata file")
             println("${apksToInsert.packageName} is in repo.")
 
-            val smallestVersionCodeApk = apksToInsert.sortedApks.first()
+            val smallestVersionCodeApk = apksToInsert.lowestVersionApk!!
             if (smallestVersionCodeApk.versionCode <= currentAppMetadata.latestVersionCode) {
                 throw AppRepoException.MoreRecentVersionInRepo(
                     "trying to insert ${smallestVersionCodeApk.packageName} with version code " +
@@ -771,7 +771,7 @@ private class AppRepoManagerImpl(
         val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = true)
         validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks.sortedApks)
 
-        val maxVersionApk = apksToInsert.sortedApks.last()
+        val maxVersionApk = apksToInsert.highestVersionApk!!
         val releaseNotes: String? = if (promptForReleaseNotes) {
             promptUserForReleaseNotes(maxVersionApk.asRight())?.takeIf { it.isNotBlank() }
         } else {
@@ -888,7 +888,7 @@ private class AppRepoManagerImpl(
         }
         check(apks is PackageApkGroup.DescendingOrder)
 
-        val newestApk = apks.sortedApks.first()
+        val newestApk = apks.highestVersionApk!!
         val numberOfDeltasToGenerate = min(apks.size - 1, maxPreviousVersions)
         printMessageChannel?.trySend(PrintMessageType.NewPackage(apks.packageName, numberOfDeltasToGenerate))
         yield()

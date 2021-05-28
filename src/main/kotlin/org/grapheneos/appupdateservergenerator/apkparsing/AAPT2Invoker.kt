@@ -240,7 +240,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
 
             /**
              * Maps [Density.qualifierValue] to [Density]. Lazy init to get around issues with this being created before
-             * the object are initialized.
+             * the objects are initialized.
              */
             private val qualifierToDensityMap: Map<String?, Density> by lazy {
                 Density::class.sealedSubclasses.associate {

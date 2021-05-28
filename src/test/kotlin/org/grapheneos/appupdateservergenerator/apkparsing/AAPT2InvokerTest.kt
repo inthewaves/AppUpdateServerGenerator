@@ -1,5 +1,6 @@
 package org.grapheneos.appupdateservergenerator.apkparsing
 
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -24,5 +25,17 @@ internal class AAPT2InvokerTest {
     @ArgumentsSource(PathToDensityArgProvider::class)
     fun testDensityPathParsing(path: String, expectedDensity: AAPT2Invoker.Density) {
         assertEquals(expectedDensity, AAPT2Invoker.Density.fromPathToDensity(path))
+    }
+
+    @Test
+    fun testDensityOrder() {
+        assert(AAPT2Invoker.Density.DEFAULT < AAPT2Invoker.Density.LOW)
+        assert(AAPT2Invoker.Density.LOW < AAPT2Invoker.Density.MEDIUM)
+        assert(AAPT2Invoker.Density.MEDIUM < AAPT2Invoker.Density.TV)
+        assert(AAPT2Invoker.Density.TV < AAPT2Invoker.Density.HIGH)
+        assert(AAPT2Invoker.Density.HIGH < AAPT2Invoker.Density.XHIGH)
+        assert(AAPT2Invoker.Density.XHIGH < AAPT2Invoker.Density.XXHIGH)
+        assert(AAPT2Invoker.Density.XXHIGH < AAPT2Invoker.Density.XXXHIGH)
+        assert(AAPT2Invoker.Density.XXXHIGH < AAPT2Invoker.Density.ANY)
     }
 }
