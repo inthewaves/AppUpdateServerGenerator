@@ -68,8 +68,8 @@ abstract class AppRepoSubcommand(
         )
     }
 
-    protected open fun printErrorAndExit(errorMessage: String?, cause: Throwable? = null): Nothing {
-        val firstLineToPrint = errorMessage?.let { "error: $it" } ?:"error during repo validation"
+    protected fun printErrorAndExit(errorMessage: String?, cause: Throwable? = null): Nothing {
+        val firstLineToPrint = errorMessage?.let { "error: $it" } ?: "error during repo command $commandName"
         println(firstLineToPrint)
         cause?.let {
             if (verbose) {

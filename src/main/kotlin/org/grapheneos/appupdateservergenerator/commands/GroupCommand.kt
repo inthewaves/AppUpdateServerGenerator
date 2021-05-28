@@ -11,7 +11,6 @@ import kotlinx.coroutines.runBlocking
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import java.io.File
 import java.io.IOException
-import kotlin.system.exitProcess
 
 class GroupCommand private constructor(): CliktCommand(
     name = "group",
@@ -96,11 +95,6 @@ private open class GroupSubcommand(name: String?, help: String) : AppRepoSubcomm
         } catch (e: IOException) {
             printErrorAndExit("failed to parse key type from provided key file", e)
         }
-    }
-
-    override fun printErrorAndExit(errorMessage: String?, cause: Throwable?): Nothing {
-        errorMessage?.let { println("error: $it") } ?: println("error during group command")
-        exitProcess(1)
     }
 
     override fun runAfterInvokerChecks() {
