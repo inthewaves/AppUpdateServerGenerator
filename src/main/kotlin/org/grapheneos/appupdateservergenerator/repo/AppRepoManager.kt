@@ -182,9 +182,9 @@ private class AppRepoManagerImpl(
         val packagesFromExistingIndex = existingIndex.packageToVersionMap.mapTo(sortedSetOf()) { it.key }
         if (packagesFromExistingIndex != packagesFromAllMetadataOnDisk) {
             throwExceptionWithMissingIntersectionElements(
-                firstPackages = packagesFromExistingIndex,
+                first = packagesFromExistingIndex,
                 missingFromFirstError = "app directory has packages not included in the index",
-                secondPackages = packagesFromAllMetadataOnDisk,
+                second = packagesFromAllMetadataOnDisk,
                 missingFromSecondError = "index contains packages for which there are no directories for"
             )
         }
@@ -192,9 +192,9 @@ private class AppRepoManagerImpl(
         val bulkAppMetadata = BulkAppMetadata.readFromExistingFile(fileManager).allAppMetadata
         if (bulkAppMetadata != metadataFromDirs) {
             throwExceptionWithMissingIntersectionElements(
-                firstPackages = bulkAppMetadata.map { it.packageName},
+                first = bulkAppMetadata.map { it.packageName},
                 missingFromFirstError = "bulk app metadata file doesn't include packages",
-                secondPackages = metadataFromDirs.map { it.packageName },
+                second = metadataFromDirs.map { it.packageName },
                 missingFromSecondError = "missing latest.txt metadata for packages included in bulk app metadata file"
             )
         }
@@ -212,18 +212,18 @@ private class AppRepoManagerImpl(
         println("repo successfully validated")
     }
 
-    private fun throwExceptionWithMissingIntersectionElements(
-        firstPackages: Iterable<String>,
-        missingFromFirstError: String,
-        secondPackages: Iterable<String>,
-        missingFromSecondError: String
+    private fun <T> throwExceptionWithMissingIntersectionElements(
+        first: Iterable<T>,
+        missingFromFirstError: T,
+        second: Iterable<T>,
+        missingFromSecondError: T
     ): Nothing {
         val errorMessage = buildString {
-            val intersection = firstPackages intersect secondPackages
-            (firstPackages subtract intersection)
+            val intersection = first intersect second
+            (first subtract intersection)
                 .takeIf { it.isNotEmpty() }
                 ?.let { appendLine("$missingFromSecondError: $it") }
-            (secondPackages subtract intersection)
+            (second subtract intersection)
                 .takeIf { it.isNotEmpty() }
                 ?.let { appendLine("$missingFromFirstError: $it") }
         }.trimEnd('\n')
@@ -319,6 +319,22 @@ private class AppRepoManagerImpl(
                 "$pkg: mismatch between delta files in repo and delta files in metadata for these base versions: " +
                         "$problemVersions"
             )
+        }
+
+        // check if there are deltas that have missing base APKs
+        val baseDeltaVersionsFromMetadata = baseDeltaVersionsToFileMapFromMetadata.mapTo(sortedSetOf()) { it.key.code }
+        if (baseDeltaVersionsFromMetadata.isNotEmpty()) {
+            val baseVersionCodesFromApksInDir = apks
+                .mapTo(sortedSetOf()) { it.nameWithoutExtension.toInt() }
+                .run { subSet(baseDeltaVersionsFromMetadata.first(), metadata.latestVersionCode.code) }
+            if (baseDeltaVersionsFromMetadata != baseVersionCodesFromApksInDir) {
+                throwExceptionWithMissingIntersectionElements(
+                    first = baseDeltaVersionsFromMetadata,
+                    missingFromFirstError = "$pkg: dir has some APKs within delta generation range not included in metadata ",
+                    second = baseVersionCodesFromApksInDir,
+                    missingFromSecondError = "$pkg: these APKs are missing from the dir despite there being deltas available"
+                )
+            }
         }
 
         /** Accepts a triple of the form (baseFile, deltaFile, expectedFile) */
