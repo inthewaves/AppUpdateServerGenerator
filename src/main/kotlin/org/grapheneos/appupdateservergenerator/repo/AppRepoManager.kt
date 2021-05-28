@@ -690,6 +690,7 @@ private class AppRepoManagerImpl(
                     }
                 }
 
+                println()
                 println("refreshing app index")
                 AppRepoIndex.constructFromRepoFilesOnDisk(fileManager, timestampForMetadata)
                     .writeToDiskAndSign(
@@ -746,7 +747,7 @@ private class AppRepoManagerImpl(
     }
 
     /**
-     * Inserts multiple APKs for a single package.
+     * Inserts one or more APKs for a single package.
      */
     private suspend fun insertApkGroupForSinglePackage(
         apksToInsert: PackageApkGroup.AscendingOrder,
