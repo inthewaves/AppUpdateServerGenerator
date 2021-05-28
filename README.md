@@ -4,7 +4,7 @@ A CLI tool to manage a repository for an app update server.
 Some facts about the app update repository:
 * The repository is meant to be uploaded to a static web server with the CLI tool being executed on
   a local machine.
-* The repository state / repository is determined by the static files.
+* The repository state is determined by the static files.
 * This app update server supports deltas using Google's archive-patcher library, forked at
   https://github.com/inthewaves/archive-patcher.
 
@@ -23,7 +23,7 @@ Some facts about the app update repository:
   There are test keys in the repo (`testkey_ec.pk8`, `testkey_rsa.pk8`), but these should not be
   used in production.
 * If inserting many APKs at once, the system temp directory should have enough space for delta
-  generation.
+  generation. (To get more space, you could do `sudo mount -o remount,size=5G /tmp`.)
 
 #### Common commands
 
@@ -47,6 +47,15 @@ See `./appservergen add --help` for more options.
 Packages can be tagged with a `groupId` that indicates to clients should atomically install new
 updates for APKs in a group. This is useful when there are apps that have shared libraries such as
 Chromium.
+
+Note: On the serverside, groups are purely used as a tag. There is a warning from the CLI tool
+around groups in the add command, where you will be warned if you are only updating a proper subset
+of a group's packages and not all of them. It is the client's responsibility to download all APKs in
+a group that have updates and to install them atomically. For this reason, it's important that the
+updates for packages in a group are pushed to the server all at once.
+
+For example, for a new Chromium update, the `add` command should be run on the new APKs for WebView,
+the Trichrome Library, and the Chrome app.
 
 See `./appservergen group --help` for details.
 
@@ -94,8 +103,9 @@ $ ./appservergen add -k testkey_ec.pk8 TestAPKs/*.apk
 $ ./appservergen group create -k testkey_ec.pk8 chromium app.vanadium.trichromelibrary app.vanadium.webview org.chromium.chrome
 ```
 
-Note: The `add` command asks for optional release notes for every package. The `add` command also
-takes extra time to generate all of the deltas.
+Note: The `add` command asks for optional release notes for every package. In this example, there
+are release notes added to the latest version of the Auditor app. The `add` command also takes extra
+time to generate all of the deltas.
 
 <!-- tree --dirsfirst --du -h app_repo_data -->
 ```plain
