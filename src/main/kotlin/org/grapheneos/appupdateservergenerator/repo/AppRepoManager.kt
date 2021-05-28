@@ -537,21 +537,9 @@ private class AppRepoManagerImpl(
                     val appDir = fileManager.getDirForApp(request.pkg)
                     launch {
                         try {
-                            val deltaAvailableVersions: List<AppMetadata.DeltaInfo>
-
-                            val deltaGenTime =
-                                measureTimeMillis {
-                                    deltaAvailableVersions = regenerateDeltas(appDir,
-                                        printMessageChannel = printMessageChannel
-                                    )
-                                }
+                            val deltaAvailableVersions: List<AppMetadata.DeltaInfo> =
+                                regenerateDeltas(appDir, printMessageChannel = printMessageChannel)
                             if (deltaAvailableVersions.isNotEmpty()) {
-                                printMessageChannel.trySend(PrintMessageType.NewLine(
-                                    "took $deltaGenTime ms to generate ${deltaAvailableVersions.size} deltas " +
-                                            "for ${appDir.packageName}. " +
-                                            "Versions with deltas available: " +
-                                            "${deltaAvailableVersions.map { it.versionCode.code }}"
-                                ))
                                 anyDeltasGenerated.set(true)
                             }
 
@@ -904,6 +892,8 @@ private class AppRepoManagerImpl(
         val numberOfDeltasToGenerate = min(apks.size - 1, maxPreviousVersions)
         printMessageChannel?.trySend(PrintMessageType.NewPackage(apks.packageName, numberOfDeltasToGenerate))
         yield()
+
+        var deltaGenTime = 0L
         // Drop the first element, because that's the most recent one and hence the target
         apks.sortedApks.drop(1)
             .take(numberOfDeltasToGenerate)
@@ -917,12 +907,14 @@ private class AppRepoManagerImpl(
                             newestApk.versionCode
                         )
                         printMessageChannel?.trySend(PrintMessageType.ProgressPrint)
-                        ArchivePatcherUtil.generateDelta(
-                            previousApk.apkFile,
-                            newestApk.apkFile,
-                            outputDeltaFile,
-                            outputGzip = true
-                        )
+                        deltaGenTime += measureTimeMillis {
+                            ArchivePatcherUtil.generateDelta(
+                                previousApk.apkFile,
+                                newestApk.apkFile,
+                                outputDeltaFile,
+                                outputGzip = true
+                            )
+                        }
                         val digest = outputDeltaFile.digest("SHA-256")
                         printMessageChannel?.apply {
                             trySend(PrintMessageType.NewLine(
@@ -940,6 +932,14 @@ private class AppRepoManagerImpl(
                 }
             }
             .awaitAll()
+            .also { deltaAvailableVersions ->
+                printMessageChannel?.trySend(PrintMessageType.NewLine(
+                    "took $deltaGenTime ms to generate ${deltaAvailableVersions.size} deltas " +
+                            "for ${appDir.packageName}. " +
+                            "Versions with deltas available: " +
+                            "${deltaAvailableVersions.map { it.versionCode.code }}"
+                ))
+            }
     }
 
     private fun processGroupId(groupId: String?) = groupId?.trim()?.lowercase()
