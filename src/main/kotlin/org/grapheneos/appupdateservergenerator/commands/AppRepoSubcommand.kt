@@ -92,7 +92,12 @@ abstract class AppRepoSubcommand(
         if (!openSSLInvoker.isExecutablePresent()) {
             printErrorAndExit("unable to locate openssl at ${openSSLInvoker.executablePath}")
         }
-        runAfterInvokerChecks()
+
+        try {
+            runAfterInvokerChecks()
+        } catch (e: Exception) {
+            printErrorAndExit(e.message, e)
+        }
     }
 
     abstract fun runAfterInvokerChecks()
