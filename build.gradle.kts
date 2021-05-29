@@ -9,14 +9,6 @@ plugins {
 group = "org.grapheneos"
 version = "0.1"
 
-tasks.jar {
-    manifest {
-        attributes["Main-Class"] = "org.grapheneos.appupdateservergenerator.MainKt"
-    }
-    configurations["compileClasspath"].forEach { file: File -> from(zipTree(file.absoluteFile)) }
-    archiveFileName.set(project.name + ".jar")
-}
-
 repositories {
     mavenCentral()
 }
@@ -45,4 +37,17 @@ tasks.withType<KotlinCompile> {
 
 application {
     mainClass.set("org.grapheneos.appupdateservergenerator.MainKt")
+}
+
+tasks.jar {
+    manifest {
+        attributes["Main-Class"] = "org.grapheneos.appupdateservergenerator.MainKt"
+    }
+    archiveFileName.set(project.name + ".jar")
+
+    from(sourceSets.main.get().output)
+    dependsOn(configurations.runtimeClasspath)
+    from({
+        configurations.runtimeClasspath.get().filter { it.extension == "jar" }.map { zipTree(it) }
+    })
 }
