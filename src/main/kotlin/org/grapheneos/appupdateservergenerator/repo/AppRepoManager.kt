@@ -1103,6 +1103,7 @@ private class AppRepoManagerImpl(
                 text = textToEdit,
                 requireSave = true
             )?.replace(Regex("$EDITOR_IGNORE_PREFIX[^\n]*\n"), "")
+                ?.trimEnd('\n')
         }
     }
 
