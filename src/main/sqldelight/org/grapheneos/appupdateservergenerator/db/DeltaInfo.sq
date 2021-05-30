@@ -9,7 +9,7 @@
 --     FOREIGN KEY(packageName, baseVersion) REFERENCES AppRelease ON DELETE CASCADE,
 --     FOREIGN KEY(packageName, targetVersion) REFERENCES AppRelease ON DELETE CASCADE
 -- );
--- CREATE INDEX Index_DeltaInfo_targetVersion_baseVersion_packageName ON DeltaInfo(targetVersion, baseVersion, packageName);
+-- CREATE INDEX DeltaInfo_covering ON DeltaInfo(packageName, baseVersion, targetVersion, sha256Checksum);
 
 selectAllForTargetVersion:
 SELECT * FROM DeltaInfo WHERE packageName = ? AND targetVersion = ?;

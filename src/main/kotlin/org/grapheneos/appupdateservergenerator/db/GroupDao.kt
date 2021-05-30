@@ -9,12 +9,12 @@ import org.grapheneos.appupdateservergenerator.util.executeAsSequence
  * A data access object for [AppGroup]
  */
 class GroupDao(private val database: Database) {
-    fun getGroupToAppMap(): Map<GroupId, Set<App>> {
+    fun getGroupToAppMap(): Map<GroupId, Set<PackageLabelsByGroup>> {
         return database.transactionWithResult {
-            val map = sortedMapOf<GroupId, Set<App>>()
+            val map = sortedMapOf<GroupId, Set<PackageLabelsByGroup>>()
             database.appGroupQueries.selectAll().executeAsSequence { groupSequence ->
                 groupSequence.forEach { groupId ->
-                    map[groupId] = database.appQueries.selectAllByGroup(groupId)
+                    map[groupId] = database.appQueries.packageLabelsByGroup(groupId)
                         .executeAsSequence { appSequence -> appSequence.toSet() }
                 }
             }

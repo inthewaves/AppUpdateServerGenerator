@@ -16,7 +16,7 @@ CREATE TABLE App (
     icon BLOB,
     lastUpdateTimestamp INTEGER AS UnixTimestamp NOT NULL
 );
-CREATE INDEX Index_App_groupId_packageName ON App(groupId, packageName);
+CREATE INDEX Index_App_packageName_groupId_label ON App(packageName, groupId, label);
 
 /**
  * Represents the release for an app.
@@ -32,7 +32,9 @@ CREATE TABLE AppRelease (
     releaseNotes TEXT,
     PRIMARY KEY(packageName, versionCode)
 );
-CREATE INDEX Index_AppRelease_versionCode_packageName ON AppRelease(versionCode, packageName);
+CREATE INDEX AppRelease_covering ON AppRelease(
+    packageName, versionCode, versionName, minSdkVersion, releaseTimestamp, sha256Checksum, releaseNotes
+);
 
 CREATE TABLE DeltaInfo (
     packageName TEXT AS PackageName NOT NULL REFERENCES App(packageName) ON DELETE CASCADE,
@@ -43,4 +45,4 @@ CREATE TABLE DeltaInfo (
     FOREIGN KEY(packageName, baseVersion) REFERENCES AppRelease ON DELETE CASCADE,
     FOREIGN KEY(packageName, targetVersion) REFERENCES AppRelease ON DELETE CASCADE
 );
-CREATE INDEX Index_DeltaInfo_targetVersion_baseVersion_packageName ON DeltaInfo(targetVersion, baseVersion, packageName);
+CREATE INDEX DeltaInfo_covering ON DeltaInfo(packageName, baseVersion, targetVersion, sha256Checksum);

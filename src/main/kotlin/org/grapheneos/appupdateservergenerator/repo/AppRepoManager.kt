@@ -721,16 +721,16 @@ private class AppRepoManagerImpl(
 
                 println("checking groups of inserted packages")
                 groupIdToInsertedPackageMap.forEach { (groupId, insertedPackages) ->
-                    val packagesInGroupNotInsertedInThisSession = appDao.getAppsInGroupAndExcludingApps(
+                    val appsInGroupNotUpdatedInThisSession = appDao.getAppsInGroupButExcludingApps(
                         groupId,
                         insertedPackages.map { it.packageName }
                     )
                     println("inserted these packages for groupId $groupId: $insertedPackages")
-                    if (packagesInGroupNotInsertedInThisSession.isNotEmpty()) {
+                    if (appsInGroupNotUpdatedInThisSession.isNotEmpty()) {
                         print("warning: for groupId $groupId, these packages were inserted: ")
                         println(insertedPackages.map { "${it.label} (${it.packageName})" })
                         print("         but these packages in the same group didn't get an update: ")
-                        println(packagesInGroupNotInsertedInThisSession.map { "${it.label} (${it.packageName})" })
+                        println(appsInGroupNotUpdatedInThisSession.map { "${it.label} (${it.packageName})" })
                     }
                 }
             }
@@ -986,14 +986,14 @@ private class AppRepoManagerImpl(
 
     override suspend fun deleteGroup(groupId: GroupId, signingPrivateKey: PKCS8PrivateKeyFile) {
         val timestamp = UnixTimestamp.now()
-        val packagesForThisGroup = appDao.getAppsInGroup(groupId)
+        val packagesForThisGroup = appDao.getAppLabelsInGroup(groupId)
         println("removed groupId $groupId from ${packagesForThisGroup.size} groups: $packagesForThisGroup")
         staticFilesManager.regenerateMetadataAndIcons(signingPrivateKey, timestamp)
     }
 
     override suspend fun printAllPackages() {
         print(buildString {
-            appDao.forEachApp { appendLine(it.packageName) }
+            appDao.forEachAppName { appendLine(it) }
         })
     }
 

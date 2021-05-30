@@ -11,7 +11,9 @@
 --     releaseNotes TEXT,
 --     PRIMARY KEY(packageName, versionCode)
 -- );
--- CREATE INDEX Index_AppRelease_versionCode_packageName ON AppRelease(versionCode, packageName);
+-- CREATE INDEX AppRelease_covering ON AppRelease(
+--     packageName, versionCode, versionName, minSdkVersion, releaseTimestamp, sha256Checksum, releaseNotes
+-- );
 
 selectAllByApp:
 SELECT *

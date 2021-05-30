@@ -6,19 +6,19 @@
 --     icon BLOB,
 --     lastUpdateTimestamp INTEGER AS UnixTimestamp NOT NULL
 -- );
--- CREATE INDEX Index_App_groupId_packageName ON App(groupId, packageName);
+-- CREATE INDEX Index_App_packageName_groupId_label ON App(packageName, groupId, label);
 
 selectAll:
 SELECT * FROM App;
 
-selectAllOrderedByPackage:
-SELECT * FROM App ORDER BY packageName ASC;
+orderedPackages:
+SELECT packageName FROM App ORDER BY packageName ASC;
 
-selectAllByGroup:
-SELECT * FROM App WHERE groupId = ?;
+packageLabelsByGroup:
+SELECT packageName, label FROM App WHERE groupId = ?;
 
-selectAppsInGroupAndNotInSet:
-SELECT *
+appsInGroupAndNotInSet:
+SELECT packageName, label
 FROM App
 WHERE groupId = ? AND packageName NOT IN ?;
 
@@ -31,16 +31,10 @@ UPDATE App SET groupId = ?, lastUpdateTimestamp = ? WHERE packageName = ?;
 doesAppExist:
 SELECT COUNT(packageName) FROM App WHERE packageName = ?;
 
-/** Inserts or updates the [App] in the database. */
-upsert:
-INSERT INTO App VALUES ?
-ON CONFLICT(packageName) DO
-    UPDATE SET
-        groupId = excluded.groupId,
-        label = excluded.label,
-        icon = excluded.icon,
-        lastUpdateTimestamp = excluded.lastUpdateTimestamp;
-
+/**
+ * Inserts or updates the [App] in the database.
+ * If a new [App] is being inserted, it will have a NULL group. Otherwise, the group is not changed.
+ */
 upsertWithoutGroup:
 INSERT INTO App(packageName, label, icon, lastUpdateTimestamp)
 VALUES(?, ?, ?, ?)

@@ -35,10 +35,12 @@ class AppDao(private val database: Database) {
 
     fun getApp(packageName: PackageName): App? = database.appQueries.select(packageName).executeAsOneOrNull()
 
-    fun getAppsInGroup(groupId: GroupId): List<App> = database.appQueries.selectAllByGroup(groupId).executeAsList()
+    fun getAppLabelsInGroup(groupId: GroupId): List<PackageLabelsByGroup> = database.appQueries
+        .packageLabelsByGroup(groupId)
+        .executeAsList()
 
-    fun getAppsInGroupAndExcludingApps(groupId: GroupId, groupsToExclude: Collection<PackageName>) =
-        database.appQueries.selectAppsInGroupAndNotInSet(groupId, groupsToExclude).executeAsList()
+    fun getAppsInGroupButExcludingApps(groupId: GroupId, groupsToExclude: Collection<PackageName>) =
+        database.appQueries.appsInGroupAndNotInSet(groupId, groupsToExclude).executeAsList()
 
     fun getSerializableAppMetadata(packageName: PackageName): AppMetadata? =
         database.transactionWithResult {
@@ -81,8 +83,8 @@ class AppDao(private val database: Database) {
         return database.appQueries.doesAppExist(packageName).executeAsOne() == 1L
     }
 
-    fun forEachApp(action: (app: App) -> Unit) {
-        database.appQueries.selectAllOrderedByPackage().executeAsSequence { sequence -> sequence.forEach(action) }
+    fun forEachAppName(action: (packageName: PackageName) -> Unit) {
+        database.appQueries.orderedPackages().executeAsSequence { sequence -> sequence.forEach(action) }
     }
 
     fun setGroupForPackages(groupId: GroupId?, packages: Iterable<PackageName>, updateTimestamp: UnixTimestamp) {
