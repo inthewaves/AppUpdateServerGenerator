@@ -4,7 +4,7 @@ A CLI tool to manage a repository for an app update server.
 Some facts about the app update repository:
 * The repository is meant to be uploaded to a static web server with the CLI tool being executed on
   a local machine.
-* The repository state is determined by the static files.
+* The repository state is kept in a SQLite database; however, the APK and delta files are stored on the filesystem.
 * This app update server supports deltas using Google's archive-patcher library, forked at
   https://github.com/inthewaves/archive-patcher.
 
@@ -246,6 +246,7 @@ app_repo_data
 
 ## TODO
 * The Android app
+* Figure out a way to convert Vector drawables in APK resources to PNGs or SVGs.
 * More unit tests
 * System for pruning older versions of apps
 * Maybe a configuration file to configure things such as maximum number of deltas to generate which

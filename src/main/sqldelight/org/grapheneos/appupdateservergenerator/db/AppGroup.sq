@@ -1,0 +1,17 @@
+-- Version 1 schema:
+--
+-- CREATE TABLE AppGroup (
+--     id TEXT AS GroupId COLLATE NOCASE NOT NULL PRIMARY KEY
+-- );
+
+select:
+SELECT id FROM AppGroup WHERE id = ?;
+
+selectAll:
+SELECT * FROM AppGroup;
+
+insert:
+INSERT OR IGNORE INTO AppGroup VALUES ?;
+
+delete:
+DELETE FROM AppGroup WHERE id = ?;

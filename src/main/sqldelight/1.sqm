@@ -1,0 +1,46 @@
+import org.grapheneos.appupdateservergenerator.model.Base64String;
+import org.grapheneos.appupdateservergenerator.model.GroupId;
+import org.grapheneos.appupdateservergenerator.model.PackageName;
+import org.grapheneos.appupdateservergenerator.model.UnixTimestamp;
+import org.grapheneos.appupdateservergenerator.model.VersionCode;
+
+CREATE TABLE AppGroup (
+    id TEXT AS GroupId COLLATE NOCASE NOT NULL PRIMARY KEY
+);
+
+/** Represents an app in the database */
+CREATE TABLE App (
+    packageName TEXT AS PackageName NOT NULL PRIMARY KEY,
+    groupId TEXT AS GroupId COLLATE NOCASE REFERENCES AppGroup(id) ON UPDATE CASCADE ON DELETE SET NULL,
+    label TEXT NOT NULL,
+    icon BLOB,
+    lastUpdateTimestamp INTEGER AS UnixTimestamp NOT NULL
+);
+CREATE INDEX Index_App_groupId_packageName ON App(groupId, packageName);
+
+/**
+ * Represents the release for an app.
+ */
+CREATE TABLE AppRelease (
+    packageName TEXT AS PackageName NOT NULL REFERENCES App(packageName) ON DELETE CASCADE,
+    versionCode INTEGER AS VersionCode NOT NULL,
+    versionName TEXT NOT NULL,
+    minSdkVersion INTEGER AS Int NOT NULL,
+    releaseTimestamp INTEGER AS UnixTimestamp NOT NULL,
+    /** The sha256 checksum for the APK */
+    sha256Checksum TEXT AS Base64String NOT NULL,
+    releaseNotes TEXT,
+    PRIMARY KEY(packageName, versionCode)
+);
+CREATE INDEX Index_AppRelease_versionCode_packageName ON AppRelease(versionCode, packageName);
+
+CREATE TABLE DeltaInfo (
+    packageName TEXT AS PackageName NOT NULL REFERENCES App(packageName) ON DELETE CASCADE,
+    baseVersion INTEGER AS VersionCode NOT NULL,
+    targetVersion INTEGER AS VersionCode NOT NULL ,
+    sha256Checksum TEXT AS Base64String NOT NULL,
+    PRIMARY KEY(packageName, baseVersion, targetVersion),
+    FOREIGN KEY(packageName, baseVersion) REFERENCES AppRelease ON DELETE CASCADE,
+    FOREIGN KEY(packageName, targetVersion) REFERENCES AppRelease ON DELETE CASCADE
+);
+CREATE INDEX Index_DeltaInfo_targetVersion_baseVersion_packageName ON DeltaInfo(targetVersion, baseVersion, packageName);

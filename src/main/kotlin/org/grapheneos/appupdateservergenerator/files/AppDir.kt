@@ -1,6 +1,7 @@
 package org.grapheneos.appupdateservergenerator.files
 
 import org.grapheneos.appupdateservergenerator.files.FileManager.Companion.DELTA_REGEX
+import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import java.io.File
 import java.io.FileFilter
@@ -19,7 +20,7 @@ value class AppDir(val dir: File) {
         }
     }
 
-    val packageName: String get() = dir.name
+    val packageName: PackageName get() = PackageName(dir.name)
 
     /**
      * Lists the APK files in this app directory. As this uses [File.listFiles], "there is no guarantee that the name

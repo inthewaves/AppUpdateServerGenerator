@@ -11,9 +11,12 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.db.DeltaInfo
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.Base64String
+import org.grapheneos.appupdateservergenerator.model.GroupId
+import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.model.toBase64String
@@ -21,7 +24,6 @@ import org.grapheneos.appupdateservergenerator.serialization.ToolJson
 import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.FileFilter
 import java.io.IOException
-import java.util.SortedMap
 import java.util.SortedSet
 import java.util.TreeSet
 
@@ -31,8 +33,8 @@ import java.util.TreeSet
 @Serializable
 data class AppMetadata(
     @SerialName("package")
-    val packageName: String,
-    val groupId: String?,
+    val packageName: PackageName,
+    val groupId: GroupId?,
     val label: String,
     val lastUpdateTimestamp: UnixTimestamp,
     @Contextual
@@ -70,13 +72,6 @@ data class AppMetadata(
         }
     }
 
-    fun updateLatestReleaseWithDeltaInfo(newDeltaInfo: SortedSet<DeltaInfo>) {
-        latestRelease().deltaInfo.apply {
-            clear()
-            addAll(newDeltaInfo)
-        }
-    }
-
     fun latestRelease(): ReleaseInfo = releases.last()
 
     fun writeToString() = try {
@@ -105,7 +100,7 @@ data class AppMetadata(
          * Reads the metadata in the [pkg]'s app directory.
          * @throws IOException if an I/O error occurs or the metadata is of an invalid format
          */
-        fun getMetadataFromDiskForPackage(pkg: String, fileManager: FileManager): AppMetadata =
+        fun getMetadataFromDiskForPackage(pkg: PackageName, fileManager: FileManager): AppMetadata =
             try {
                 ToolJson.json.decodeFromString(fileManager.getLatestAppMetadata(pkg).useLines { it.last() })
             } catch (e: SerializationException) {
@@ -123,7 +118,7 @@ data class AppMetadata(
                 ?.mapTo(ArrayList()) { dirForApp ->
                     async {
                         try {
-                            getMetadataFromDiskForPackage(dirForApp.name, fileManager)
+                            getMetadataFromDiskForPackage(PackageName(dirForApp.name), fileManager)
                         } catch (e: IOException) {
                             // Ignore directories that fail
                             null
@@ -135,32 +130,7 @@ data class AppMetadata(
                 ?.toSortedSet(packageComparator)
                 ?: throw IOException("unable to get all app metadata from disk")
         }
-
-        /**
-         * Gets a map of groupIds to the packages that are tagged with the groupId.
-         *
-         * If [groupsToSelect] is not null, the keys in the returned map will only contain [groupsToSelect].
-         */
-        suspend fun getAllGroupsAndTheirPackages(
-            fileManager: FileManager,
-            groupsToSelect: Set<String>?
-        ): SortedMap<String, Set<String>> {
-            @Suppress("UNCHECKED_CAST")
-            return getAllAppMetadataFromDisk(fileManager).asSequence()
-                .filter {
-                    if (it.groupId == null) return@filter false
-                    if (groupsToSelect == null) return@filter true
-                    it.groupId in groupsToSelect
-                }
-                .groupingBy { it.groupId!! }
-                .foldTo(
-                    destination = sortedMapOf(),
-                    initialValueSelector = { _, _ -> hashSetOf() },
-                    operation = { _, accumulator: HashSet<String>, element ->
-                        accumulator.apply { add(element.packageName) }
-                    }
-                )
-            as SortedMap<String, Set<String>>
-        }
     }
 }
+
+fun DeltaInfo.toSerializableModel() = AppMetadata.DeltaInfo(baseVersion, sha256Checksum)

@@ -2,6 +2,8 @@ package org.grapheneos.appupdateservergenerator.model
 
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
+import org.grapheneos.appupdateservergenerator.db.AppRelease
+import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.File
 import java.io.IOException
 
@@ -12,16 +14,26 @@ import java.io.IOException
 data class AndroidApk(
     val apkFile: File,
     val label: String,
-    val packageName: String,
+    val packageName: PackageName,
     val versionCode: VersionCode,
     val versionName: String,
     val minSdkVersion: Int,
     val certificates: List<HexString>
 ) {
+    fun toAppRelease(releaseTimestamp: UnixTimestamp, releaseNotes: String?) = AppRelease(
+        packageName = packageName,
+        versionName = versionName,
+        versionCode = versionCode,
+        minSdkVersion = minSdkVersion,
+        releaseTimestamp = releaseTimestamp,
+        sha256Checksum = apkFile.digest("SHA-256").toBase64String(),
+        releaseNotes = releaseNotes
+    )
+
     class Builder {
         var apkFile: File? = null
         var label: String? = null
-        var packageName: String? = null
+        var packageName: PackageName? = null
         var versionCode: VersionCode? = null
         var versionName: String? = null
         var minSdkVersion: Int? = null

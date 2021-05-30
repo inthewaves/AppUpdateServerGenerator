@@ -8,14 +8,16 @@ import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import java.io.File
 import java.io.IOException
-import java.util.*
+import java.util.Collections
+import java.util.SortedSet
+import java.util.TreeSet
 
 /**
  * Represents the APKs for a package.
  * [packageName] is the package for all of the APKs in [sortedApks].
  */
 sealed class PackageApkGroup private constructor(
-    val packageName: String,
+    val packageName: PackageName,
     inputApks: SortedSet<AndroidApk>
 ) {
     /**
@@ -56,7 +58,7 @@ sealed class PackageApkGroup private constructor(
     /**
      * Variant of [PackageApkGroup] where the [sortedApks] are sorted in ascending order by version code.
      */
-    class AscendingOrder(packageName: String, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks) {
+    class AscendingOrder(packageName: PackageName, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks) {
         override val highestVersionApk: AndroidApk? get() =
             try {
                 sortedApks.last()
@@ -73,7 +75,7 @@ sealed class PackageApkGroup private constructor(
     /**
      * Variant of [PackageApkGroup] where the [sortedApks] are sorted in descending order by version code.
      */
-    class DescendingOrder(packageName: String, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks) {
+    class DescendingOrder(packageName: PackageName, apks: SortedSet<AndroidApk>) : PackageApkGroup(packageName, apks) {
         override val highestVersionApk: AndroidApk? get() =
             try {
                 sortedApks.first()

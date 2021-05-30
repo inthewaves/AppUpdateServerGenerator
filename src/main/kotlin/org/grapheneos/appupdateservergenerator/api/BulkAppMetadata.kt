@@ -1,5 +1,9 @@
 package org.grapheneos.appupdateservergenerator.api
 
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.actor
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
@@ -28,15 +32,56 @@ data class BulkAppMetadata private constructor(
         openSSLInvoker: OpenSSLInvoker,
         privateKey: PKCS8PrivateKeyFile
     ) {
-        val bulkAppMetadataFle = fileManager.bulkAppMetadata
-        bulkAppMetadataFle.bufferedWriter().use { writer ->
-            writer.appendLine(lastUpdateTimestamp.seconds.toString())
-            allAppMetadata.forEach { writer.appendLine(it.writeToString()) }
-        }
-        openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, bulkAppMetadataFle)
+        writeToDiskFromSequenceAndSign(
+            allAppMetadata.asSequence(),
+            lastUpdateTimestamp,
+            fileManager,
+            openSSLInvoker,
+            privateKey
+        )
     }
 
     companion object {
+        suspend fun writeFromChannel(
+            updateTimestamp: UnixTimestamp,
+            fileManager: FileManager,
+            openSSLInvoker: OpenSSLInvoker,
+            privateKey: PKCS8PrivateKeyFile,
+            writerBlock: suspend (channel: SendChannel<AppMetadata>) -> Unit
+        ): Unit = coroutineScope {
+            val outerChannel = actor<AppMetadata>(capacity = Channel.UNLIMITED) {
+                val bulkAppMetadataFile = fileManager.bulkAppMetadata.apply { delete() }
+                bulkAppMetadataFile.bufferedWriter().use { writer ->
+                    writer.appendLine(updateTimestamp.seconds.toString())
+                    for (metadata in channel) {
+                        writer.appendLine(metadata.writeToString())
+                    }
+                }
+                openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, bulkAppMetadataFile)
+            }
+
+            try {
+                writerBlock(outerChannel)
+            } finally {
+                outerChannel.close()
+            }
+        }
+
+        fun writeToDiskFromSequenceAndSign(
+            appMetadata: Sequence<AppMetadata>,
+            updateTimestamp: UnixTimestamp,
+            fileManager: FileManager,
+            openSSLInvoker: OpenSSLInvoker,
+            privateKey: PKCS8PrivateKeyFile
+        ) {
+            val bulkAppMetadataFle = fileManager.bulkAppMetadata
+            bulkAppMetadataFle.bufferedWriter().use { writer ->
+                writer.appendLine(updateTimestamp.seconds.toString())
+                appMetadata.forEach { writer.appendLine(it.writeToString()) }
+            }
+            openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, bulkAppMetadataFle)
+        }
+
         fun readFromExistingFile(fileManager: FileManager): BulkAppMetadata {
             val sortedSet: SortedSet<AppMetadata> = sortedSetOf(AppMetadata.packageComparator)
             var timestamp: UnixTimestamp? = null

@@ -1,0 +1,36 @@
+-- Version 1 schema:
+--
+-- CREATE TABLE AppRelease (
+--     packageName TEXT AS PackageName NOT NULL REFERENCES App(packageName) ON DELETE CASCADE,
+--     versionCode INTEGER AS VersionCode NOT NULL,
+--     versionName TEXT NOT NULL,
+--     minSdkVersion INTEGER AS Int NOT NULL,
+--     releaseTimestamp INTEGER AS UnixTimestamp NOT NULL,
+--     /** The sha256 checksum for the APK */
+--     sha256Checksum TEXT AS Base64String NOT NULL,
+--     releaseNotes TEXT,
+--     PRIMARY KEY(packageName, versionCode)
+-- );
+-- CREATE INDEX Index_AppRelease_versionCode_packageName ON AppRelease(versionCode, packageName);
+
+selectAllByApp:
+SELECT *
+FROM AppRelease
+WHERE packageName = ?
+ORDER BY versionCode DESC;
+
+selectLatestRelease:
+SELECT *
+FROM AppRelease
+WHERE packageName = ?
+ORDER BY versionCode DESC
+LIMIT 1;
+
+updateReleaseNotes:
+UPDATE AppRelease SET releaseNotes = ?, releaseTimestamp = ? WHERE packageName = ? AND versionCode = ?;
+
+selectByAppAndVersion:
+SELECT * FROM AppRelease WHERE packageName = ? AND versionCode = ?;
+
+insert:
+INSERT INTO AppRelease VALUES ?;

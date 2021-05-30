@@ -3,6 +3,7 @@ package org.grapheneos.appupdateservergenerator.commands
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.arguments.convert
 import com.github.ajalt.clikt.parameters.options.convert
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
@@ -11,6 +12,7 @@ import com.github.ajalt.clikt.parameters.types.file
 import com.github.ajalt.clikt.parameters.types.int
 import kotlinx.coroutines.runBlocking
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import java.io.File
 import java.io.IOException
@@ -29,10 +31,10 @@ class EditCommand private constructor(): CliktCommand(name = "edit", help = "Com
         private val privateSigningKeyFile: File by option(names = arrayOf("--signing-key", "-k"))
             .file(mustExist = true, canBeDir = false, mustBeReadable = true)
             .required()
-        private val packageToEdit: String by argument(
+        private val packageToEdit: PackageName by argument(
             name = "package",
             help = "The package to edit",
-        )
+        ).convert { PackageName(it) }
 
         override fun runAfterInvokerChecks() = runBlocking {
             val signingPrivateKey: PKCS8PrivateKeyFile = try {
@@ -68,10 +70,10 @@ class EditCommand private constructor(): CliktCommand(name = "edit", help = "Com
             help = "Whether to delete the release notes for the given package."
         ).flag()
 
-        private val packageToEdit: String by argument(
+        private val packageToEdit: PackageName by argument(
             name = "package",
             help = "The package to edit",
-        )
+        ).convert { PackageName(it) }
 
         override fun runAfterInvokerChecks() = runBlocking {
             val signingPrivateKey: PKCS8PrivateKeyFile = try {

@@ -15,7 +15,6 @@ fun main(args: Array<String>) {
     // if (!DefaultDeflateCompatibilityWindow().isCompatible) {
     //     System.err.println("Warning: zlib not compatible on this system")
     // }
-
     AppRepo()
         .subcommands(
             AddCommand(),

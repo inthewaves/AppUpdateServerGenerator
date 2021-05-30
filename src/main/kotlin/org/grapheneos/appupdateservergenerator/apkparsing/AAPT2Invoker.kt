@@ -1,6 +1,7 @@
 package org.grapheneos.appupdateservergenerator.apkparsing
 
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
+import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.util.Invoker
 import org.grapheneos.appupdateservergenerator.util.readTextFromErrorStream
@@ -20,7 +21,10 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
      *
      * @throws IOException if the APK file can't be processed by aapt2 / there is missing information
      */
-    fun getAndroidAppDetails(apkFile: File, androidApkBuilder: AndroidApk.Builder) {
+    fun getAndroidAppDetails(
+        apkFile: File,
+        androidApkBuilder: AndroidApk.Builder
+    ) {
         val badgingProcess: Process = ProcessBuilder(
             executablePath.toString(), "dump", "badging", apkFile.absolutePath,
         ).start()
@@ -68,7 +72,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                         packageName == null || versionCode == null || versionName == null -> {
                             badgingFirstLineRegex.matchEntire(line)
                                 ?.let {
-                                    packageName = it.groupValues[1]
+                                    packageName = PackageName(it.groupValues[1])
 
                                     versionCode = try {
                                         VersionCode(it.groupValues[2].toInt())
@@ -104,16 +108,16 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
     }
 
     /**
-     * Copies the launcher icon from the [apkFile] into the [outputIconFile] as long as the launcher icon's density
+     * Gets the launcher icon from the [apkFile] as long as the launcher icon's density
      * is >= [minimumDensity]. The saved icon will be the least possible density that is >= [minimumDensity].
      *
      * In the case that the icon from the app's manifest is .xml file (e.g. adaptive icon), it will try to find an
      * equivalent png launcher icon in the app's resources.
      *
-     * @return whether the extraction was successful. False can be returned if unable to find a suitable icon.
+     * @return the application icon bytes, or null if unable to find a suitable icon.
      * @throws IOException if an I/O error (or [ZipException]) occurs.
      */
-    fun getApplicationIconFromApk(apkFile: File, minimumDensity: Density, outputIconFile: File): Boolean {
+    fun getApplicationIconFromApk(apkFile: File, minimumDensity: Density): ByteArray? {
         val badgingProcess: Process = ProcessBuilder(
             executablePath.toString(), "dump", "badging", apkFile.absolutePath,
         ).start()
@@ -128,8 +132,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                             return extractIconEntryFromApkIntoOutputFile(
                                 apkFile,
                                 path,
-                                minimumDensity,
-                                outputIconFile
+                                minimumDensity
                             )
                         }
                     }
@@ -139,25 +142,23 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
         if (badgingProcess.exitValue() != 0) {
             throw IOException("aapt2 dump badging $apkFile failed: ${badgingProcess.readTextFromErrorStream()}")
         }
-        return false
+        return null
     }
 
     /**
-     * Extracts a launcher icon from the [apkFile] using the given zip entry [path] and copies the icon into the
-     * [outputIconFile]. The extracted icon will be the least possible density that is >= [minimumDensity].
+     * Extracts a launcher icon from the [apkFile] using the given zip entry [path] and returns the icon. The extracted
+     * icon will be the least possible density that is >= [minimumDensity].
      *
      * In the case that the [path] is an .xml file, it will try to find an equivalent png launcher icon.
      *
-     * @return whether extracting the entry into the output file was successful. False can be returned if unable to
-     * find a suitable icon.
+     * @return the application icon in bytes, or null if unable to find a suitable icon
      * @throws IOException if an I/O (or [ZipException]) occurs.
      */
     private fun extractIconEntryFromApkIntoOutputFile(
         apkFile: File,
         path: String,
-        minimumDensity: Density,
-        outputIconFile: File
-    ): Boolean {
+        minimumDensity: Density
+    ): ByteArray? {
         ZipFile(apkFile, ZipFile.OPEN_READ).use { zipFile ->
             val pathToUse: String = when {
                 path.endsWith(".png") -> path
@@ -166,7 +167,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                     // Get the base icon name (e.g., res/mipmap-anydpi-v21/ic_launcher.xml is turned to ic_launcher)
                     val iconName = path.split('/').lastOrNull()
                         ?.split('.')?.firstOrNull()
-                        ?: return false
+                        ?: return null
 
                     // Search for a suitable png of the right density. It should have the same name.
                     zipFile.entries().asSequence()
@@ -175,19 +176,16 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                         .filter { it.second >= minimumDensity }
                         .minByOrNull { it.second }
                         ?.first
-                        ?: return false
+                        ?: return null
                 }
-                else -> return false
+                else -> return null
             }
 
             zipFile.getEntry(pathToUse)?.let { iconEntry ->
-                outputIconFile.outputStream().buffered().use { outputFileStream ->
-                    zipFile.getInputStream(iconEntry).buffered().use { it.copyTo(outputFileStream) }
-                }
-                return true
+                return zipFile.getInputStream(iconEntry).buffered().use { it.readBytes() }
             }
         }
-        return false
+        return null
     }
 
     /**

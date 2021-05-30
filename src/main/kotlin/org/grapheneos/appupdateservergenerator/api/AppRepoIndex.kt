@@ -1,9 +1,13 @@
 package org.grapheneos.appupdateservergenerator.api
 
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.coroutineScope
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
+import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import java.io.IOException
@@ -20,11 +24,11 @@ import java.util.TreeMap
  *     ```
  *     packageName versionCode lastUpdateTimestamp
  *     ```
- *     where lastUpdateTimestamp is when the app's metadata was last updated.
+ *     where lastUpdateTimestamp is the last time the app's metadata was last updated or the latest release date.
  */
 data class AppRepoIndex private constructor(
     val timestamp: UnixTimestamp,
-    val packageToVersionMap: SortedMap<String, Pair<VersionCode, UnixTimestamp>>
+    val packageToVersionMap: SortedMap<PackageName, Pair<VersionCode, UnixTimestamp>>
 ) {
     /**
      * Writes this [AppRepoIndex] to the disk and then signs the file using the [privateKey] and [openSSLInvoker].
@@ -43,30 +47,59 @@ data class AppRepoIndex private constructor(
         openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, latestAppVersionIndex)
     }
 
-    /**
-     * Format for the metadata file lines for each app.
-     * The format is
-     *
-     *     packageName versionCode lastUpdateTimestamp
-     */
-    private fun createLine(
-        packageName: String,
-        versionCode: VersionCode,
-        lastUpdateTimestamp: UnixTimestamp
-    ) = "$packageName ${versionCode.code} ${lastUpdateTimestamp.seconds}"
-
     companion object {
-        private fun createFromLine(line: String): Pair<String, Pair<VersionCode, UnixTimestamp>>? {
+        /**
+         * Format for the metadata file lines for each app.
+         * The format is
+         *
+         *     packageName versionCode lastUpdateTimestamp
+         */
+        private fun createLine(
+            packageName: PackageName,
+            versionCode: VersionCode,
+            lastUpdateTimestamp: UnixTimestamp
+        ) = "${packageName.pkg} ${versionCode.code} ${lastUpdateTimestamp.seconds}"
+
+        suspend fun writeFromChannel(
+            updateTimestamp: UnixTimestamp,
+            fileManager: FileManager,
+            openSSLInvoker: OpenSSLInvoker,
+            privateKey: PKCS8PrivateKeyFile,
+            writerBlock: suspend (channel: SendChannel<AppMetadata>) -> Unit
+        ): Unit = coroutineScope {
+            val outerChannel = actor<AppMetadata>(capacity = Channel.UNLIMITED) {
+                val appIndex = fileManager.appIndex.apply { delete() }
+                appIndex.bufferedWriter().use { writer ->
+                    writer.appendLine(updateTimestamp.seconds.toString())
+                    for (metadata in channel) {
+                        writer.appendLine(createLine(
+                            metadata.packageName,
+                            metadata.latestRelease().versionCode,
+                            metadata.lastUpdateTimestamp
+                        ))
+                    }
+                }
+                openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, appIndex)
+            }
+
+            try {
+                writerBlock(outerChannel)
+            } finally {
+                outerChannel.close()
+            }
+        }
+
+        private fun createFromLine(line: String): Pair<PackageName, Pair<VersionCode, UnixTimestamp>>? {
             val split = line.split(' ')
             return if (split.size == 3) {
-                split[0] to (VersionCode(split[1].toInt()) to UnixTimestamp(split[2].toLong()))
+                PackageName(split[0]) to (VersionCode(split[1].toInt()) to UnixTimestamp(split[2].toLong()))
             } else {
                 null
             }
         }
 
         fun readFromExistingIndexFile(fileManager: FileManager): AppRepoIndex {
-            val sortedMap = sortedMapOf<String, Pair<VersionCode, UnixTimestamp>>()
+            val sortedMap = sortedMapOf<PackageName, Pair<VersionCode, UnixTimestamp>>()
             var timestamp: UnixTimestamp? = null
             fileManager.appIndex.useLines { lineSequence ->
                 // drop the signature line

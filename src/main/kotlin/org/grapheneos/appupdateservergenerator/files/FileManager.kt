@@ -1,5 +1,6 @@
 package org.grapheneos.appupdateservergenerator.files
 
+import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import java.io.File
 import java.io.IOException
@@ -19,6 +20,11 @@ class FileManager constructor(
     val dataRootDirectory: File = File(Path.of("").toAbsolutePath().toFile(), REPO_ROOT_DIRNAME)
 ) {
     companion object {
+        const val APP_REPO_INDEX_FILENAME = "latest-index.txt"
+        const val BULK_METADATA_FILENAME = "latest-bulk-metadata.txt"
+        const val APP_METADATA_FILENAME = "latest.txt"
+        const val APP_ICON_FILENAME = "ic_launcher.png"
+
         private const val REPO_ROOT_DIRNAME = "app_repo_data"
         private const val STANDALONE_APP_DATA_DIRNAME = "apps"
         private const val DELTA_FILE_FORMAT = "delta-%d-to-%d.gz"
@@ -51,22 +57,24 @@ class FileManager constructor(
         attemptToCreateDirIfNotExists(appDirectory)
     }
 
+    val databaseFile = File(dataRootDirectory, "apprepo.db")
+
     /**
      * Stores the public key used to sign the metadata in the repo. This is stored here for checks during local repo
      * generation / validation; it is **not** meant to be consumed by the apps.
      */
     val publicSigningKeyPem = File(dataRootDirectory, "public-signing-key.pem")
 
-    val appIndex = File(appDirectory, "latest-index.txt")
+    val appIndex = File(appDirectory, APP_REPO_INDEX_FILENAME)
 
-    val bulkAppMetadata = File(appDirectory, "latest-bulk-metadata.txt")
+    val bulkAppMetadata = File(appDirectory, BULK_METADATA_FILENAME)
 
-    fun getDirForApp(pkg: String) = AppDir(File(appDirectory, pkg))
+    fun getDirForApp(pkg: PackageName) = AppDir(File(appDirectory, pkg.pkg))
 
-    fun getLatestAppMetadata(pkg: String) = File(getDirForApp(pkg).dir, "latest.txt")
+    fun getLatestAppMetadata(pkg: PackageName) = File(getDirForApp(pkg).dir, APP_METADATA_FILENAME)
 
-    fun getDeltaFileForApp(pkg: String, previousVersion: VersionCode, newVersion: VersionCode) =
+    fun getDeltaFileForApp(pkg: PackageName, previousVersion: VersionCode, newVersion: VersionCode) =
         File(getDirForApp(pkg).dir, DELTA_FILE_FORMAT.format(previousVersion.code, newVersion.code))
 
-    fun getAppIconFile(pkg: String) = File(getDirForApp(pkg).dir, "ic_launcher.png")
+    fun getAppIconFile(pkg: PackageName) = File(getDirForApp(pkg).dir, APP_ICON_FILENAME)
 }

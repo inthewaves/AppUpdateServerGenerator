@@ -3,12 +3,15 @@ package org.grapheneos.appupdateservergenerator.commands
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.arguments.convert
 import com.github.ajalt.clikt.parameters.arguments.multiple
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.file
 import kotlinx.coroutines.runBlocking
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.model.GroupId
+import org.grapheneos.appupdateservergenerator.model.PackageName
 import java.io.File
 import java.io.IOException
 
@@ -59,18 +62,18 @@ private open class GroupSubcommand(name: String?, help: String) : AppRepoSubcomm
         name = "create",
         help = "Creates a group with the given group id and adds packages to it"
     ) {
-        private val packages: List<String> by argument(
+        private val packages: List<PackageName> by argument(
             help = "The package(s) to add to this new group",
-        ).multiple(required = true)
+        ).convert { PackageName(it) }.multiple(required = true)
 
         override fun runAfterInvokerChecks() = runBlocking {
             appRepoManager.setGroupForPackages(groupId, packages, signingPrivateKey, createNewGroupIfNotExists = true)
         }
     }
     class Add : GroupSubcommand(name = "add", help = "Adds packages to an existing group id") {
-        private val packages: List<String> by argument(
+        private val packages: List<PackageName> by argument(
             help = "The package(s) to add to the given group",
-        ).multiple(required = true)
+        ).convert { PackageName(it) }.multiple(required = true)
 
         override fun runAfterInvokerChecks() = runBlocking {
             appRepoManager.setGroupForPackages(groupId, packages, signingPrivateKey, createNewGroupIfNotExists = false)
@@ -82,7 +85,7 @@ private open class GroupSubcommand(name: String?, help: String) : AppRepoSubcomm
         }
     }
 
-    protected val groupId: String by argument(name = "group-id")
+    protected val groupId: GroupId by argument(name = "group-id").convert { GroupId.of(it) }
     protected val keyFile: File by option(
         names = arrayOf("--key-file", "-k"),
         help = "A decrypted key in PKCS8 DER format used to sign the metadata. Only RSA and EC keys are supported"

@@ -3,7 +3,18 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 plugins {
     kotlin("jvm") version "1.5.10"
     kotlin("plugin.serialization") version "1.5.0"
+    id("com.squareup.sqldelight") version "1.5.0"
     application
+}
+
+sqldelight {
+    database("Database") { // This will be the name of the generated database class.
+        packageName = "org.grapheneos.appupdateservergenerator.db"
+        deriveSchemaFromMigrations = true
+        schemaOutputDirectory = file("src/main/sqldelight/schemas")
+        verifyMigrations = true
+        dialect = "sqlite:3.25"
+    }
 }
 
 group = "org.grapheneos"
@@ -19,6 +30,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0")
     implementation("org.jetbrains.kotlin:kotlin-reflect:1.5.10")
     implementation("com.github.ajalt.clikt:clikt:3.2.0")
+
+    implementation("com.squareup.sqldelight:sqlite-driver:1.5.0")
+    implementation("com.squareup.sqldelight:coroutines-extensions-jvm:1.5.0")
 
     testImplementation("org.bouncycastle:bcprov-jdk15to18:1.68")
     testImplementation(kotlin("test-junit5"))

@@ -1,0 +1,51 @@
+-- Version 1 schema:
+-- CREATE TABLE App (
+--     packageName TEXT AS PackageName NOT NULL PRIMARY KEY,
+--     groupId TEXT AS GroupId COLLATE NOCASE REFERENCES AppGroup(id) ON UPDATE CASCADE ON DELETE SET NULL,
+--     label TEXT NOT NULL,
+--     icon BLOB,
+--     lastUpdateTimestamp INTEGER AS UnixTimestamp NOT NULL
+-- );
+-- CREATE INDEX Index_App_groupId_packageName ON App(groupId, packageName);
+
+selectAll:
+SELECT * FROM App;
+
+selectAllOrderedByPackage:
+SELECT * FROM App ORDER BY packageName ASC;
+
+selectAllByGroup:
+SELECT * FROM App WHERE groupId = ?;
+
+selectAppsInGroupAndNotInSet:
+SELECT *
+FROM App
+WHERE groupId = ? AND packageName NOT IN ?;
+
+select:
+SELECT * FROM App WHERE packageName = ?;
+
+setGroup:
+UPDATE App SET groupId = ?, lastUpdateTimestamp = ? WHERE packageName = ?;
+
+doesAppExist:
+SELECT COUNT(packageName) FROM App WHERE packageName = ?;
+
+/** Inserts or updates the [App] in the database. */
+upsert:
+INSERT INTO App VALUES ?
+ON CONFLICT(packageName) DO
+    UPDATE SET
+        groupId = excluded.groupId,
+        label = excluded.label,
+        icon = excluded.icon,
+        lastUpdateTimestamp = excluded.lastUpdateTimestamp;
+
+upsertWithoutGroup:
+INSERT INTO App(packageName, label, icon, lastUpdateTimestamp)
+VALUES(?, ?, ?, ?)
+ON CONFLICT(packageName) DO
+    UPDATE SET
+        label = excluded.label,
+        icon = excluded.icon,
+        lastUpdateTimestamp = excluded.lastUpdateTimestamp;
