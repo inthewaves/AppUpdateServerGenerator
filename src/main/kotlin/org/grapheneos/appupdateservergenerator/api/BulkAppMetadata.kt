@@ -6,11 +6,11 @@ import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
-import org.grapheneos.appupdateservergenerator.serialization.ToolJson
 import java.io.IOException
 import java.util.SortedSet
 
@@ -93,7 +93,7 @@ data class BulkAppMetadata private constructor(
                             timestamp = UnixTimestamp(line.toLong())
                         } else {
                             val appMetadata: AppMetadata = try {
-                                ToolJson.json.decodeFromString(line)
+                                Json.decodeFromString(line)
                             } catch (e: SerializationException) {
                                 throw IOException(e)
                             }

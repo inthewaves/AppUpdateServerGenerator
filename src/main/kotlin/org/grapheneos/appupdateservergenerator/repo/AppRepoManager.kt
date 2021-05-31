@@ -383,7 +383,7 @@ private class AppRepoManagerImpl(
             }
         }
 
-        val releasesInMetadata: TreeSet<AppMetadata.ReleaseInfo> = metadata.releases
+        val releasesInMetadata: Set<AppMetadata.ReleaseInfo> = metadata.releases
         val versionCodesFromReleasesInMetadata = releasesInMetadata.mapTo(sortedSetOf()) { it.versionCode }
         if (versionCodesFromApksInDir != versionCodesFromReleasesInMetadata) {
             throwExceptionWithMissingIntersectionElements(
@@ -528,6 +528,8 @@ private class AppRepoManagerImpl(
         object ProgressPrint : PrintMessageType
         @JvmInline
         value class NewLine(val string: String) : PrintMessageType
+        @JvmInline
+        value class NewLines(val strings: Array<String>) : PrintMessageType
     }
 
     private fun CoroutineScope.createDeltaGenerationActor(): SendChannel<DeltaGenerationRequest> =
@@ -576,22 +578,24 @@ private class AppRepoManagerImpl(
                     print(lineToPrint)
                     lastProgressMessage = stringToPrint
                 }
+                fun printNewLine(printMessage: String) {
+                    val extraSpaceNeeded = lastProgressMessage.length - printMessage.length
+                    if (extraSpaceNeeded > 0) {
+                        println('\r' + printMessage
+                                + " ".repeat(extraSpaceNeeded)
+                                + "\b".repeat(extraSpaceNeeded))
+                    } else {
+                        println('\r' + printMessage)
+                    }
+                    printProgress(false)
+                }
 
                 for (printMessage in printMessageChannel) {
                     asyncPrintMutex.withLock {
                         when (printMessage) {
                             is PrintMessageType.ProgressPrint -> printProgress(true)
-                            is PrintMessageType.NewLine -> {
-                                val extraSpaceNeeded = lastProgressMessage.length - printMessage.string.length
-                                if (extraSpaceNeeded > 0) {
-                                    println('\r' + printMessage.string
-                                            + " ".repeat(extraSpaceNeeded)
-                                            + "\b".repeat(extraSpaceNeeded))
-                                } else {
-                                    println('\r' + printMessage.string)
-                                }
-                                printProgress(false)
-                            }
+                            is PrintMessageType.NewLines -> printMessage.strings.forEach { printNewLine(it) }
+                            is PrintMessageType.NewLine -> printNewLine(printMessage.string)
                             is PrintMessageType.DeltaFinished -> {
                                 numberOfDeltasGenerated++
 
@@ -636,8 +640,11 @@ private class AppRepoManagerImpl(
                                     "updated metadata for ${appDir.packageName} with delta information"
                                 ))
                             } catch (e: Throwable) {
-                                printMessageChannel.trySend(PrintMessageType.NewLine(
-                                    "error during delta generation for ${appDir.packageName}\n${e.stackTraceToString()}"
+                                printMessageChannel.trySend(PrintMessageType.NewLines(
+                                    arrayOf(
+                                        "error during delta generation for ${appDir.packageName}}",
+                                        e.stackTraceToString()
+                                    )
                                 ))
 
                                 failedDeltaAppsMutex.withLock { failedDeltaApps.add(appDir) }

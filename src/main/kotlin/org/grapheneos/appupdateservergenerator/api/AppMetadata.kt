@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.db.DeltaInfo
@@ -20,7 +21,6 @@ import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.model.toBase64String
-import org.grapheneos.appupdateservergenerator.serialization.ToolJson
 import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.FileFilter
 import java.io.IOException
@@ -37,8 +37,7 @@ data class AppMetadata(
     val groupId: GroupId?,
     val label: String,
     val lastUpdateTimestamp: UnixTimestamp,
-    @Contextual
-    val releases: TreeSet<ReleaseInfo>
+    val releases: Set<ReleaseInfo>
 ) {
     @Serializable
     data class DeltaInfo(val baseVersionCode: VersionCode, val sha256Checksum: Base64String) : Comparable<DeltaInfo> {
@@ -54,8 +53,7 @@ data class AppMetadata(
         /** A checksum for the APK. */
         val sha256Checksum: Base64String,
         /** A set of [DeltaInfo] for previous [VersionCode]s that have a delta available for this version */
-        @Contextual
-        val deltaInfo: TreeSet<DeltaInfo>,
+        val deltaInfo: Set<DeltaInfo>,
         val releaseNotes: String?
     ) : Comparable<ReleaseInfo> {
         override fun compareTo(other: ReleaseInfo): Int = versionCode.compareTo(other.versionCode)
@@ -75,7 +73,7 @@ data class AppMetadata(
     fun latestRelease(): ReleaseInfo = releases.last()
 
     fun writeToString() = try {
-        ToolJson.json.encodeToString(this)
+        Json.encodeToString(this)
     } catch (e: SerializationException) {
         throw IOException(e)
     }
@@ -102,7 +100,7 @@ data class AppMetadata(
          */
         fun getMetadataFromDiskForPackage(pkg: PackageName, fileManager: FileManager): AppMetadata =
             try {
-                ToolJson.json.decodeFromString(fileManager.getLatestAppMetadata(pkg).useLines { it.last() })
+                Json.decodeFromString(fileManager.getLatestAppMetadata(pkg).useLines { it.last() })
             } catch (e: SerializationException) {
                 throw IOException(e)
             }
