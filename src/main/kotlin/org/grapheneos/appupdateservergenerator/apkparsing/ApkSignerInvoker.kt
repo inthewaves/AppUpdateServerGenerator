@@ -1,6 +1,5 @@
 package org.grapheneos.appupdateservergenerator.apkparsing
 
-import com.android.apksig.ApkVerifier
 import org.grapheneos.appupdateservergenerator.model.HexString
 import org.grapheneos.appupdateservergenerator.util.Invoker
 import org.grapheneos.appupdateservergenerator.util.readTextFromErrorStream

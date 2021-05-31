@@ -49,34 +49,21 @@ class AppDao(private val database: Database) {
 
     fun getSerializableAppMetadata(app: App): AppMetadata =
         database.transactionWithResult {
-            val allReleases = database.appReleaseQueries.selectAllByApp(app.packageName)
-                .executeAsSequence { releasesSequence ->
-                    releasesSequence.mapTo(TreeSet()) { release ->
-                        val deltaInfo: TreeSet<AppMetadata.DeltaInfo> = database.deltaInfoQueries
-                            .selectAllForTargetVersion(release.packageName, release.versionCode)
-                            .executeAsSequence { deltaInfos ->
-                                deltaInfos.mapTo(TreeSet()) { it.toSerializableModel() }
-                            }
+            val allReleases: TreeSet<AppMetadata.ReleaseInfo> =
+                database.appReleaseQueries.selectAllByApp(app.packageName)
+                    .executeAsSequence { releasesSequence ->
+                        releasesSequence.mapTo(TreeSet()) { release ->
+                            val deltaInfo: TreeSet<AppMetadata.DeltaInfo> = database.deltaInfoQueries
+                                .selectAllForTargetVersion(release.packageName, release.versionCode)
+                                .executeAsSequence { deltaInfos ->
+                                    deltaInfos.mapTo(TreeSet()) { it.toSerializableModel() }
+                                }
 
-                        return@mapTo AppMetadata.ReleaseInfo(
-                            versionCode = release.versionCode,
-                            versionName = release.versionName,
-                            minSdkVersion = release.minSdkVersion,
-                            releaseTimestamp = release.releaseTimestamp,
-                            sha256Checksum = release.sha256Checksum,
-                            deltaInfo = deltaInfo,
-                            releaseNotes = release.releaseNotes
-                        )
+                            return@mapTo release.toSerializableModel(deltaInfo)
+                        }
                     }
-                }
 
-            return@transactionWithResult AppMetadata(
-                packageName = app.packageName,
-                groupId = app.groupId,
-                label = app.label,
-                lastUpdateTimestamp = app.lastUpdateTimestamp,
-                releases = allReleases
-            )
+            return@transactionWithResult app.toSerializableModel(allReleases)
         }
 
     fun doesAppExist(packageName: PackageName): Boolean {

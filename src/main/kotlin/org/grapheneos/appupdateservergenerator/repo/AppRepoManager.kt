@@ -22,7 +22,6 @@ import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppRepoIndex
 import org.grapheneos.appupdateservergenerator.api.BulkAppMetadata
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
-import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
@@ -34,13 +33,13 @@ import org.grapheneos.appupdateservergenerator.db.DbWrapper
 import org.grapheneos.appupdateservergenerator.db.DeltaInfo
 import org.grapheneos.appupdateservergenerator.db.DeltaInfoDao
 import org.grapheneos.appupdateservergenerator.db.GroupDao
+import org.grapheneos.appupdateservergenerator.db.PackageLabelsByGroup
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.files.TempFile
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.GroupId
-import org.grapheneos.appupdateservergenerator.model.HexString
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
@@ -991,7 +990,8 @@ private class AppRepoManagerImpl(
     override suspend fun deleteGroup(groupId: GroupId, signingPrivateKey: PKCS8PrivateKeyFile) {
         val timestamp = UnixTimestamp.now()
         val packagesForThisGroup = appDao.getAppLabelsInGroup(groupId)
-        println("removed groupId $groupId from ${packagesForThisGroup.size} groups: $packagesForThisGroup")
+        println("removed groupId $groupId from ${packagesForThisGroup.size} apps: ")
+        println(packagesForThisGroup.map { "${it.label} (${it.packageName})" })
         staticFilesManager.regenerateMetadataAndIcons(signingPrivateKey, timestamp)
     }
 
@@ -1132,7 +1132,7 @@ private class AppRepoManagerImpl(
 
         val timestampForMetadata = UnixTimestamp.now()
         if (groupId != null && !groupDao.doesGroupExist(groupId)) {
-            val allGroups = groupDao.getGroupToAppMap()
+            val allGroups: Map<GroupId, Set<PackageLabelsByGroup>> = groupDao.getGroupToAppMap()
             if (createNewGroupIfNotExists) {
                 println("creating new group $groupId")
                 groupDao.createGroupWithPackages(groupId, distinctInputPackages, timestampForMetadata)
@@ -1160,36 +1160,3 @@ private class AppRepoManagerImpl(
     }
 }
 
-sealed class AppRepoException : Exception {
-    constructor() : super()
-    constructor(message: String) : super(message)
-    constructor(message: String, cause: Throwable) : super(message, cause)
-    constructor(cause: Throwable) : super(cause)
-
-    class EditFailed : AppRepoException {
-        constructor(message: String) : super(message)
-    }
-    class MoreRecentVersionInRepo(message: String): AppRepoException(message)
-    class InsertFailed : AppRepoException {
-        constructor() : super()
-        constructor(message: String) : super(message)
-        constructor(message: String, cause: Throwable) : super(message, cause)
-        constructor(cause: Throwable) : super(cause)
-    }
-    class GroupDoesntExist : AppRepoException {
-        constructor(message: String) : super(message)
-    }
-    class ApkSigningCertMismatch : AppRepoException {
-        constructor(message: String) : super(message)
-    }
-    class RepoSigningKeyMismatch : AppRepoException {
-        constructor(message: String) : super(message)
-    }
-    class InvalidRepoState : AppRepoException {
-        constructor(message: String) : super(message)
-        constructor(message: String, cause: Throwable) : super(message, cause)
-    }
-    class AppDetailParseFailed : AppRepoException {
-        constructor(message: String, cause: Throwable) : super(message, cause)
-    }
-}

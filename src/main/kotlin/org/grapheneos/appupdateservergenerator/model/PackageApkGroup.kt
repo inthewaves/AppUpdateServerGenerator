@@ -4,7 +4,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
-import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import java.io.File
 import java.io.IOException

@@ -1,19 +1,13 @@
 package org.grapheneos.appupdateservergenerator.model
 
 import com.android.apksig.ApkVerifier
-import com.android.apksig.apk.ApkUtils
 import com.android.apksig.internal.util.AndroidSdkVersion
-import com.android.apksig.internal.util.FileChannelDataSource
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
-import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.db.AppRelease
 import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.File
 import java.io.IOException
-import java.io.RandomAccessFile
-import java.nio.ByteBuffer
 import java.security.cert.X509Certificate
-import java.util.zip.ZipFile
 
 /**
  * Encapsulates data from the [apkFile] that was taken from the [apkFile]'s manifest and signing

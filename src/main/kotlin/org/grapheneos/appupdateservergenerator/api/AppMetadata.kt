@@ -3,7 +3,6 @@ package org.grapheneos.appupdateservergenerator.api
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.serialization.Contextual
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -12,6 +11,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.db.App
+import org.grapheneos.appupdateservergenerator.db.AppRelease
 import org.grapheneos.appupdateservergenerator.db.DeltaInfo
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
@@ -25,7 +26,6 @@ import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.FileFilter
 import java.io.IOException
 import java.util.SortedSet
-import java.util.TreeSet
 
 /**
  * The metadata for an app that will be parsed by the app.
@@ -130,5 +130,23 @@ data class AppMetadata(
         }
     }
 }
+
+fun App.toSerializableModel(releases: Set<AppMetadata.ReleaseInfo>) = AppMetadata(
+    packageName = packageName,
+    groupId = groupId,
+    label = label,
+    lastUpdateTimestamp = lastUpdateTimestamp,
+    releases = releases
+)
+
+fun AppRelease.toSerializableModel(deltaInfo: Set<AppMetadata.DeltaInfo>) = AppMetadata.ReleaseInfo(
+    versionCode,
+    versionName,
+    minSdkVersion,
+    releaseTimestamp,
+    sha256Checksum,
+    deltaInfo,
+    releaseNotes
+)
 
 fun DeltaInfo.toSerializableModel() = AppMetadata.DeltaInfo(baseVersion, sha256Checksum)
