@@ -26,6 +26,8 @@ repositories {
 
 dependencies {
     implementation(fileTree("include" to "*.jar", "dir" to "libs"))
+    implementation(project(":apksig"))
+
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0")
     implementation("org.jetbrains.kotlin:kotlin-reflect:1.5.10")
@@ -34,7 +36,8 @@ dependencies {
     implementation("com.squareup.sqldelight:sqlite-driver:1.5.0")
     implementation("com.squareup.sqldelight:coroutines-extensions-jvm:1.5.0")
 
-    testImplementation("org.bouncycastle:bcprov-jdk15to18:1.68")
+    implementation("org.bouncycastle:bcprov-jdk15on:1.68")
+
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.6.0")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.6.0")
@@ -49,6 +52,16 @@ tasks.withType<KotlinCompile> {
     kotlinOptions.freeCompilerArgs += "-Xopt-in=kotlin.RequiresOptIn"
 }
 
+tasks.withType<JavaCompile> {
+    sourceCompatibility = "11"
+    targetCompatibility = "11"
+}
+
+tasks.withType<AbstractArchiveTask> {
+    isPreserveFileTimestamps = true
+    isReproducibleFileOrder = true
+}
+
 application {
     mainClass.set("org.grapheneos.appupdateservergenerator.MainKt")
 }
@@ -57,11 +70,13 @@ tasks.jar {
     manifest {
         attributes["Main-Class"] = "org.grapheneos.appupdateservergenerator.MainKt"
     }
-    archiveFileName.set(project.name + ".jar")
+}
 
-    from(sourceSets.main.get().output)
-    dependsOn(configurations.runtimeClasspath)
-    from({
-        configurations.runtimeClasspath.get().filter { it.extension == "jar" }.map { zipTree(it) }
-    })
+tasks.create("copyDeps", type = Copy::class) {
+    into("build/libs")
+    from(configurations.runtimeClasspath)
+}
+
+tasks.assemble {
+    dependsOn(tasks["copyDeps"])
 }

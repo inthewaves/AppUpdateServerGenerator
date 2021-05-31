@@ -98,13 +98,11 @@ sealed class PackageApkGroup private constructor(
         suspend fun fromFilesAscending(
             apkFilePaths: Iterable<File>,
             aaptInvoker: AAPT2Invoker,
-            apkSignerInvoker: ApkSignerInvoker
         ): List<AscendingOrder> {
             @Suppress("UNCHECKED_CAST")
             return fromFiles(
                 apkFilePaths = apkFilePaths,
                 aaptInvoker = aaptInvoker,
-                apkSignerInvoker = apkSignerInvoker,
                 ascendingOrder = true
             ) as List<AscendingOrder>
         }
@@ -112,7 +110,6 @@ sealed class PackageApkGroup private constructor(
         private suspend fun fromFiles(
             apkFilePaths: Iterable<File>,
             aaptInvoker: AAPT2Invoker,
-            apkSignerInvoker: ApkSignerInvoker,
             ascendingOrder: Boolean
         ): List<PackageApkGroup> = coroutineScope {
             val comparator = if (ascendingOrder) {
@@ -128,7 +125,7 @@ sealed class PackageApkGroup private constructor(
                     }
 
                     async {
-                        AndroidApk.verifyApkSignatureAndBuildFromApkFile(apkFile, aaptInvoker, apkSignerInvoker)
+                        AndroidApk.verifyApkSignatureAndBuildFromApkFile(apkFile, aaptInvoker)
                     }
                 }
                 .awaitAll()
@@ -155,7 +152,6 @@ sealed class PackageApkGroup private constructor(
         suspend fun fromDir(
             appDir: AppDir,
             aaptInvoker: AAPT2Invoker,
-            apkSignerInvoker: ApkSignerInvoker,
             ascendingOrder: Boolean
         ): PackageApkGroup = coroutineScope {
             val comparator = if (ascendingOrder) {
@@ -165,7 +161,7 @@ sealed class PackageApkGroup private constructor(
             }
 
             val set = appDir.listApkFilesUnsorted()
-                .map { async { AndroidApk.verifyApkSignatureAndBuildFromApkFile(it, aaptInvoker, apkSignerInvoker) } }
+                .map { async { AndroidApk.verifyApkSignatureAndBuildFromApkFile(it, aaptInvoker) } }
                 .mapTo(TreeSet(comparator)) { it.await() }
 
             val packageName = if (set.isEmpty()) appDir.packageName else set.first().packageName

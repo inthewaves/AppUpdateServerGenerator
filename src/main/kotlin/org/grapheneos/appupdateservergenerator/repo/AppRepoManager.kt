@@ -57,6 +57,7 @@ import java.io.FileFilter
 import java.io.IOException
 import java.lang.Integer.min
 import java.security.MessageDigest
+import java.security.cert.X509Certificate
 import java.text.DecimalFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -143,9 +144,8 @@ interface AppRepoManager {
 fun AppRepoManager(
     fileManager: FileManager,
     aaptInvoker: AAPT2Invoker,
-    apkSignerInvoker: ApkSignerInvoker,
     openSSLInvoker: OpenSSLInvoker
-): AppRepoManager = AppRepoManagerImpl(fileManager, aaptInvoker, apkSignerInvoker, openSSLInvoker)
+): AppRepoManager = AppRepoManagerImpl(fileManager, aaptInvoker, openSSLInvoker)
 
 /**
  * The implementation of [AppRepoManager].
@@ -155,7 +155,6 @@ fun AppRepoManager(
 private class AppRepoManagerImpl(
     private val fileManager: FileManager,
     private val aaptInvoker: AAPT2Invoker,
-    private val apkSignerInvoker: ApkSignerInvoker,
     private val openSSLInvoker: OpenSSLInvoker
 ): AppRepoManager {
     companion object {
@@ -294,7 +293,7 @@ private class AppRepoManagerImpl(
             )
         }
 
-        val latestApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(apks.last(), aaptInvoker, apkSignerInvoker)
+        val latestApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(apks.last(), aaptInvoker)
         if (metadata.latestRelease().versionCode != latestApk.versionCode) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: latest APK versionCode in manifest mismatches with filename"
@@ -398,11 +397,7 @@ private class AppRepoManagerImpl(
         val parsedApks: List<AndroidApk> = coroutineScope {
             apks.map { apkFile ->
                 async {
-                    val parsedApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(
-                        apkFile,
-                        aaptInvoker,
-                        apkSignerInvoker
-                    )
+                    val parsedApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(apkFile, aaptInvoker)
                     if (parsedApk.packageName != metadata.packageName) {
                         throw AppRepoException.InvalidRepoState(
                             "$pkg: mismatch between metadata package and package from manifest ($apkFile)"
@@ -689,11 +684,13 @@ private class AppRepoManagerImpl(
             packageApkGroups = try {
                 PackageApkGroup.fromFilesAscending(
                     apkFilePaths = apkFilePaths,
-                    aaptInvoker = aaptInvoker,
-                    apkSignerInvoker = apkSignerInvoker
+                    aaptInvoker = aaptInvoker
                 )
             } catch (e: IOException) {
-                throw AppRepoException.AppDetailParseFailed("error: unable to to get Android app details", e)
+                throw AppRepoException.AppDetailParseFailed(
+                    "error: unable to get Android app details",
+                    e
+                )
             }
         }
         println("took $timeTaken ms to parse APKs")
@@ -846,7 +843,7 @@ private class AppRepoManagerImpl(
                     "(versionCode ${latestRelease.versionCode.code}")
         }
 
-        val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = true)
+        val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, ascendingOrder = true)
         validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks.sortedApks)
 
         val releaseNotesForMostRecentVersion: String? = if (promptForReleaseNotes) {
@@ -877,7 +874,7 @@ private class AppRepoManagerImpl(
         newApks: Iterable<AndroidApk>?,
         currentApks: Iterable<AndroidApk>
     ) {
-        var currentSetIntersection: Set<HexString>? = null
+        var currentSetIntersection: Set<X509Certificate>? = null
         currentApks.asSequence()
             .apply { newApks?.let { plus(newApks) } }
             .forEach { currentApk ->
@@ -908,7 +905,7 @@ private class AppRepoManagerImpl(
     ): Set<DeltaInfo> = withContext(repoDispatcher) {
         deltaInfoDao.deleteDeltasForApp(appDir.packageName)
 
-        val apks = PackageApkGroup.fromDir(appDir, aaptInvoker, apkSignerInvoker, ascendingOrder = false)
+        val apks = PackageApkGroup.fromDir(appDir, aaptInvoker, ascendingOrder = false)
         if (apks.size <= 1) {
             return@withContext emptySet<DeltaInfo>()
         }

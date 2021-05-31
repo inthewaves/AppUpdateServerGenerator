@@ -1,8 +1,7 @@
 #!/bin/bash
 
-if [[ -f "build/libs/AppUpdateServerGenerator.jar" ]]; then
-    java -jar build/libs/AppUpdateServerGenerator.jar "$@"
-else
-    echo "missing build/libs/AppUpdateServerGenerator.jar; need to run ./gradlew build"
+if [[ ! -d "build/libs" ]]; then
+  echo "missing build/libs --- need to run ./gradlew build"
 fi
 
+java -cp 'build/libs/*' org.grapheneos.appupdateservergenerator.MainKt "$@"

@@ -5,7 +5,6 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.file
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
-import org.grapheneos.appupdateservergenerator.apkparsing.ApkSignerInvoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.repo.AppRepoManager
@@ -48,7 +47,6 @@ abstract class AppRepoSubcommand(
     ).flag()
 
     protected val aaptInvoker = AAPT2Invoker()
-    protected val apkSignerInvoker = ApkSignerInvoker()
     protected val openSSLInvoker = OpenSSLInvoker()
 
     protected val fileManager by lazy {
@@ -63,31 +61,28 @@ abstract class AppRepoSubcommand(
         AppRepoManager(
             fileManager = fileManager,
             aaptInvoker = aaptInvoker,
-            apkSignerInvoker = apkSignerInvoker,
             openSSLInvoker = openSSLInvoker
         )
+    }
+
+    private fun printPossibleCausesForException(exception: Throwable, firstLineToPrint: String) {
+        if (exception.message != null && !firstLineToPrint.endsWith(exception.message!!)) {
+            println(exception.message)
+        }
+        if (verbose) exception.printStackTrace()
+        exception.cause?.let { printPossibleCausesForException(it, firstLineToPrint) }
     }
 
     protected fun printErrorAndExit(errorMessage: String?, cause: Throwable? = null): Nothing {
         val firstLineToPrint = errorMessage?.let { "error: $it" } ?: "error during repo command $commandName"
         println(firstLineToPrint)
-        cause?.let {
-            if (verbose) {
-                it.printStackTrace()
-            } else if (it.message != null && !firstLineToPrint.contains(it.message!!)) {
-                println(it.message)
-            }
-        }
-
+        cause?.let { printPossibleCausesForException(it, firstLineToPrint) }
         exitProcess(1)
     }
 
     override fun run() {
         if (!aaptInvoker.isExecutablePresent()) {
             printErrorAndExit("unable to locate aapt2 at ${aaptInvoker.executablePath}; please add it to your PATH variable")
-        }
-        if (!apkSignerInvoker.isExecutablePresent()) {
-            printErrorAndExit("unable to locate apksigner at ${aaptInvoker.executablePath}; please add it to your PATH variable")
         }
         if (!openSSLInvoker.isExecutablePresent()) {
             printErrorAndExit("unable to locate openssl at ${openSSLInvoker.executablePath}")

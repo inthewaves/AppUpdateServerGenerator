@@ -8,15 +8,20 @@ Some facts about the app update repository:
 * This app update server supports deltas using Google's archive-patcher library, forked at
   https://github.com/inthewaves/archive-patcher.
 
+## Building
+
+Clone the repository using `git clone --recurse-submodules` and do `./gradlew build`.
+Then, use `appservergen` as the binary.
+
 ## Usage
 
 ### Repository management
 
 #### Requirements
 * This tool is tested on and developed for Linux only.
-* `openssl`, `apksigner`, and `aapt2` need to be in included your `PATH` variable.
+* `openssl` and `aapt2` need to be in included your `PATH` variable.
   * `openssl` should be packaged in most Linux distributions
-  * `apksigner` and `aapt2` are tools in the Android SDK Build Tools package. The SDK can be
+  * `aapt2` is a tool in the Android SDK Build Tools package. The SDK can be
     typically installed using Android Studio, but instructions on getting those tools standalone can
     be found at https://developer.android.com/studio/command-line (`sdkmanager`).
 * You need an RSA or EC key in PKCS8 format to sign the metadata. The key needs to be decrypted.

@@ -1,5 +1,6 @@
 package org.grapheneos.appupdateservergenerator.apkparsing
 
+import com.android.apksig.ApkVerifier
 import org.grapheneos.appupdateservergenerator.model.HexString
 import org.grapheneos.appupdateservergenerator.util.Invoker
 import org.grapheneos.appupdateservergenerator.util.readTextFromErrorStream
@@ -7,6 +8,13 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Path
 
+@Deprecated(
+    "use ApkVerifier directly",
+    ReplaceWith(
+        "ApkVerifier.Builder(apkFile).build().verify()",
+        "com.android.apksig.ApkVerifier"
+    )
+)
 class ApkSignerInvoker(apkSignerPath: Path = Path.of("apksigner")) : Invoker(executablePath = apkSignerPath) {
     /**
      * Verifies the [apkFile] using apksigner and returns a list of the SHA256 hashes of the signing
@@ -14,6 +22,13 @@ class ApkSignerInvoker(apkSignerPath: Path = Path.of("apksigner")) : Invoker(exe
      *
      * @throws IOException if an I/O error occurs or verification failed or apksigner fails.
      */
+    @Deprecated(
+        "use ApkVerifier directly",
+        ReplaceWith(
+            "ApkVerifier.Builder(apkFile).build().verify()",
+            "com.android.apksig.ApkVerifier"
+        )
+    )
     fun verifyAndGetSigningCerts(apkFile: File): List<HexString> {
         val certProcess: Process = ProcessBuilder(
             executablePath.toString(), "verify", "--print-certs", apkFile.absolutePath
