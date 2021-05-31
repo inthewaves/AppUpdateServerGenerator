@@ -30,7 +30,6 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0")
-    implementation("org.jetbrains.kotlin:kotlin-reflect:1.5.10")
     implementation("com.github.ajalt.clikt:clikt:3.2.0")
 
     implementation("com.squareup.sqldelight:sqlite-driver:1.5.0")

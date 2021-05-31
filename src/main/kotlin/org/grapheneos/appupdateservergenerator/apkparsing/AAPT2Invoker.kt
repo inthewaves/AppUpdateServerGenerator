@@ -194,40 +194,38 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
      * [1] https://android.googlesource.com/platform/frameworks/native/+/7e563f090ba19c36b9879e14388a0e377f1523b5/include/android/configuration.h#92
      * [2] https://developer.android.com/guide/topics/resources/providing-resources#DensityQualifier
      */
-    @Suppress("unused")
-    sealed class Density(val qualifierValue: String, val approximateDpi: Int) : Comparable<Density> {
-        object DEFAULT : Density("*", 0)
+    enum class Density(val qualifierValue: String, val approximateDpi: Int) {
+        DEFAULT("*", 0),
 
         /** Low-density screens; approximately 120dpi.*/
-        object LOW : Density("ldpi", 120)
+        LOW("ldpi", 120),
         /** Medium-density (on traditional HVGA) screens; approximately 160dpi.*/
-        object MEDIUM : Density("mdpi",160)
+        MEDIUM("mdpi",160),
         /**
          * Screens somewhere between mdpi and hdpi; approximately 213dpi. This isn't considered a "primary" density
          * group. It is mostly intended for televisions and most apps shouldn't need it—providing mdpi and hdpi
          * resources is sufficient for most apps and the system scales them as appropriate.
          */
-        object TV : Density("tvdpi", 213)
+        TV("tvdpi", 213),
         /** High-density screens; approximately 240dpi.*/
-        object HIGH : Density("hdpi", 240)
+        HIGH("hdpi", 240),
         /** Extra-high-density screens; approximately 320dpi.*/
-        object XHIGH : Density("xhdpi", 320)
+        XHIGH("xhdpi", 320),
         /** Extra-extra-high-density screens; approximately 480dpi.*/
-        object XXHIGH : Density("xxhdpi", 480)
+        XXHIGH("xxhdpi", 480),
         /**
          * Extra-extra-extra-high-density uses (launcher icon only, see the note in Supporting Multiple Screens);
          * approximately 640dpi.
          *
          * https://developer.android.com/guide/practices/screens_support#xxxhdpi-note
          */
-        object XXXHIGH : Density("xxxhdpi", 640)
+        XXXHIGH("xxxhdpi", 640),
 
         /**
          * This qualifier matches all screen densities and takes precedence over other qualifiers. This is useful for
          * vector drawables.
          */
-        object ANY : Density("anydpi", 0xfffe)
-        override fun compareTo(other: Density): Int = approximateDpi.compareTo(other.approximateDpi)
+        ANY("anydpi", 0xfffe);
 
         override fun toString(): String {
             return "Density(qualifierValue='$qualifierValue', approximateDpi=$approximateDpi)"
@@ -237,25 +235,16 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
             private val regex = Regex("-(l|m|tv|x{0,3}h|any)dpi")
 
             /**
-             * Maps [Density.qualifierValue] to [Density]. Lazy init to get around issues with this being created before
-             * the objects are initialized.
-             */
-            private val qualifierToDensityMap: Map<String?, Density> by lazy {
-                Density::class.sealedSubclasses.associate {
-                    val objectInstance: Density = it.objectInstance
-                        ?: error("impossible---every sealed subclass should be an object")
-                    Density::qualifierValue.get(objectInstance) to objectInstance
-                }
-            }
-
-            /**
              * Parses a path and returns a [Density], or [Density.DEFAULT] if it doesn't correspond to any instance.
              * Examples of paths: res/drawable-mdpi-v4/notification_bg_normal.9.png corresponds to [Density.MEDIUM].
              */
             fun fromPathToDensity(path: String): Density =
                 regex.find(path)
                     ?.groupValues?.get(1)
-                    ?.let { dpiPrefix -> qualifierToDensityMap[dpiPrefix + "dpi"] }
+                    ?.let { dpiPrefix ->
+                        val qualifierValue = dpiPrefix + "dpi"
+                        values().find { it.qualifierValue == qualifierValue }
+                    }
                     ?: DEFAULT
         }
     }
