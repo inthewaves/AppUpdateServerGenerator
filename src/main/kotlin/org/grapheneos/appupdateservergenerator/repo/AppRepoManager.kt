@@ -591,21 +591,21 @@ private class AppRepoManagerImpl(
 
                 val indefiniteProgressDotsJob = launch {
                     val dotToUse = "."
-                    val maxDots = 3
+                    val maxDots = 4
                     val maxDotSize = dotToUse.length * maxDots
 
                     var numDots = 0
                     while (isActive) {
                         asyncPrintMutex.withLock {
                             if (numberOfDeltasGenerated == totalNumberOfDeltasToGenerate) return@withLock
-                            if (numDots > maxDots) numDots = 0
+                            if (numDots > maxDots) numDots = 1
                             printSameLine(
                                 createProgressLine() + " " + dotToUse.repeat(numDots).padEnd(maxDotSize),
                                 carriageReturn = true,
                             )
                             numDots++
                         }
-                        delay(500L)
+                        delay(350L)
                     }
                 }
 
@@ -652,9 +652,6 @@ private class AppRepoManagerImpl(
                                     anyDeltasGenerated.set(true)
                                 }
                                 deltaInfoDao.insertDeltaInfos(deltaInfo)
-                                printMessageChannel.trySend(PrintMessageType.NewLine(
-                                    "updated metadata for ${appDir.packageName} with delta information"
-                                ))
                             } catch (e: Throwable) {
                                 printMessageChannel.trySend(PrintMessageType.NewLines(
                                     arrayOf(
@@ -855,11 +852,11 @@ private class AppRepoManagerImpl(
                     "trying to insert ${smallestVersionCodeApk.packageName} with version code " +
                             "${smallestVersionCodeApk.versionCode.code} when the " +
                             "repo has latest version ${latestRelease.versionName} " +
-                            "(versionCode ${latestRelease.versionCode.code}"
+                            "(versionCode ${latestRelease.versionCode.code})"
                 )
             }
             println("previous version in repo: ${latestRelease.versionName} " +
-                    "(versionCode ${latestRelease.versionCode.code}")
+                    "(versionCode ${latestRelease.versionCode.code})")
         }
 
         val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, ascendingOrder = true)
