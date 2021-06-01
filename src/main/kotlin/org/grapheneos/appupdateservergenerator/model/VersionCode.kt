@@ -3,6 +3,10 @@ package org.grapheneos.appupdateservergenerator.model
 import kotlinx.serialization.Serializable
 
 /**
+ * Important note: A [Long] is used here instead of an [Int] to reflect the
+ * [long version code](https://developer.android.com/reference/android/content/pm/PackageInfo.html#getLongVersionCode()).
+ * The upper 32 bits contain the `versionCodeMajor`, while the lower 32 bits contain the legacy `versionCode`.
+ *
  * Taken from [1]. Some parts are Google-Play specific, but can still be applicable in the future:
  *
  * A positive integer used as an internal version number. This number is used only to determine whether one version is
@@ -30,14 +34,16 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 @JvmInline
-value class VersionCode(val code: Int) : Comparable<VersionCode> {
+value class VersionCode(val code: Long) : Comparable<VersionCode> {
     init {
         require(code > 0)
-        if (code > 2100000000) {
+        if (code > 2100000000L) {
             // just FYI: https://developer.android.com/studio/publish/versioning#appversioning
             println("warning: version code $code exceeds max version code for Google Play")
         }
     }
+    val legacyVersionCode: Int get() = (code and 0xffffffff).toInt()
+    val versionCodeMajor: Int get() = (code ushr 32).toInt()
 
     override fun compareTo(other: VersionCode): Int = code.compareTo(other.code)
 }

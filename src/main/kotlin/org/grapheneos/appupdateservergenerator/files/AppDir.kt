@@ -51,6 +51,6 @@ value class AppDir(val dir: File) {
         listDeltaFilesUnsorted().associateBy { deltaFile ->
             DELTA_REGEX
                 .matchEntire(deltaFile.name)!!
-                .let { VersionCode(it.groupValues[1].toInt()) to VersionCode(it.groupValues[2].toInt()) }
+                .let { VersionCode(it.groupValues[1].toLong()) to VersionCode(it.groupValues[2].toLong()) }
         }
 }

@@ -278,7 +278,7 @@ private class AppRepoManagerImpl(
             throw AppRepoException.InvalidRepoState("$pkg: app directory with no APKs in it")
         }
 
-        val latestVersionCodeFromFileName: Int = apks.last().nameWithoutExtension.toInt()
+        val latestVersionCodeFromFileName: Long = apks.last().nameWithoutExtension.toLong()
         if (metadata.latestRelease().versionCode.code != latestVersionCodeFromFileName) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: metadata latestVersionCode (${metadata.latestRelease().versionCode.code}) " +
@@ -351,7 +351,7 @@ private class AppRepoManagerImpl(
             )
         }
 
-        val versionCodesFromApksInDir = apks.mapTo(sortedSetOf()) { VersionCode(it.nameWithoutExtension.toInt()) }
+        val versionCodesFromApksInDir = apks.mapTo(sortedSetOf()) { VersionCode(it.nameWithoutExtension.toLong()) }
         // check if there are deltas that have missing base APKs
         val baseDeltaVersionsFromMetadata = baseDeltaVersionsToFileMapFromMetadata.mapTo(sortedSetOf()) { it.key }
         if (baseDeltaVersionsFromMetadata.isNotEmpty()) {
@@ -408,7 +408,7 @@ private class AppRepoManagerImpl(
                             "$pkg: can't find release for APK version ${parsedApk.versionCode}"
                         )
 
-                    if (parsedApk.versionCode.code != apkFile.nameWithoutExtension.toInt()) {
+                    if (parsedApk.versionCode.code != apkFile.nameWithoutExtension.toLong()) {
                         throw AppRepoException.InvalidRepoState(
                             "$pkg: mismatch between filename version code and version from manifest ($apkFile)"
                         )

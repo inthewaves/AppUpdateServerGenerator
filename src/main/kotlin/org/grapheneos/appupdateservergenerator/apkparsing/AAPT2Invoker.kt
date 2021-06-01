@@ -16,15 +16,20 @@ import java.util.zip.ZipFile
  */
 class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath = aaptPath) {
     /**
-     * Reads the [apkFile] and populates the given [androidApkBuilder] using the info extracted from the APK's manifest
-     * via `aapt2 dump badging`.
+     * Reads the [apkFile] and populates the and returns an [AndroidApk.Builder] using the info extracted from the APK's
+     * manifest via `aapt2 dump badging`.
+     *
+     * Note: The returned builder is not complete; the only filled-in fields are [AndroidApk.Builder.packageName],
+     * [AndroidApk.Builder.apkFile], [AndroidApk.Builder.label], and [AndroidApk.Builder.versionName]. Other fields such
+     * as [AndroidApk.Builder.versionCode], [AndroidApk.Builder.minSdkVersion], and [AndroidApk.Builder.certificates]
+     * require special handling.
      *
      * @throws IOException if the APK file can't be processed by aapt2 / there is missing information
      */
-    fun getAndroidAppDetails(
-        apkFile: File,
-        androidApkBuilder: AndroidApk.Builder
-    ) {
+    fun getPartialAndroidAppDetailsAsBuilder(apkFile: File): AndroidApk.Builder {
+        val androidApkBuilder = AndroidApk.Builder()
+        androidApkBuilder.apkFile = apkFile
+
         val badgingProcess: Process = ProcessBuilder(
             executablePath.toString(), "dump", "badging", apkFile.absolutePath,
         ).start()
@@ -75,7 +80,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                                     packageName = PackageName(it.groupValues[1])
 
                                     versionCode = try {
-                                        VersionCode(it.groupValues[2].toInt())
+                                        VersionCode(it.groupValues[2].toLong())
                                     } catch (e: NumberFormatException) {
                                         throw IOException("failed to parse versionCode for $apkFile", e)
                                     }
@@ -83,21 +88,11 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                                     versionName = it.groupValues[3]
                                 }
                         }
-                        minSdkVersion == null -> {
-                            badgingSdkVersionLineRegex.matchEntire(line)
-                                ?.let {
-                                    minSdkVersion = try {
-                                        it.groupValues[1].toInt()
-                                    } catch (e: NumberFormatException) {
-                                        throw IOException("failed to parse minSdkVersion for $apkFile", e)
-                                    }
-                                }
-                        }
                         label == null -> {
                             badgingApplicationLabelLineRegex.matchEntire(line)
                                 ?.let { label = it.groupValues[1] }
                         }
-                        else -> return
+                        else -> return androidApkBuilder
                     }
                 }
             }

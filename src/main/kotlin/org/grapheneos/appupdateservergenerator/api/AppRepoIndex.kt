@@ -92,7 +92,7 @@ data class AppRepoIndex private constructor(
         private fun createFromLine(line: String): Pair<PackageName, Pair<VersionCode, UnixTimestamp>>? {
             val split = line.split(' ')
             return if (split.size == 3) {
-                PackageName(split[0]) to (VersionCode(split[1].toInt()) to UnixTimestamp(split[2].toLong()))
+                PackageName(split[0]) to (VersionCode(split[1].toLong()) to UnixTimestamp(split[2].toLong()))
             } else {
                 null
             }

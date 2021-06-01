@@ -20,7 +20,7 @@ object DbWrapper {
             override fun encode(value: UnixTimestamp): Long = value.seconds
         }
         val versionCodeAdapter = object : ColumnAdapter<VersionCode, Long> {
-            override fun decode(databaseValue: Long): VersionCode = VersionCode(databaseValue.toInt())
+            override fun decode(databaseValue: Long): VersionCode = VersionCode(databaseValue.toLong())
             override fun encode(value: VersionCode): Long = value.code.toLong()
         }
         val base64StringAdapter = object : ColumnAdapter<Base64String, String> {

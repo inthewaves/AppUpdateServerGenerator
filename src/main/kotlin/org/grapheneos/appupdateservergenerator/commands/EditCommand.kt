@@ -10,6 +10,7 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.file
 import com.github.ajalt.clikt.parameters.types.int
+import com.github.ajalt.clikt.parameters.types.long
 import kotlinx.coroutines.runBlocking
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.model.PackageName
@@ -63,7 +64,7 @@ class EditCommand private constructor(): CliktCommand(name = "edit", help = "Com
         private val versionCode: VersionCode? by option(
             names = arrayOf("--versioncode", "-c"),
             help = "The version code to edit release notes for. Defaults to the most recent version."
-        ).int().convert { VersionCode(it) }
+        ).long().convert { VersionCode(it) }
 
         private val delete: Boolean by option(
             names = arrayOf("--delete"),

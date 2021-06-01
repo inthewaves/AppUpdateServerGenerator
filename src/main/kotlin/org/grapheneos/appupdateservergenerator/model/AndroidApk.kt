@@ -1,13 +1,16 @@
 package org.grapheneos.appupdateservergenerator.model
 
 import com.android.apksig.ApkVerifier
+import com.android.apksig.apk.ApkUtils
 import com.android.apksig.internal.util.AndroidSdkVersion
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.db.AppRelease
 import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.File
 import java.io.IOException
+import java.nio.ByteBuffer
 import java.security.cert.X509Certificate
+import java.util.zip.ZipFile
 
 /**
  * Encapsulates data from the [apkFile] that was taken from the [apkFile]'s manifest and signing
@@ -77,20 +80,26 @@ data class AndroidApk(
     companion object {
         val ascendingVersionCodeComparator = Comparator<AndroidApk> { a, b -> a.versionCode.compareTo(b.versionCode) }
         val descendingVersionCodeComparator: Comparator<AndroidApk> = ascendingVersionCodeComparator.reversed()
+
         /**
-         * Builds an [AndroidApk] instance from the given [apkFile]. The [apkFile] will be stored as a member variable
-         * in [AndroidApk.apkFile]. `apksigner verify` will be invoked on the APK to verify the signature of the APK.
+         * Builds an [AndroidApk] instance from the given [apkFile]. The input [apkFile] will be stored as the property
+         * [AndroidApk.apkFile]. The `apksig` library will be used on the APK to verify the signature of the APK.
          *
          * @throws IOException if an I/O error occurs, or the APK can't be parsed by the [aaptInvoker], or the APK
-         * failed to verify with the [apkSignerInvoker]
+         * failed to verify
          */
         fun verifyApkSignatureAndBuildFromApkFile(
             apkFile: File,
             aaptInvoker: AAPT2Invoker
         ): AndroidApk {
-            val builder = Builder()
-            builder.apkFile = apkFile
-            aaptInvoker.getAndroidAppDetails(apkFile, builder)
+            val builder = aaptInvoker.getPartialAndroidAppDetailsAsBuilder(apkFile)
+            val androidManifestBytes: ByteBuffer = ZipFile(apkFile).use { zipFile ->
+                zipFile.getInputStream(zipFile.getEntry("AndroidManifest.xml")).use { it.readBytes() }
+            }.let { ByteBuffer.wrap(it) }
+            androidManifestBytes.rewind()
+            builder.versionCode = VersionCode(ApkUtils.getLongVersionCodeFromBinaryAndroidManifest(androidManifestBytes))
+            androidManifestBytes.rewind()
+            builder.minSdkVersion = ApkUtils.getMinSdkVersionFromBinaryAndroidManifest(androidManifestBytes)
 
             val verifyResult = ApkVerifier.Builder(apkFile)
                 .setMinCheckedPlatformVersion(AndroidSdkVersion.R)
@@ -99,8 +108,8 @@ data class AndroidApk(
             if (!verifyResult.isVerified) {
                 throw IOException("APK signature verification failed: ${verifyResult.allErrors}")
             }
-
             builder.certificates = verifyResult.signerCertificates
+
             return builder.buildIfAllPresent() ?: throw IOException("failed to build: $builder")
         }
     }
