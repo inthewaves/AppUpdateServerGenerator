@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
@@ -203,7 +204,7 @@ class DeltaGenerationManager(
                         launch {
                             try {
                                 val apks = PackageApkGroup.fromDirDescending(appDir, aaptInvoker)
-                                val deltaInfo: Set<DeltaInfo> = regenerateDeltas(
+                                val deltaInfo: List<DeltaInfo> = regenerateDeltas(
                                     apks,
                                     originalFreeSpace = originalFreeSpace,
                                     printMessageChannel = printRequestChannel
@@ -253,10 +254,10 @@ class DeltaGenerationManager(
         originalFreeSpace: Long,
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS,
         printMessageChannel: SendChannel<PrintRequest>?
-    ): Set<DeltaInfo> = coroutineScope {
+    ): List<DeltaInfo> = coroutineScope {
         deltaInfoDao.deleteDeltasForApp(apks.packageName)
         if (apks.size <= 1) {
-            return@coroutineScope emptySet<DeltaInfo>()
+            return@coroutineScope emptyList<DeltaInfo>()
         }
 
         val newestApk = apks.highestVersionApk!!
@@ -265,10 +266,10 @@ class DeltaGenerationManager(
         yield()
 
         var deltaGenTime = 0L
-        // Drop the first element, because that's the most recent one and hence the target
+        // Drop the first APK, because that's the most recent one (DescendingOrder) and hence the target
         apks.sortedApks.asSequence().drop(1)
             .take(numberOfDeltasToGenerate)
-            .map { previousApk ->
+            .mapTo(ArrayList(numberOfDeltasToGenerate)) { previousApk ->
                 async {
                     val estimatedSizeUsageForDeltas =
                         (1.05 * ArchivePatcherUtil.estimateTempSpaceNeededForGeneration(previousApk, newestApk)).toLong()
@@ -359,8 +360,7 @@ class DeltaGenerationManager(
                     error("unreachable --- loop finished implies isActive is false implies ensureActive() throws")
                 }
             }
-            .toCollection(ArrayList(numberOfDeltasToGenerate))
-            .mapTo(TreeSet { o1, o2 -> o1.baseVersion.compareTo(o2.baseVersion) }) { it.await() }
+            .awaitAll()
             .also { deltaAvailableVersions ->
                 printMessageChannel?.trySend(PrintRequest.NewLine(
                     "generated ${deltaAvailableVersions.size} deltas for ${apks.packageName}. " +
