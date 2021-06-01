@@ -16,11 +16,11 @@ value class Base64String(val s: String) {
         /**
          * Encodes the given bytes into a [Base64String].
          */
-        fun fromBytes(bytes: ByteArray) = Base64String(Base64.getEncoder().encodeToString(bytes))
+        fun encodeFromBytes(bytes: ByteArray) = Base64String(Base64.getEncoder().encodeToString(bytes))
     }
 }
 
-fun ByteArray.toBase64String() = Base64String.fromBytes(this)
+fun ByteArray.toBase64String() = Base64String.encodeFromBytes(this)
 
 @Serializable
 @JvmInline

@@ -143,6 +143,21 @@ sealed class PackageApkGroup private constructor(
         }
 
         /**
+         * Constructs a [PackageApkGroup.AscendingOrder] list from a given list of [apkFilePaths].
+         * This will group every APK by package.
+         */
+        suspend fun fromDirDescending(
+            appDir: AppDir,
+            aaptInvoker: AAPT2Invoker
+        ): DescendingOrder {
+            return fromDir(
+                appDir,
+                aaptInvoker,
+                ascendingOrder = false
+            ) as DescendingOrder
+        }
+
+        /**
          * Gets a sorted list of the previous APK files in the [appDir], mapping them to [AndroidApk] instances.
          * The sort order is determined by [ascendingOrder].
          *

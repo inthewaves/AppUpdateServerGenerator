@@ -84,7 +84,7 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         signingProcess.outputStream.use { output -> inputStream.copyTo(output) }
         val signature: Base64String = signingProcess.inputStream.use {
             try {
-                Base64String.fromBytes(it.readBytes())
+                Base64String.encodeFromBytes(it.readBytes())
             } catch (e: IllegalArgumentException) {
                 throw IOException(e)
             }

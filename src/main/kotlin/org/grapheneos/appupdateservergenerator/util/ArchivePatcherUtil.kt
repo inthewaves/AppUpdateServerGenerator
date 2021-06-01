@@ -2,16 +2,24 @@ package org.grapheneos.appupdateservergenerator.util
 
 import com.google.archivepatcher.applier.FileByFileV1DeltaApplier
 import com.google.archivepatcher.generator.FileByFileV1DeltaGenerator
+import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
+import kotlin.math.max
 
 /**
  * Utilities for the archive-patcher library.
  */
 object ArchivePatcherUtil {
+    fun estimateTempSpaceNeededForGeneration(baseApk: AndroidApk, targetApk: AndroidApk): Long {
+        val suffixSortSize = 4 * (baseApk.apkFile.length() + 1)
+        // We add up the base and target APK sizes, because the library copies them as RandomAccessFiles.
+        return baseApk.apkFile.length() + targetApk.apkFile.length() + suffixSortSize
+    }
+
     /**
      * Applies the [deltaFile] to the [oldFile] to create the [outputFile]. A [GZIPInputStream] will be wrapped if
      * [isDeltaGzipped] is true.
