@@ -56,12 +56,12 @@ import java.io.FileFilter
 import java.io.IOException
 import java.lang.Integer.min
 import java.security.MessageDigest
-import java.security.cert.X509Certificate
 import java.text.DecimalFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.util.SortedSet
 import java.util.TreeSet
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -292,7 +292,7 @@ private class AppRepoManagerImpl(
             )
         }
 
-        val latestApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(apks.last(), aaptInvoker)
+        val latestApk = AndroidApk.buildFromApkFileAndVerifySig(apks.last(), aaptInvoker)
         if (metadata.latestRelease().versionCode != latestApk.versionCode) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: latest APK versionCode in manifest mismatches with filename"
@@ -393,10 +393,10 @@ private class AppRepoManagerImpl(
             )
         }
 
-        val parsedApks: List<AndroidApk> = coroutineScope {
+        val parsedApks: SortedSet<AndroidApk> = coroutineScope {
             apks.map { apkFile ->
                 async {
-                    val parsedApk = AndroidApk.verifyApkSignatureAndBuildFromApkFile(apkFile, aaptInvoker)
+                    val parsedApk = AndroidApk.buildFromApkFileAndVerifySig(apkFile, aaptInvoker)
                     if (parsedApk.packageName != metadata.packageName) {
                         throw AppRepoException.InvalidRepoState(
                             "$pkg: mismatch between metadata package and package from manifest ($apkFile)"
@@ -463,9 +463,10 @@ private class AppRepoManagerImpl(
                     parsedApk
                 }
             }.awaitAll()
+                .toSortedSet(AndroidApk.descendingVersionCodeComparator)
         }
         deltaVerificationChannel.close()
-        validateApkSigningCertChain(newApks = null, parsedApks)
+        validateApkSigningCertChain(parsedApks)
     }
 
     private fun applyDeltaAndValidate(
@@ -850,7 +851,7 @@ private class AppRepoManagerImpl(
         }
 
         val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, ascendingOrder = true)
-        validateApkSigningCertChain(newApks = apksToInsert.sortedApks, currentApks = sortedPreviousApks.sortedApks)
+        validateApkSigningCertChain(apksToInsert.sortedApks union sortedPreviousApks.sortedApks)
 
         val releaseNotesForMostRecentVersion: String? = if (promptForReleaseNotes) {
             promptUserForReleaseNotes(maxVersionApk.asEitherRight())
@@ -871,30 +872,41 @@ private class AppRepoManagerImpl(
     }
 
     /**
-     * Validates that the intersection of all signing certificates for all the APKs in [newApks] and [currentApks]
-     * is nonempty.
+     * Validates that the collection of [apks] have a valid certificate chain (i.e., installing all of the [apks] in
+     * successive order starting from the lowest version code would not result in an error on Android).
      *
-     * @throws AppRepoException.ApkSigningCertMismatch
+     * @throws AppRepoException.ApkSigningCertMismatch if there is a missing certificate
      */
-    private fun validateApkSigningCertChain(
-        newApks: Iterable<AndroidApk>?,
-        currentApks: Iterable<AndroidApk>
-    ) {
-        var currentSetIntersection: Set<X509Certificate>? = null
-        currentApks.asSequence()
-            .apply { newApks?.let { plus(newApks) } }
-            .forEach { currentApk ->
-                currentSetIntersection = currentSetIntersection
-                    ?.let { currentApk.certificates intersect it }
-                    ?: currentApk.certificates.toSet()
+    private fun validateApkSigningCertChain(apks: Collection<AndroidApk>) {
+        if (apks.isEmpty()) {
+            return
+        }
 
-                // TODO: verify using same or similar way as frameworks/base or apksigner
-                if (currentSetIntersection!!.isEmpty()) {
+        val apksSortedAscendingOrder: SortedSet<AndroidApk> =
+            if (apks !is SortedSet<AndroidApk> || apks.comparator() != AndroidApk.ascendingVersionCodeComparator) {
+                apks.toSortedSet(AndroidApk.ascendingVersionCodeComparator)
+            } else {
+                apks
+            }
+
+        var previousApk: AndroidApk? = null
+        // Determine if the older package's signing certs are a subset of the packages in the next newer version.
+        // See https://android.googlesource.com/platform/frameworks/base/+/6c942b9dc9bbd3d607c8601907ffa4a5c7a4a606/services/core/java/com/android/server/pm/KeySetManagerService.java#365
+        // https://android.googlesource.com/platform/frameworks/base/+/6c942b9dc9bbd3d607c8601907ffa4a5c7a4a606/services/core/java/com/android/server/pm/PackageManagerServiceUtils.java#619
+        // https://android.googlesource.com/platform/frameworks/base/+/6c942b9dc9bbd3d607c8601907ffa4a5c7a4a606/core/java/android/content/pm/PackageParser.java#6270
+        apksSortedAscendingOrder.forEach { currentApk ->
+            previousApk?.let {
+                val previousCertificates = it.signatureVerifyResult.signerCertificates
+                val currentCertificates = currentApk.signatureVerifyResult.signerCertificates
+                if (!currentCertificates.containsAll(previousCertificates)) {
                     throw AppRepoException.ApkSigningCertMismatch(
-                        "some apks don't have the same signing certificates\ndumping details: $currentApks"
+                        "failed to verify signing cert chain\n" +
+                                "dumping details: $apksSortedAscendingOrder"
                     )
                 }
             }
+            previousApk = currentApk
+        }
     }
 
     /**
