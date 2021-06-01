@@ -11,6 +11,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -521,7 +523,6 @@ private class AppRepoManagerImpl(
     private val asyncPrintMutex = Mutex()
 
     private sealed interface PrintMessageType {
-        object ShowDeltaProgress : PrintMessageType
         class NewPackage(val pkg: PackageName, val numberOfDeltas: Int) : PrintMessageType
         @JvmInline
         value class DeltaFinished(val pkg: PackageName) : PrintMessageType
@@ -540,30 +541,12 @@ private class AppRepoManagerImpl(
 
             val printMessageChannel = Channel<PrintMessageType>(capacity = Channel.UNLIMITED)
             val printMessageJob = launch(start = CoroutineStart.LAZY) {
-                var showDeltaProgress = false
                 var lastProgressMessage = ""
                 var totalNumberOfDeltasToGenerate = 0L
                 var numberOfDeltasGenerated = 0L
                 val packageToDeltasLeftMap = sortedMapOf<PackageName, Int>()
-                fun printProgress(carriageReturn: Boolean) {
-                    if (!showDeltaProgress) {
-                        lastProgressMessage = ""
-                        return
-                    }
 
-                    val stringToPrint = if (totalNumberOfDeltasToGenerate > 0) {
-                        val percentage = DecimalFormat.getPercentInstance().format(
-                            numberOfDeltasGenerated / totalNumberOfDeltasToGenerate.toDouble()
-                        )
-                        "generated delta $numberOfDeltasGenerated of $totalNumberOfDeltasToGenerate ($percentage)" +
-                                (if (packageToDeltasLeftMap.keys.isNotEmpty()) {
-                                    " --- packages left: ${packageToDeltasLeftMap.keys}"
-                                } else {
-                                    ""
-                                })
-                    } else {
-                        ""
-                    }
+                fun printSameLine(stringToPrint: String, carriageReturn: Boolean) {
                     val extraSpaceNeeded = lastProgressMessage.length - stringToPrint.length
                     val lineToPrint = buildString {
                         if (carriageReturn) {
@@ -578,6 +561,22 @@ private class AppRepoManagerImpl(
                     print(lineToPrint)
                     lastProgressMessage = stringToPrint
                 }
+                fun createProgressLine() = if (totalNumberOfDeltasToGenerate > 0) {
+                    val percentage = DecimalFormat.getPercentInstance().format(
+                        numberOfDeltasGenerated / totalNumberOfDeltasToGenerate.toDouble()
+                    )
+                    "generated delta $numberOfDeltasGenerated of $totalNumberOfDeltasToGenerate ($percentage)" +
+                            (if (packageToDeltasLeftMap.keys.isNotEmpty()) {
+                                " --- packages left: ${packageToDeltasLeftMap.keys}"
+                            } else {
+                                ""
+                            })
+                } else {
+                    ""
+                }
+                fun printProgress(carriageReturn: Boolean) {
+                    printSameLine(createProgressLine(), carriageReturn)
+                }
                 fun printNewLine(printMessage: String) {
                     val extraSpaceNeeded = lastProgressMessage.length - printMessage.length
                     if (extraSpaceNeeded > 0) {
@@ -588,6 +587,26 @@ private class AppRepoManagerImpl(
                         println('\r' + printMessage)
                     }
                     printProgress(false)
+                }
+
+                val indefiniteProgressDotsJob = launch {
+                    val dotToUse = "."
+                    val maxDots = 3
+                    val maxDotSize = dotToUse.length * maxDots
+
+                    var numDots = 0
+                    while (isActive) {
+                        asyncPrintMutex.withLock {
+                            if (numberOfDeltasGenerated == totalNumberOfDeltasToGenerate) return@withLock
+                            if (numDots > maxDots) numDots = 0
+                            printSameLine(
+                                createProgressLine() + " " + dotToUse.repeat(numDots).padEnd(maxDotSize),
+                                carriageReturn = true,
+                            )
+                            numDots++
+                        }
+                        delay(500L)
+                    }
                 }
 
                 for (printMessage in printMessageChannel) {
@@ -612,14 +631,11 @@ private class AppRepoManagerImpl(
                                 packageToDeltasLeftMap[printMessage.pkg] = printMessage.numberOfDeltas
                                 printProgress(true)
                             }
-                            is PrintMessageType.ShowDeltaProgress -> {
-                                showDeltaProgress = true
-                                printProgress(true)
-                            }
                         }
                     }
                 }
                 println()
+                indefiniteProgressDotsJob.cancel()
             }
 
             coroutineScope {
@@ -652,7 +668,6 @@ private class AppRepoManagerImpl(
                         }
                     } else {
                         check(request is DeltaGenerationRequest.StartPrinting)
-                        printMessageChannel.send(PrintMessageType.ShowDeltaProgress)
                         printMessageJob.start()
                     }
                 }
@@ -694,10 +709,7 @@ private class AppRepoManagerImpl(
                     aaptInvoker = aaptInvoker
                 )
             } catch (e: IOException) {
-                throw AppRepoException.AppDetailParseFailed(
-                    "error: unable to get Android app details",
-                    e
-                )
+                throw AppRepoException.AppDetailParseFailed("unable to get Android app details", e)
             }
         }
         println("took $timeTaken ms to parse APKs")
@@ -962,8 +974,8 @@ private class AppRepoManagerImpl(
                                 outputDeltaFile.length().toDouble() / (0x1 shl 20)
                             )
                             trySend(PrintMessageType.NewLine(
-                                " generated delta ${outputDeltaFile.name} (${appDir.packageName}) is " +
-                                        "$formattedSizeInMib MiB --- took $deltaGenTime ms"
+                                "finished ${outputDeltaFile.name} (${appDir.packageName}) " +
+                                        "($formattedSizeInMib MiB) --- took $deltaGenTime ms"
                             ))
                             trySend(PrintMessageType.DeltaFinished(apks.packageName))
                         }
@@ -981,7 +993,7 @@ private class AppRepoManagerImpl(
             .also { deltaAvailableVersions ->
                 printMessageChannel?.trySend(PrintMessageType.NewLine(
                     "generated ${deltaAvailableVersions.size} deltas for ${appDir.packageName}. " +
-                            "Versions with deltas available: ${deltaAvailableVersions.map { it.baseVersion }}"
+                            "Version codes with deltas available: ${deltaAvailableVersions.map { it.baseVersion.code }}"
                 ))
             }
     }
