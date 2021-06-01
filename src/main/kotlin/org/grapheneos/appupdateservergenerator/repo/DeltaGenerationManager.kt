@@ -72,8 +72,7 @@ class DeltaGenerationManager(
 
     private sealed interface PrintRequest {
         class NewPackage(val pkg: PackageName, val numberOfDeltas: Int) : PrintRequest
-        @JvmInline
-        value class DeltaFinished(val pkg: PackageName) : PrintRequest
+        class DeltaFinished(val pkg: PackageName, val success: Boolean) : PrintRequest
         object ProgressPrint : PrintRequest
         @JvmInline
         value class NewLine(val string: String) : PrintRequest
@@ -164,7 +163,7 @@ class DeltaGenerationManager(
                         is PrintRequest.NewLines -> printRequest.strings.forEach { printNewLine(it) }
                         is PrintRequest.NewLine -> printNewLine(printRequest.string)
                         is PrintRequest.DeltaFinished -> {
-                            numberOfDeltasGenerated++
+                            if (printRequest.success) numberOfDeltasGenerated++
 
                             val numDeltasLeftForPackage = packageToDeltasLeftMap[printRequest.pkg] ?: return@withLock
                             if (numDeltasLeftForPackage - 1 <= 0) {
@@ -217,6 +216,10 @@ class DeltaGenerationManager(
                                         "error during delta generation for ${appDir.packageName}",
                                         e.stackTraceToString()
                                     )
+                                ))
+                                printRequestChannel.trySend(PrintRequest.DeltaFinished(
+                                    appDir.packageName,
+                                    success = false
                                 ))
 
                                 failedDeltaAppsMutex.withLock { failedDeltaApps.add(appDir) }
@@ -340,7 +343,7 @@ class DeltaGenerationManager(
                                                 "($formattedSizeInMib MiB) --- took $deltaGenTime ms"
                                     )
                                 )
-                                trySend(PrintRequest.DeltaFinished(apks.packageName))
+                                trySend(PrintRequest.DeltaFinished(apks.packageName, success = true))
                             }
 
                             // break out of the while loop
