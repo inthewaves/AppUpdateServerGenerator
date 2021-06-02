@@ -78,8 +78,8 @@ data class AndroidApk private constructor(
     }
 
     companion object {
-        val ascendingVersionCodeComparator = Comparator<AndroidApk> { a, b -> a.versionCode.compareTo(b.versionCode) }
-        val descendingVersionCodeComparator: Comparator<AndroidApk> = ascendingVersionCodeComparator.reversed()
+        val ascendingVersionCodeComparator = compareBy<AndroidApk> { it.versionCode }
+        val descendingVersionCodeComparator = compareByDescending<AndroidApk> { it.versionCode }
 
         /**
          * Builds an [AndroidApk] instance from the given [apkFile]. The input [apkFile] will be stored as the property
