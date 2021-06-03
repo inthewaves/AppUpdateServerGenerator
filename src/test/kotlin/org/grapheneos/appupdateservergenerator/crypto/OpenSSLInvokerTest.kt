@@ -3,7 +3,10 @@ package org.grapheneos.appupdateservergenerator.crypto
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.util.prependLine
-import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.extension.ExtensionContext
@@ -23,7 +26,7 @@ import java.security.interfaces.RSAPrivateCrtKey
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.RSAPublicKeySpec
-import java.util.*
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 import java.util.stream.Stream
 
@@ -146,13 +149,14 @@ internal class OpenSSLInvokerTest {
             it.drop(1).toList() // drop the signature line
         }
         val actualLines = ArrayList<String>(expectedLines.size)
-        SignatureVerificationInputStream(
+        SignatureHeaderInputStream(
             stream = tempFileToSign.inputStream(),
             publicKey,
             SIGNATURE_ALGORITHM,
         ).use {
+            it.bufferedReader().forEachLine { actualLines.add(it) }
             assertDoesNotThrow("failed to verify signature: contents are ${tempFileToSign.readText()}") {
-                it.forEachLineThenVerify { actualLines.add(it) }
+                it.verifyOrThrow()
             }
         }
         assertEquals(expectedLines, actualLines)
@@ -214,14 +218,13 @@ internal class OpenSSLInvokerTest {
 
 
         val actualLines = ArrayList<String>()
-        SignatureVerificationInputStream(
+        SignatureHeaderInputStream(
             stream = signedDifferentStringFile.inputStream(),
             publicKey = publicKey,
             signatureAlgorithm = SIGNATURE_ALGORITHM,
         ).use {
-            assertThrows(GeneralSecurityException::class.java) {
-                it.forEachLineThenVerify { actualLines.add(it) }
-            }
+            it.bufferedReader().forEachLine { actualLines.add(it) }
+            assertThrows(GeneralSecurityException::class.java) { it.verifyOrThrow() }
         }
         val linesFromStringToSign: List<String> = signedDifferentStringFile.bufferedReader().useLines { it.toList() }
         assertNotEquals(linesFromStringToSign, actualLines)

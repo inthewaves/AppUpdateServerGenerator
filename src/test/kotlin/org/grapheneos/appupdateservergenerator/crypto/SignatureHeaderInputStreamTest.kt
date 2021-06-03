@@ -1,6 +1,11 @@
 package org.grapheneos.appupdateservergenerator.crypto
 
-import org.junit.jupiter.api.Assertions.*
+import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.junit.jupiter.api.Assertions.assertDoesNotThrow
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -10,23 +15,25 @@ import org.junit.jupiter.params.provider.ValueSource
 import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyFactory
+import java.security.Security
 import java.security.Signature
 import java.security.SignatureException
 import java.security.interfaces.RSAPrivateCrtKey
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.RSAPublicKeySpec
-import java.util.*
+import java.util.Base64
 import java.util.stream.Stream
-import kotlin.streams.toList
 
-internal class SignatureVerificationInputStreamTest {
+internal class SignatureHeaderInputStreamTest {
     companion object {
         private const val SIGNATURE_ALGORITHM = "SHA256withRSA"
     }
     private val privateKey: RSAPrivateCrtKey
     private val publicKey: RSAPublicKey
     init {
+        Security.addProvider(BouncyCastleProvider())
+
         val privateKeyBytes = Base64.getDecoder().decode(
             """
                 MIIJRQIBADANBgkqhkiG9w0BAQEFAASCCS8wggkrAgEAAoICAQDiRsGF0FQEgimT
@@ -96,13 +103,13 @@ internal class SignatureVerificationInputStreamTest {
         ]
     )
     fun testMissingSignatureHeader(stringOfFileWithoutSignatureHeader: String) {
-        SignatureVerificationInputStream(
+        SignatureHeaderInputStream(
             stream = stringOfFileWithoutSignatureHeader.byteInputStream(),
             signatureAlgorithm = SIGNATURE_ALGORITHM,
             publicKey = publicKey
         ).use { verifiedStream ->
             assertThrows(IOException::class.java) {
-                verifiedStream.forEachLineThenVerify {  }
+                verifiedStream.read()
             }
         }
     }
@@ -114,16 +121,60 @@ internal class SignatureVerificationInputStreamTest {
         ]
     )
     fun testNonSignatureBase64Header(stringToParse: String) {
-        SignatureVerificationInputStream(
+        SignatureHeaderInputStream(
             stream = stringToParse.byteInputStream(),
             signatureAlgorithm = SIGNATURE_ALGORITHM,
             publicKey = publicKey
         ).use { verifiedStream ->
-            assertThrows(SignatureException::class.java) {
-                verifiedStream.forEachLineThenVerify {  }
+            while (verifiedStream.read() != -1) { // infinite loop
+            }
+            assertThrows(SignatureException::class.java) { verifiedStream.verifyOrThrow() }
+        }
+    }
+
+    private fun readSignatureHeaderStreamAndVerifyContentsAndSignature(
+        expectedLines: List<String>,
+        input: String,
+        inputTestIndex: Int
+    ) {
+        mapOf(
+             "with signature algorithm with default provider" to SignatureHeaderInputStream(
+                stream = input.byteInputStream(),
+                publicKey = publicKey,
+                signatureAlgorithm = SIGNATURE_ALGORITHM,
+                provider = null
+            ),
+            "with signature algorithm with BouncyCastle provider" to SignatureHeaderInputStream(
+                stream = input.byteInputStream(),
+                publicKey = publicKey,
+                signatureAlgorithm = SIGNATURE_ALGORITHM,
+                provider = "BC"
+            ),
+            "with pre-constructed Signature instance with default provider" to SignatureHeaderInputStream(
+                stream = input.byteInputStream(),
+                publicKey = publicKey,
+                signature = Signature.getInstance(SIGNATURE_ALGORITHM)
+            ),
+            "with pre-constructed Signature instance with BouncyCastle providerr" to SignatureHeaderInputStream(
+                stream = input.byteInputStream(),
+                publicKey = publicKey,
+                signature = Signature.getInstance(SIGNATURE_ALGORITHM, "BC")
+            ),
+        ).forEach { (description, verificationInputStream) ->
+            val processedLinesFromStream = ArrayList<String>().also { list ->
+                verificationInputStream.bufferedReader().forEachLine { list.add(it) }
+                assertDoesNotThrow({
+                    verificationInputStream.verifyOrThrow()
+                }, "unexpected exception for encoded file index $inputTestIndex using $description. " +
+                        "string input:\n[$input]")
+            }
+            assertEquals(expectedLines, processedLinesFromStream) {
+                "line processing of encodedFile failed for #$inputTestIndex using $description:\n" +
+                        "string input:\n[$input]"
             }
         }
     }
+
 
     // https://github.com/junit-team/junit5-samples/tree/r5.7.1
     @ParameterizedTest(name = "verify {0}")
@@ -192,37 +243,7 @@ internal class SignatureVerificationInputStreamTest {
             val expectedLines: List<String> = encodedFile.byteInputStream().bufferedReader().useLines {
                 it.drop(1).toList() // drop the signature line
             }
-
-            val processedLinesFromStream: List<String> = SignatureVerificationInputStream(
-                stream = encodedFile.byteInputStream(),
-                publicKey = publicKey,
-                signatureAlgorithm = SIGNATURE_ALGORITHM,
-            ).use { verificationInputStream ->
-                ArrayList<String>().also { list ->
-                    assertDoesNotThrow {
-                        verificationInputStream.forEachLineThenVerify { list.add(it) }
-                    }
-                }
-            }
-            assertEquals(expectedLines, processedLinesFromStream) {
-                "line processing of encodedFile failed for #$index\nencodedFile:\n[$encodedFile]"
-            }
-
-            val processedLinesFromStreamIndexed: Array<String?> = SignatureVerificationInputStream(
-                stream = encodedFile.byteInputStream(),
-                publicKey = publicKey,
-                signatureAlgorithm = SIGNATURE_ALGORITHM,
-            ).use { verificationInputStream ->
-                arrayOfNulls<String>(expectedLines.size)
-                    .also { array ->
-                        assertDoesNotThrow {
-                            verificationInputStream.forEachLineIndexedThenVerify { index, line -> array[index] = line }
-                        }
-                    }
-            }
-            assertEquals(expectedLines, processedLinesFromStreamIndexed.toList()) {
-                "line processing of encodedFile failed for #$index\nencodedFile:\n[$encodedFile]"
-            }
+            readSignatureHeaderStreamAndVerifyContentsAndSignature(expectedLines, encodedFile, index)
         }
     }
 
@@ -286,19 +307,22 @@ internal class SignatureVerificationInputStreamTest {
         )
 
         encodedFilesToTest.forEachIndexed { index, encodedFile ->
-            SignatureVerificationInputStream(
+            SignatureHeaderInputStream(
                 stream = encodedFile.byteInputStream(),
                 publicKey = publicKey,
                 signatureAlgorithm = SIGNATURE_ALGORITHM,
             ).use { verificationInputStream ->
-                val unusedFakeDatabase = mutableListOf<String>()
+                val linesRead = mutableListOf<String>()
+                verificationInputStream.bufferedReader().forEachLine { linesRead.add(it) }
                 assertThrows(
                     GeneralSecurityException::class.java,
-                    {
-                        verificationInputStream.forEachLineThenVerify { unusedFakeDatabase.add(it) }
-                    },
+                    { verificationInputStream.verifyOrThrow() },
                     "expected encoded file[$index] to fail verification, but didn't"
                 )
+                val linesFromSignedString = stringToSign.byteInputStream().bufferedReader().lineSequence().toList()
+                assertNotEquals(linesFromSignedString, linesRead)
+                val linesFromOriginalString = differentString.byteInputStream().bufferedReader().lineSequence().toList()
+                assertEquals(linesFromOriginalString, linesRead)
             }
         }
     }
