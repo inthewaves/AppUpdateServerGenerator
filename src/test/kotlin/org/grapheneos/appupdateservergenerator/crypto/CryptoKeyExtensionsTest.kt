@@ -18,7 +18,7 @@ import java.security.interfaces.ECPublicKey
 import java.security.interfaces.RSAPrivateKey
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.ECGenParameterSpec
-import java.util.*
+import java.util.Random
 import java.util.stream.Stream
 
 internal class CryptoKeyExtensionsTest {
@@ -48,10 +48,10 @@ internal class CryptoKeyExtensionsTest {
         override fun provideArguments(context: ExtensionContext?): Stream<out Arguments> =
             Stream.of(
                 Arguments.of("secp256r1", "This is going to be signed"),
-                // Arguments.of("secp224r1", "sign this piece of text!"),
+                Arguments.of("secp224r1", "sign this piece of text!"),
                 Arguments.of("secp384r1", "this is something that you need to sign"),
                 Arguments.of("secp521r1", "Another piece of text that needs signing!"),
-                // Arguments.of("sect571r1", "Something else that needs signing!")
+                Arguments.of("sect571r1", "Something else that needs signing!")
             )
     }
     @ParameterizedTest(name = "testECSignatureLenUpperBound: {0} EC key signing [{1}]")
@@ -68,15 +68,16 @@ internal class CryptoKeyExtensionsTest {
         val signatureInstance = Signature.getInstance("SHA256withECDSA")
             .apply { initSign(privateKey) }
         // check various signatures due to the variance in signature length
-        repeat(150) {
+        repeat(100) {
             val signature: ByteArray = signatureInstance
                 .run {
                     update(stringAsBytes)
                     sign()!!
                 }
-            // the signature size varies since signing involves some pseudorandom integer
+            // the signature size varies for ECDSA since signing involves a pseudorandom integer
             assert(signature.size in (upperBound - 4)..upperBound) {
-                "length check failed: got actual signature size of ${signature.size}, but upperbound was $upperBound"
+                "length check failed: got actual signature size of ${signature.size}, but upperbound was $upperBound." +
+                        " Expected to be in the range ${(upperBound - 4)..upperBound}"
             }
         }
     }
