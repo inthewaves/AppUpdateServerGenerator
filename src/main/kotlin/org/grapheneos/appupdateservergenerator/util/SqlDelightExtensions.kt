@@ -29,7 +29,7 @@ inline fun <T : Any, R> Query<T>.executeAsSequence(sequenceHandler: (sequence: S
                     return cachedHasNext
                 }
             }
-        }
+        }.constrainOnce()
 
         return sequenceHandler(sequence)
     }
