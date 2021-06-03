@@ -2,7 +2,6 @@ package org.grapheneos.appupdateservergenerator.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.default
-import com.github.ajalt.clikt.parameters.options.defaultLazy
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.file
@@ -77,18 +76,26 @@ abstract class AppRepoSubcommand(
         )
     }
 
-    private fun printPossibleCausesForException(exception: Throwable, firstLineToPrint: String) {
-        if (exception.message != null && !firstLineToPrint.endsWith(exception.message!!)) {
-            println(exception.message)
+    private fun recursivePrintCausesForException(exception: Throwable, firstLineToPrint: String) {
+        val printString = buildString {
+            append("caused by ${exception::class.java.canonicalName}")
+            if (exception.message != null) append(": ${exception.message}")
         }
+        println(printString)
         if (verbose) exception.printStackTrace()
-        exception.cause?.let { printPossibleCausesForException(it, firstLineToPrint) }
+
+        exception.cause?.let { recursivePrintCausesForException(it, firstLineToPrint) }
     }
 
     protected fun printErrorAndExit(errorMessage: String?, cause: Throwable? = null): Nothing {
-        val firstLineToPrint = errorMessage?.let { "error: $it" } ?: "error during repo command $commandName"
+        val firstLineToPrint = buildString {
+            append(errorMessage?.let { "error: $it" } ?: "error during repo command $commandName")
+            if (cause != null) append(" (${cause::class.java.canonicalName})")
+        }
         println(firstLineToPrint)
-        cause?.let { printPossibleCausesForException(it, firstLineToPrint) }
+        if (verbose) cause?.printStackTrace()
+
+        cause?.cause?.let { recursivePrintCausesForException(it, firstLineToPrint) }
         exitProcess(1)
     }
 
@@ -102,7 +109,7 @@ abstract class AppRepoSubcommand(
 
         try {
             runAfterInvokerChecks()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             printErrorAndExit(e.message, e)
         }
     }

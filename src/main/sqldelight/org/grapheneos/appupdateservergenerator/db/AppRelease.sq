@@ -5,14 +5,18 @@
 --     versionCode INTEGER AS VersionCode NOT NULL,
 --     versionName TEXT NOT NULL,
 --     minSdkVersion INTEGER AS Int NOT NULL,
+--     /** The [UnixTimestamp] of the release. Note: This can change if the release notes are edited, for example. */
 --     releaseTimestamp INTEGER AS UnixTimestamp NOT NULL,
---     /** The sha256 checksum for the APK */
---     sha256Checksum TEXT AS Base64String NOT NULL,
+--     /** A sha256 checksum of the APK. This should be checked by clients. */
+--     apkSha256 TEXT AS Base64String NOT NULL,
+--     /** A sha256 checksum of the APK Signature Scheme v4 signature. If this is null, the APK wasn't
+-- signed using the v4 scheme; otherwise, clients should expect to find the `.apk.idsig` file next to the APK. */
+--     v4SigSha256 TEXT AS Base64String,
 --     releaseNotes TEXT,
 --     PRIMARY KEY(packageName, versionCode)
 -- );
 -- CREATE INDEX AppRelease_covering ON AppRelease(
---     packageName, versionCode, versionName, minSdkVersion, releaseTimestamp, sha256Checksum, releaseNotes
+--     packageName, versionCode, versionName, minSdkVersion, releaseTimestamp, apkSha256, releaseNotes
 -- );
 
 selectAllByApp:

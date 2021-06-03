@@ -3,6 +3,8 @@ package org.grapheneos.appupdateservergenerator.db
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.toSerializableModel
 import org.grapheneos.appupdateservergenerator.files.AppDir
+import org.grapheneos.appupdateservergenerator.files.FileManager
+import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
 import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
@@ -10,7 +12,6 @@ import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.repo.AppRepoException
 import org.grapheneos.appupdateservergenerator.util.executeAsSequence
-import java.io.File
 import java.util.TreeSet
 
 class AppDao(private val database: Database) {
@@ -85,7 +86,8 @@ class AppDao(private val database: Database) {
         apksToInsert: PackageApkGroup,
         icon: ByteArray?,
         releaseNotesForMostRecentVersion: String?,
-        updateTimestamp: UnixTimestamp
+        updateTimestamp: UnixTimestamp,
+        fileManager: FileManager
     ) {
         if (apksToInsert.size <= 0) return
 
@@ -104,9 +106,15 @@ class AppDao(private val database: Database) {
                 lastUpdateTimestamp = updateTimestamp
             )
             apksToInsert.sortedApks.forEach { apkToInsert ->
-                val newApkFile = File(appDir.dir, "${apkToInsert.versionCode.code}.apk")
-                apkToInsert.apkFile.copyTo(newApkFile)
-                println("copied ${apkToInsert.apkFile.absolutePath} to ${newApkFile.absolutePath}")
+                val apkFileLocationInRepo = fileManager.getVersionedApk(apkToInsert.packageName, apkToInsert.versionCode)
+                apkToInsert.apkFile.copyTo(apkFileLocationInRepo)
+                println("copied ${apkToInsert.apkFile.absolutePath} to ${apkFileLocationInRepo.absolutePath}")
+                if (apkToInsert.verifyResult is ApkVerifyResult.V4) {
+                    val originalV4SigFile = apkToInsert.verifyResult.v4SignatureFile
+                    val v4SigInRepo = fileManager.getVersionedApkV4Signature(apkToInsert.packageName, apkToInsert.versionCode)
+                    originalV4SigFile.copyTo(v4SigInRepo)
+                    println("copied $originalV4SigFile to $v4SigInRepo")
+                }
 
                 database.appReleaseQueries.insert(
                     apkToInsert.toAppRelease(

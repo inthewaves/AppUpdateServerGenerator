@@ -34,7 +34,7 @@ import java.util.SortedSet
 data class AppMetadata(
     @SerialName("package")
     val packageName: PackageName,
-    val groupId: GroupId?,
+    val groupId: GroupId? = null,
     val label: String,
     val lastUpdateTimestamp: UnixTimestamp,
     val releases: Set<ReleaseInfo>
@@ -51,26 +51,25 @@ data class AppMetadata(
         val minSdkVersion: Int,
         val releaseTimestamp: UnixTimestamp,
         /** A checksum for the APK. */
-        val sha256Checksum: Base64String,
-        /** A set of [DeltaInfo] for previous [VersionCode]s that have a delta available for this version */
-        val deltaInfo: Set<DeltaInfo>,
+        val apkSha256: Base64String,
+        /**
+         * A sha256 checksum of the APK Signature Scheme v4 signature.
+         * If this is null, the APK wasn't signed using the v4 scheme; otherwise, clients should expect to find the
+         * .apk.idsig file.
+         */
+        val v4SigSha256: Base64String? = null,
+        /** Set containing previous releases that have a delta available for this version. */
+        val deltaInfo: Set<DeltaInfo>? = null,
         val releaseNotes: String?
     ) : Comparable<ReleaseInfo> {
         override fun compareTo(other: ReleaseInfo): Int = versionCode.compareTo(other.versionCode)
-        companion object {
-            fun fromApk(apk: AndroidApk, releaseTimestamp: UnixTimestamp, releaseNotes: String?) = ReleaseInfo(
-                versionName = apk.versionName,
-                versionCode = apk.versionCode,
-                minSdkVersion = apk.minSdkVersion,
-                releaseTimestamp = releaseTimestamp,
-                sha256Checksum = apk.apkFile.digest("SHA-256").toBase64String(),
-                deltaInfo = sortedSetOf(),
-                releaseNotes = releaseNotes
-            )
-        }
     }
 
-    fun latestRelease(): ReleaseInfo = releases.last()
+    fun latestRelease(): ReleaseInfo = if (releases is SortedSet<ReleaseInfo> && releases.comparator() == null) {
+        releases.last()
+    } else {
+        releases.maxByOrNull { it.versionCode }!!
+    }
 
     fun writeToString() = try {
         Json.encodeToString(this)
@@ -140,13 +139,14 @@ fun App.toSerializableModel(releases: Set<AppMetadata.ReleaseInfo>) = AppMetadat
 )
 
 fun AppRelease.toSerializableModel(deltaInfo: Set<AppMetadata.DeltaInfo>) = AppMetadata.ReleaseInfo(
-    versionCode,
-    versionName,
-    minSdkVersion,
-    releaseTimestamp,
-    sha256Checksum,
-    deltaInfo,
-    releaseNotes
+    versionCode = versionCode,
+    versionName = versionName,
+    minSdkVersion = minSdkVersion,
+    releaseTimestamp = releaseTimestamp,
+    apkSha256 = apkSha256,
+    v4SigSha256 = v4SigSha256,
+    deltaInfo = deltaInfo.ifEmpty { null },
+    releaseNotes = releaseNotes
 )
 
 fun DeltaInfo.toSerializableModel() = AppMetadata.DeltaInfo(baseVersion, sha256Checksum)

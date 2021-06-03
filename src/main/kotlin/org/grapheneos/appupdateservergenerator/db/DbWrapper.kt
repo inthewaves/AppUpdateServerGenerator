@@ -20,8 +20,8 @@ object DbWrapper {
             override fun encode(value: UnixTimestamp): Long = value.seconds
         }
         val versionCodeAdapter = object : ColumnAdapter<VersionCode, Long> {
-            override fun decode(databaseValue: Long): VersionCode = VersionCode(databaseValue.toLong())
-            override fun encode(value: VersionCode): Long = value.code.toLong()
+            override fun decode(databaseValue: Long): VersionCode = VersionCode(databaseValue)
+            override fun encode(value: VersionCode): Long = value.code
         }
         val base64StringAdapter = object : ColumnAdapter<Base64String, String> {
             override fun decode(databaseValue: String): Base64String = Base64String(databaseValue)
@@ -44,7 +44,8 @@ object DbWrapper {
         appReleaseAdapter = AppRelease.Adapter(
             versionCodeAdapter = versionCodeAdapter,
             releaseTimestampAdapter = unixTimestampAdapter,
-            sha256ChecksumAdapter = base64StringAdapter,
+            apkSha256Adapter = base64StringAdapter,
+            v4SigSha256Adapter = base64StringAdapter,
             packageNameAdapter = packageNameAdapter
         )
         deltaInfoAdapter = DeltaInfo.Adapter(

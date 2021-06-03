@@ -100,11 +100,19 @@ TestAPKs/
 ├── TrichromeWebView-90.0.4430.210.apk
 ├── TrichromeWebView-90.0.4430.91.apk
 ├── TrichromeWebView-91.0.4472.77.apk
+├── app-release-appA.apk
+├── app-release-appA.apk.idsig
+├── app-release-appB.apk
+└── app-release-appB.apk.idsig
 ```
+
+Note: `.apk.idsig` indicates
+[APK Signature Scheme v4](https://source.android.com/security/apksigning/v4)
+signature files which are supported by this tool.
 
 These commands were run to create the following sample repository:
 ```bash
-$ ./appservergen add -k testkey_ec.pk8 TestAPKs/*.apk
+$ ./appservergen add -k testkey_ec.pk8 somedir/TestAPKs/*.apk
 $ ./appservergen group create -k testkey_ec.pk8 chromium app.vanadium.trichromelibrary app.vanadium.webview org.chromium.chrome
 ```
 
@@ -115,7 +123,7 @@ time to generate all of the deltas.
 <!-- tree --dirsfirst --du -h app_repo_data -->
 ```plain
 app_repo_data
-├── [ 635M]  apps
+├── [ 648M]  apps
 │   ├── [  10M]  app.attestation.auditor
 │   │   ├── [ 2.2M]  24.apk
 │   │   ├── [ 2.2M]  25.apk
@@ -124,30 +132,41 @@ app_repo_data
 │   │   ├── [ 509K]  delta-24-to-27.gz
 │   │   ├── [ 509K]  delta-25-to-27.gz
 │   │   ├── [ 495K]  delta-26-to-27.gz
-│   │   └── [ 1.5K]  latest.txt
+│   │   └── [ 1.4K]  latest.txt
 │   ├── [ 320M]  app.vanadium.trichromelibrary
 │   │   ├── [  94M]  443009134.apk
 │   │   ├── [  94M]  443021034.apk
 │   │   ├── [  97M]  447207734.apk
 │   │   ├── [  18M]  delta-443009134-to-447207734.gz
 │   │   ├── [  18M]  delta-443021034-to-447207734.gz
-│   │   └── [ 1.0K]  latest.txt
+│   │   └── [  987]  latest.txt
 │   ├── [ 226M]  app.vanadium.webview
 │   │   ├── [  63M]  443009134.apk
 │   │   ├── [  63M]  443021034.apk
 │   │   ├── [  66M]  447207734.apk
 │   │   ├── [  18M]  delta-443009134-to-447207734.gz
 │   │   ├── [  18M]  delta-443021034-to-447207734.gz
-│   │   └── [ 1.0K]  latest.txt
+│   │   └── [  984]  latest.txt
+│   ├── [ 7.3M]  com.example.appa
+│   │   ├── [ 7.2M]  1.apk
+│   │   ├── [  65K]  1.apk.idsig
+│   │   └── [  415]  latest.txt
+│   ├── [ 5.7M]  com.example.appb
+│   │   ├── [ 5.6M]  1.apk
+│   │   ├── [  53K]  1.apk.idsig
+│   │   └── [  415]  latest.txt
 │   ├── [  78M]  org.chromium.chrome
 │   │   ├── [  27M]  443009134.apk
 │   │   ├── [  27M]  443021034.apk
 │   │   ├── [  17M]  447207733.apk
 │   │   ├── [ 3.5M]  delta-443009134-to-447207733.gz
 │   │   ├── [ 3.5M]  delta-443021034-to-447207733.gz
-│   │   └── [ 1013]  latest.txt
-│   ├── [ 4.2K]  latest-bulk-metadata.txt
-│   └── [  280]  latest-index.txt
+│   │   └── [  968]  latest.txt
+│   ├── [ 4.6K]  latest-bulk-metadata.txt
+│   └── [  340]  latest-index.txt
+├── [ 4.0K]  apprepo.db
+├── [  32K]  apprepo.db-shm
+├── [ 439K]  apprepo.db-wal
 └── [  178]  public-signing-key.pem
 ```
 
@@ -164,22 +183,25 @@ app_repo_data
 * **latest-index.txt**: Sample:
 
   ```plain
-  MEUCIEHLthq1XGK6LSQtNINEs6vAHs/NcPz2FlgdxTwRIc/lAiEA6EpwRt4jyR2MREffyajTCRclNZ73zXr7WzpadKWtWKs=
-  1622244209
-  app.attestation.auditor 27 1622243967
-  app.vanadium.trichromelibrary 447207734 1622244209
-  app.vanadium.webview 447207734 1622244209
-  org.chromium.chrome 447207733 1622244209
+  MEUCIAaCnuXtUn6hVZri38jXHIO7GqErKs9Da8CvxrDVGaE1AiEA5+i3vOCky6DyA0nvhNmDatf16F59hjVdYNSEfjYoRH0=
+  1622700061
+  app.attestation.auditor 27 1622699767
+  org.chromium.chrome 447207733 1622700061
+  app.vanadium.trichromelibrary 447207734 1622700061
+  app.vanadium.webview 447207734 1622700061
+  com.example.appa 1 1622699767
+  com.example.appb 1 1622699767
   ```
-
-  The first line contains a base64-encoded signature, the second line contains the last update
-  timestamp, and the rest of the lines contain versions with last-update timestamps.
+  This contains minimal information for clients to decide if they need to fetch updated to see if
+  they need to download new updates. The first line contains a base64-encoded signature, the
+  second line contains the last update timestamp, and the rest of the lines contain versions with
+  last-update timestamps.
 
 * **latest.txt**: Sample for `org.chromium.chrome`:
 
   ```plain
-  MEQCIGC6HCyFn3Ii2uRc9IW8BO+MkCZ8oWBL1G5KLr7MoZSBAiBBTt7lMBXr3Xr+vX+xiGCFzrNyTwTQl0FiG4xkr2js4Q==
-  {"package":"org.chromium.chrome","groupId":"chromium","label":"Vanadium","lastUpdateTimestamp":1622244209,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaInfo":[],"releaseNotes":null},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=","deltaInfo":[],"releaseNotes":null},{"versionCode":447207733,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","deltaInfo":[{"baseVersionCode":443009134,"sha256Checksum":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="},{"baseVersionCode":443021034,"sha256Checksum":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="}],"releaseNotes":null}]}
+  MEYCIQDnbY0181rOmt9tgE3NMP+wySJu9YnOCoA+bRFWpEVnMQIhAIgSAsrTMW0O26hzaUYBAufnchRZXV0r0S99M7vtM5Y1
+  {"package":"org.chromium.chrome","groupId":"chromium","label":"Vanadium","lastUpdateTimestamp":1622700061,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","releaseNotes":null},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=","releaseNotes":null},{"versionCode":447207733,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","deltaInfo":[{"baseVersionCode":443009134,"sha256Checksum":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="},{"baseVersionCode":443021034,"sha256Checksum":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="}],"releaseNotes":null}]}
   ```
 
   The first line contains a base64-encoded signature of the JSON metadata.
@@ -191,32 +213,30 @@ app_repo_data
       "package": "org.chromium.chrome",
       "groupId": "chromium",
       "label": "Vanadium",
-      "lastUpdateTimestamp": 1622244209,
+      "lastUpdateTimestamp": 1622700061,
       "releases": [
           {
               "versionCode": 443009134,
               "versionName": "90.0.4430.91",
               "minSdkVersion": 29,
-              "releaseTimestamp": 1622243967,
-              "sha256Checksum": "V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=",
-              "deltaInfo": [],
+              "releaseTimestamp": 1622699767,
+              "apkSha256": "V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=",
               "releaseNotes": null
           },
           {
               "versionCode": 443021034,
               "versionName": "90.0.4430.210",
               "minSdkVersion": 29,
-              "releaseTimestamp": 1622243967,
-              "sha256Checksum": "+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=",
-              "deltaInfo": [],
+              "releaseTimestamp": 1622699767,
+              "apkSha256": "+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=",
               "releaseNotes": null
           },
           {
               "versionCode": 447207733,
               "versionName": "91.0.4472.77",
               "minSdkVersion": 29,
-              "releaseTimestamp": 1622243967,
-              "sha256Checksum": "yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=",
+              "releaseTimestamp": 1622699767,
+              "apkSha256": "yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=",
               "deltaInfo": [
                   {
                       "baseVersionCode": 443009134,
@@ -236,15 +256,21 @@ app_repo_data
   Note: `groupId` is used to indicate to clients about apps that should be installed atomically.
   In this case, it is used to group the Trichromium packages together.
 
+  This sample does not contain all possible fields; see
+  [ApiMetadata.kt](src/main/kotlin/org/grapheneos/appupdateservergenerator/api/AppMetadata.kt) for
+  summary of the serializable fields.
+
 * **latest-bulk-metadata.txt**: This is a file of all the metadata in the repository:
 
   ```plain
-  MEQCIDcFSO9dq/pm4BIx9WKrWGi0uyp37RBFIc6eN5x/nJpYAiBVOYBSXHcbJkcwCe2OhA/6bFCZWb489SlIEzIRiHOSrA==
-  1622244209
-  {"package":"app.attestation.auditor","groupId":null,"label":"Auditor","lastUpdateTimestamp":1622243967,"releases":[{"versionCode":24,"versionName":"24","minSdkVersion":26,"releaseTimestamp":1622243967,"sha256Checksum":"HpecQ50szYqQ991bMv1pg4DyMGBzbDFpmhr+/oHH+OU=","deltaInfo":[],"releaseNotes":null},{"versionCode":25,"versionName":"25","minSdkVersion":26,"releaseTimestamp":1622243967,"sha256Checksum":"ac4QPtAcnlUZ6HL8GoS7fGx/dZe+yyXPvfz6CvtrvKQ=","deltaInfo":[],"releaseNotes":null},{"versionCode":26,"versionName":"26","minSdkVersion":26,"releaseTimestamp":1622243967,"sha256Checksum":"LZo/7Hr/tCoSidZGAr67iz/O1nhHBdUIkpWqrEVJh7I=","deltaInfo":[],"releaseNotes":null},{"versionCode":27,"versionName":"27","minSdkVersion":26,"releaseTimestamp":1622243967,"sha256Checksum":"CNpHPoTVixSI7TRuRpiMbWA1A28ZBrMTDophzdjfZ6g=","deltaInfo":[{"baseVersionCode":24,"sha256Checksum":"Xrm5wxQOXLoaoGk7/UtfTce9JL24LppPrBcuwgfeNHM="},{"baseVersionCode":25,"sha256Checksum":"hV+pV13g/JSeMF4yYzGpxtE9o6BPYjsp5LAbbDKzNfA="},{"baseVersionCode":26,"sha256Checksum":"eX7VGj7905BR4T/kmAVkkJp74oqOlSFEbPL8sy/c7pc="}],"releaseNotes":"<p><a href=\"https://github.com/GrapheneOS/Auditor/compare/26...27\">Full list of changes from the previous release (version 26)</a>. Notable changes:</p>\n<ul>\n  <li>modernize UI (dark mode, etc.)</li>\n  <li>modernize implementation</li>\n  <li>update dependencies</li>\n</ul>\n"}]}
-  {"package":"app.vanadium.trichromelibrary","groupId":"chromium","label":"Trichrome Library","lastUpdateTimestamp":1622244209,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"3kuRhe+gYFQ1O+L1+gM5eardAWfsB73b/1sRK+pEtL0=","deltaInfo":[],"releaseNotes":null},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"6KJZ1d6UldqcAWHMzhpXont4XLddZi5YCUI0N1So740=","deltaInfo":[],"releaseNotes":null},{"versionCode":447207734,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"NLpi8yQgYJAfWBj2/l3C2QMdfJncRC/t8aPA3RlE1hM=","deltaInfo":[{"baseVersionCode":443009134,"sha256Checksum":"RoZbWjLPvxENxcMWnV7LDBRulpQJjC2P4MpBdcKdjCo="},{"baseVersionCode":443021034,"sha256Checksum":"QZve0/D+qqGzIozptH+D5saUCxrdNSGjWWcmJFbb16I="}],"releaseNotes":null}]}
-  {"package":"app.vanadium.webview","groupId":"chromium","label":"Vanadium System WebView","lastUpdateTimestamp":1622244209,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"YnKVJ3RZsoS6fxRhHgrfAZGXA/F+RiYOyKjlVlIG6uo=","deltaInfo":[],"releaseNotes":null},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"VZ2iISVUcxxvQsnemdGIFhpuNU2MGyUujUJXvuPzV2Y=","deltaInfo":[],"releaseNotes":null},{"versionCode":447207734,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"Xo1wfFSTg7Gi4Z+1didiJJX/IlDcy7gw9mS3CRCv78s=","deltaInfo":[{"baseVersionCode":443009134,"sha256Checksum":"PKuxV8pF72nrK5M1tB/Hnra0cI7yPRdiucSlm6aHGLc="},{"baseVersionCode":443021034,"sha256Checksum":"Sq+tXujrv4Fe6o6MnIYEOTGB62amygiOhS6chgd3bC8="}],"releaseNotes":null}]}
-  {"package":"org.chromium.chrome","groupId":"chromium","label":"Vanadium","lastUpdateTimestamp":1622244209,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","deltaInfo":[],"releaseNotes":null},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=","deltaInfo":[],"releaseNotes":null},{"versionCode":447207733,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1622243967,"sha256Checksum":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","deltaInfo":[{"baseVersionCode":443009134,"sha256Checksum":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="},{"baseVersionCode":443021034,"sha256Checksum":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="}],"releaseNotes":null}]}
+  MEUCIEMuJMGT6fP+KCrDQG2yRbyr66ierCA5k2ou1/0TSy6oAiEA3Rrl9sCkSiwRljdwtkD4hBMYcF+IgAJZnoEEcYCL8s4=
+  1622700061
+  {"package":"app.attestation.auditor","label":"Auditor","lastUpdateTimestamp":1622699767,"releases":[{"versionCode":24,"versionName":"24","minSdkVersion":26,"releaseTimestamp":1622699767,"apkSha256":"HpecQ50szYqQ991bMv1pg4DyMGBzbDFpmhr+/oHH+OU=","releaseNotes":null},{"versionCode":25,"versionName":"25","minSdkVersion":26,"releaseTimestamp":1622699767,"apkSha256":"ac4QPtAcnlUZ6HL8GoS7fGx/dZe+yyXPvfz6CvtrvKQ=","releaseNotes":null},{"versionCode":26,"versionName":"26","minSdkVersion":26,"releaseTimestamp":1622699767,"apkSha256":"LZo/7Hr/tCoSidZGAr67iz/O1nhHBdUIkpWqrEVJh7I=","releaseNotes":null},{"versionCode":27,"versionName":"27","minSdkVersion":26,"releaseTimestamp":1622699767,"apkSha256":"CNpHPoTVixSI7TRuRpiMbWA1A28ZBrMTDophzdjfZ6g=","deltaInfo":[{"baseVersionCode":24,"sha256Checksum":"Xrm5wxQOXLoaoGk7/UtfTce9JL24LppPrBcuwgfeNHM="},{"baseVersionCode":25,"sha256Checksum":"hV+pV13g/JSeMF4yYzGpxtE9o6BPYjsp5LAbbDKzNfA="},{"baseVersionCode":26,"sha256Checksum":"eX7VGj7905BR4T/kmAVkkJp74oqOlSFEbPL8sy/c7pc="}],"releaseNotes":"<p><a href=\\\"https://github.com/GrapheneOS/Auditor/compare/26...27\\\">Full list of changes from the previous release (version 26)</a>. Notable changes:</p><ul><li>modernize UI (dark mode, etc.)</li><li>modernize implementation</li><li>update dependencies</li></ul>"}]}
+  {"package":"org.chromium.chrome","groupId":"chromium","label":"Vanadium","lastUpdateTimestamp":1622700061,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","releaseNotes":null},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=","releaseNotes":null},{"versionCode":447207733,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","deltaInfo":[{"baseVersionCode":443009134,"sha256Checksum":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="},{"baseVersionCode":443021034,"sha256Checksum":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="}],"releaseNotes":null}]}
+  {"package":"app.vanadium.trichromelibrary","groupId":"chromium","label":"Trichrome Library","lastUpdateTimestamp":1622700061,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"3kuRhe+gYFQ1O+L1+gM5eardAWfsB73b/1sRK+pEtL0=","releaseNotes":null},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"6KJZ1d6UldqcAWHMzhpXont4XLddZi5YCUI0N1So740=","releaseNotes":null},{"versionCode":447207734,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"NLpi8yQgYJAfWBj2/l3C2QMdfJncRC/t8aPA3RlE1hM=","deltaInfo":[{"baseVersionCode":443009134,"sha256Checksum":"RoZbWjLPvxENxcMWnV7LDBRulpQJjC2P4MpBdcKdjCo="},{"baseVersionCode":443021034,"sha256Checksum":"QZve0/D+qqGzIozptH+D5saUCxrdNSGjWWcmJFbb16I="}],"releaseNotes":null}]}
+  {"package":"app.vanadium.webview","groupId":"chromium","label":"Vanadium System WebView","lastUpdateTimestamp":1622700061,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"YnKVJ3RZsoS6fxRhHgrfAZGXA/F+RiYOyKjlVlIG6uo=","releaseNotes":null},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"VZ2iISVUcxxvQsnemdGIFhpuNU2MGyUujUJXvuPzV2Y=","releaseNotes":null},{"versionCode":447207734,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"Xo1wfFSTg7Gi4Z+1didiJJX/IlDcy7gw9mS3CRCv78s=","deltaInfo":[{"baseVersionCode":443009134,"sha256Checksum":"PKuxV8pF72nrK5M1tB/Hnra0cI7yPRdiucSlm6aHGLc="},{"baseVersionCode":443021034,"sha256Checksum":"Sq+tXujrv4Fe6o6MnIYEOTGB62amygiOhS6chgd3bC8="}],"releaseNotes":null}]}
+  {"package":"com.example.appa","label":"AppA","lastUpdateTimestamp":1622699767,"releases":[{"versionCode":1,"versionName":"1.0","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"/I+iQcq4RsmVu0MLfW+uZZL2mUv5WLJeNh4qv6PomJg=","v4SigSha256":"3/PxeJvFHKDlqUgk5PMojd2A6jfHklAQ3d51GMtCLu4=","releaseNotes":null}]}
+  {"package":"com.example.appb","label":"AppB","lastUpdateTimestamp":1622699767,"releases":[{"versionCode":1,"versionName":"1.0","minSdkVersion":29,"releaseTimestamp":1622699767,"apkSha256":"arYsOFv2oz15A9cHbH+ThoTQClYQrXbc7BGwj7VzB/4=","v4SigSha256":"eze3hxfWlHNXVlOKKCfCeXdqWOq8ZLuK2spCzLfSkcI=","releaseNotes":null}]}
   ```
 
   This is used for bulk downloads (e.g., first-time startup or force refreshes).
@@ -257,7 +283,3 @@ app_repo_data
 * Maybe a configuration file to configure things such as maximum number of deltas to generate which
   can be used to determine pruning.
 * Refactoring
-* Detect free space for concurrent delta generation. The rule of thumb is that generating a delta
-  between a previous version and the newest version is that if the previous version is `x` bytes,
-  and the new version is `y` bytes, then the delta generation requires 
-  `2 * max(x,y) + 4 * (max(x,y)+ 1)` bytes.

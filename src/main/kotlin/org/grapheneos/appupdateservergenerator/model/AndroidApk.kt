@@ -34,15 +34,19 @@ data class AndroidApk private constructor(
      * @see ApkSigner.Builder.setDebuggableApkPermitted
      */
     val debuggable: Boolean,
-    val signatureVerifyResult: ApkVerifier.Result
+    val verifyResult: ApkVerifyResult
 ) {
+
     fun toAppRelease(releaseTimestamp: UnixTimestamp, releaseNotes: String?) = AppRelease(
         packageName = packageName,
         versionName = versionName,
         versionCode = versionCode,
         minSdkVersion = minSdkVersion,
         releaseTimestamp = releaseTimestamp,
-        sha256Checksum = apkFile.digest("SHA-256").toBase64String(),
+        apkSha256 = apkFile.digest("SHA-256").toBase64String(),
+        v4SigSha256 = (verifyResult as? ApkVerifyResult.V4)?.v4SignatureFile
+            ?.digest("SHA-256")
+            ?.toBase64String(),
         releaseNotes = releaseNotes
     )
 
@@ -53,7 +57,7 @@ data class AndroidApk private constructor(
         var versionName: String? = null
         var minSdkVersion: Int? = null
         var debuggable: Boolean? = null
-        var signatureVerifyResult: ApkVerifier.Result? = null
+        var verifyResult: ApkVerifyResult? = null
 
         private val isBuildable: Boolean
             get() = label != null &&
@@ -62,7 +66,7 @@ data class AndroidApk private constructor(
                     versionName != null &&
                     minSdkVersion != null &&
                     debuggable != null &&
-                    signatureVerifyResult != null
+                    verifyResult != null
 
         fun buildIfAllPresent(): AndroidApk? {
             return if (isBuildable) {
@@ -74,7 +78,7 @@ data class AndroidApk private constructor(
                     versionName = versionName!!,
                     minSdkVersion = minSdkVersion!!,
                     debuggable = debuggable!!,
-                    signatureVerifyResult = signatureVerifyResult!!
+                    verifyResult = verifyResult!!
                 )
             } else {
                 null
@@ -85,7 +89,7 @@ data class AndroidApk private constructor(
         override fun toString(): String {
             return "Builder(apkFile=$apkFile, label=$label, packageName=$packageName, versionCode=$versionCode, " +
                     "versionName=$versionName, minSdkVersion=$minSdkVersion, debuggable=$debuggable, " +
-                    "signatureVerifyResult=$signatureVerifyResult)"
+                    "verifyResult=$verifyResult)"
         }
     }
 
@@ -142,14 +146,11 @@ data class AndroidApk private constructor(
             builder.versionName = versionName
             builder.label = label
 
-            val verifyResult = ApkVerifier.Builder(apkFile)
-                .setMinCheckedPlatformVersion(AndroidSdkVersion.R)
-                .build()
-                .verify()
+            val verifyResult = ApkVerifyResult.verifyApk(apkFile)
             if (!verifyResult.isVerified) {
-                throw IOException("APK signature verification failed with errors: ${verifyResult.allErrors}")
+                throw IOException("APK signature verification failed with errors: ${verifyResult.result.allErrors}")
             }
-            builder.signatureVerifyResult = verifyResult
+            builder.verifyResult = verifyResult
 
             return builder.buildIfAllPresent() ?: throw IOException("failed to build: $builder")
         }

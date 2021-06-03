@@ -4,6 +4,14 @@ import org.grapheneos.appupdateservergenerator.model.PackageName;
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp;
 import org.grapheneos.appupdateservergenerator.model.VersionCode;
 
+/** Packages can be tagged with a groupId that indicates to clients about packages that should be
+atomically installed / updated. This is useful when there are apps that have shared libraries
+such as Chromium.
+
+Note: On the serverside, groups are purely used as a tag. It is the client's responsibility to
+download all APKs in a  group that have updates and to install them atomically. For this
+reason, it's important that the updates for packages in a group are pushed to the server all
+at once. */
 CREATE TABLE AppGroup (
     id TEXT AS GroupId COLLATE NOCASE NOT NULL PRIMARY KEY
 );
@@ -26,14 +34,18 @@ CREATE TABLE AppRelease (
     versionCode INTEGER AS VersionCode NOT NULL,
     versionName TEXT NOT NULL,
     minSdkVersion INTEGER AS Int NOT NULL,
+    /** The [UnixTimestamp] of the release. Note: This can change if the release notes are edited, for example. */
     releaseTimestamp INTEGER AS UnixTimestamp NOT NULL,
-    /** The sha256 checksum for the APK */
-    sha256Checksum TEXT AS Base64String NOT NULL,
+    /** A sha256 checksum of the APK. This should be checked by clients. */
+    apkSha256 TEXT AS Base64String NOT NULL,
+    /** A sha256 checksum of the APK Signature Scheme v4 signature. If this is null, the APK wasn't
+signed using the v4 scheme; otherwise, clients should expect to find the `.apk.idsig` file next to the APK. */
+    v4SigSha256 TEXT AS Base64String,
     releaseNotes TEXT,
     PRIMARY KEY(packageName, versionCode)
 );
 CREATE INDEX AppRelease_covering ON AppRelease(
-    packageName, versionCode, versionName, minSdkVersion, releaseTimestamp, sha256Checksum, releaseNotes
+    packageName, versionCode, versionName, minSdkVersion, releaseTimestamp, apkSha256, releaseNotes
 );
 
 CREATE TABLE DeltaInfo (

@@ -289,7 +289,7 @@ private class AppRepoManagerImpl(
             latestApk.apkFile.digest(MessageDigest.getInstance("SHA-256"))
         )
         val latestRelease = metadata.latestRelease()
-        if (latestRelease.sha256Checksum != latestApkDigest) {
+        if (latestRelease.apkSha256 != latestApkDigest) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: sha256 checksum from latest apk file doesn't match the checksum in the metadata"
             )
@@ -325,7 +325,7 @@ private class AppRepoManagerImpl(
             }
             .sorted()
         val baseDeltaVersionsToFileMapFromMetadata: Map<VersionCode, AppMetadata.DeltaInfo> =
-            latestRelease.deltaInfo.associateBy { it.baseVersionCode }
+            latestRelease.deltaInfo?.associateBy { it.baseVersionCode } ?: emptyMap()
 
         if (baseDeltaVersionsToFileMapFromMetadata.keys.sorted() != baseDeltaVersionsFromDirFiles) {
             val problemVersions = (baseDeltaVersionsToFileMapFromMetadata.keys symmetricDifference
@@ -416,7 +416,7 @@ private class AppRepoManagerImpl(
                         )
                     }
                     if (parsedApk.apkFile.digest("SHA-256").toBase64String() !=
-                        releaseInfoForThisVersion.sha256Checksum
+                        releaseInfoForThisVersion.apkSha256
                     ) {
                         throw AppRepoException.InvalidRepoState(
                             "$pkg: APK ($apkFile) sha256 checksum mismatches the release's checksum"
@@ -514,25 +514,26 @@ private class AppRepoManagerImpl(
         // APKs together.
         val packageApkGroups: List<PackageApkGroup.AscendingOrder>
         val timeTaken = measureTimeMillis {
-            packageApkGroups = try {
+            packageApkGroups =
                 PackageApkGroup.createListFromFilesAscending(
                     apkFilePaths = apkFilePaths,
                     aaptInvoker = aaptInvoker
                 )
-            } catch (e: IOException) {
-                throw AppRepoException.AppDetailParseFailed("unable to get Android app details", e)
-            }
         }
         println("took $timeTaken ms to parse APKs")
         println("found the following packages: ${packageApkGroups.map { it.packageName }}")
 
-        packageApkGroups.forEach { apkGroup ->
-            apkGroup.sortedApks.forEach { apk ->
-                if (apk.debuggable) {
-                    throw AppRepoException.InsertFailed(
-                        "${apk.apkFile} is marked as debuggable, which is not allowed for security reasons. " +
-                                "The Android platform loosens security checks for such APKs."
-                    )
+        coroutineScope {
+            packageApkGroups.forEach { apkGroup ->
+                launch {
+                    apkGroup.sortedApks.forEach { apk ->
+                        if (apk.debuggable) {
+                            throw AppRepoException.InsertFailed(
+                                "${apk.apkFile} is marked as debuggable, which is not allowed for security reasons. " +
+                                        "The Android platform loosens security checks for such APKs."
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -597,6 +598,7 @@ private class AppRepoManagerImpl(
                             timestampForMetadata = timestampForMetadata,
                             promptForReleaseNotes = promptForReleaseNotes,
                         )
+
                         deltaGenChannel.send(DeltaGenerationManager.GenerationRequest.ForPackage(
                             apkInsertionGroup.packageName)
                         )
@@ -653,7 +655,7 @@ private class AppRepoManagerImpl(
     override fun getMetadataForPackage(pkg: PackageName): AppMetadata? = appDao.getSerializableAppMetadata(pkg)
 
     /**
-     * Inserts one or more APKs for a single package.
+     * Inserts one or more APKs for a single package into the repository. This involves copying the APK files.
      */
     private suspend fun insertApkGroupForSinglePackage(
         apksToInsert: PackageApkGroup.AscendingOrder,
@@ -706,7 +708,8 @@ private class AppRepoManagerImpl(
             println("warning: unable to extract icon for ${maxVersionApk.packageName}, ${maxVersionApk.versionCode}")
         }
 
-        appDao.upsertApks(appDir, apksToInsert, icon, releaseNotesForMostRecentVersion, timestampForMetadata)
+        // This will handle copying the APKs.
+        appDao.upsertApks(appDir, apksToInsert, icon, releaseNotesForMostRecentVersion, timestampForMetadata, fileManager)
     }
 
     /**
@@ -734,8 +737,8 @@ private class AppRepoManagerImpl(
         // https://android.googlesource.com/platform/frameworks/base/+/6c942b9dc9bbd3d607c8601907ffa4a5c7a4a606/core/java/android/content/pm/PackageParser.java#6270
         apksSortedAscendingOrder.forEach { currentApk ->
             previousApk?.let {
-                val previousCertificates = it.signatureVerifyResult.signerCertificates
-                val currentCertificates = currentApk.signatureVerifyResult.signerCertificates
+                val previousCertificates = it.verifyResult.result.signerCertificates
+                val currentCertificates = currentApk.verifyResult.result.signerCertificates
                 if (!currentCertificates.containsAll(previousCertificates)) {
                     throw AppRepoException.ApkSigningCertMismatch(
                         "failed to verify signing cert chain\n" +
