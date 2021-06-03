@@ -8,10 +8,10 @@ import com.github.ajalt.clikt.parameters.types.file
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import java.io.File
 
-class GenerateDeltaCommand : CliktCommand(name = "generate-delta", help = "Generate deltas directly") {
-    private val oldFile: File by argument(help = "The old file to serve as the basis for delta generation.")
+class GenerateDeltaCommand : CliktCommand(name = "generate-delta", help = "Generate deltas for ZIPs / APKs directly") {
+    private val oldFile: File by argument(help = "The old ZIP / APK file to serve as the basis for delta generation.")
         .file(mustExist = true, canBeDir = false, mustBeReadable = true)
-    private val newFile: File by argument(help = "The new file to serve as the target of the delta")
+    private val newFile: File by argument(help = "The new ZIP / APK file to serve as the target of the delta")
         .file(mustExist = true, canBeDir = false, mustBeReadable = true)
     private val outputDelta: File by argument(help = "The output delta file")
         .file(canBeDir = false)

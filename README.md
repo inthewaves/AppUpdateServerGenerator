@@ -74,12 +74,13 @@ $ ./appservergen validate [OPTIONS]
 ```
 
 ##### Delta generation
-The tool also supports generating deltas directly for convenience:
+The tool also supports generating and applying deltas directly for convenience:
 ```bash
 $ ./appservergen generate-delta [OPTIONS] OLDFILE NEWFILE OUTPUTDELTA
 $ ./appservergen apply-delta [OPTIONS] OLDFILE DELTAFILE NEWFILE
 ```
-See the help option `-h` for `OPTIONS`.
+See the help option `-h` for `OPTIONS`. Note that this works on ZIP files in general (APKs are ZIP
+files).
 
 ## Example of repository structure
 
