@@ -1,10 +1,12 @@
 package org.grapheneos.appupdateservergenerator.crypto
 
 import org.grapheneos.appupdateservergenerator.util.Base64Util
+import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
 import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.Reader
 import java.security.GeneralSecurityException
 import java.security.InvalidKeyException
 import java.security.NoSuchAlgorithmException
@@ -20,14 +22,22 @@ import java.util.Base64
  * signature signed by the given public key or certificate in the first line, and the signed contents in the rest of the
  * file.
  *
- * The [SignatureHeaderInputStream] can be used as a normal [InputStream], with the operations such as [read]. The
+ * [SignatureHeaderInputStream]s can be used as a normal [InputStream], with the operations such as [read]. The
  * parser will exclude the line separator and the signature line from signature verification. The bytes that are given
  * to the user via the [read] functions will not include the base64-encoded signature or the line separator between the
  * signature and the rest of the contents.
  *
+ * For use with a [Reader], [BufferedReader], a JSON parser etc., the wrap order should be
+ * `Reader(SignatureHeaderInputStream(raw InputStream from file / network))`, because this needs access to the raw
+ * bytes.
+ *
  * On instance creation, the [signature] instance is initiated with the public key. The signature is parsed on the
- * first invocations of [read], and then the signature stored in the stream. The signature can be verified against the
- * bytes in the underlying [in]put stream by using [verify] or [verifyOrThrow].
+ * first invocations of [read], and then the signature stored in the stream. Every invocation of [read] will result in
+ * an update to the underlying [java.security.Signature] instance.
+ *
+ * After consuming the input stream, the signature should verified against the bytes in the underlying [in]put stream by
+ * using [verify] or [verifyOrThrow]. The only valid time for signature verification is when the input stream is
+ * completely consumed, as that is when the underlying [signature] instance has read all the bytes for verification.
  *
  * An example of such a file (with a ECDSA signature):
  *
@@ -35,8 +45,12 @@ import java.util.Base64
  *     This is going to be signed
  *     This is more signed text.
  *
- * The signed contents are exactly the bytes of the string "This is going to be signed\nThis is more signed text." The
- * public key used to sign the above example is
+ * The signed contents are exactly the bytes of the string
+ *
+ *     This is going to be signed\nThis is more signed text.
+ *
+ * The bytes of that string are also the exact bytes that will be given by the [read] functions. The public key used to
+ * sign the above example is
  *
  *     -----BEGIN PUBLIC KEY-----
  *     MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJKBDo8lXMKktway7BM+1CJpsLNbt
@@ -154,9 +168,12 @@ class SignatureHeaderInputStream private constructor(
     private var signatureBytes: ByteArray? = null
 
     /**
-     * @return the next byte after the carriage return, if any. Such a value will be returned if the signature line
-     * is separated from the rest of the contents by a singular `\r`. Callers of this function should patch contents
-     * with the returned byte if it's not null.
+     * Parses the signature line and populates the [signatureBytes] property with the signature for future verification.
+     *
+     * @return null if the line separator between the signature and the signed contents is not a CR control character
+     * (`\r`), or if the line separator is a CRLF sequence. A non-null result is returned if the line separator is a CR
+     * control character is something that isn't a LF (i.e., not a CRLF sequence). Callers of this function should patch
+     * contents with the returned byte if it's not null.
      * @throws IOException
      */
     @Throws(IOException::class)
@@ -244,7 +261,10 @@ class SignatureHeaderInputStream private constructor(
         val ch = if (signatureBytes != null) {
             `in`.read()
         } else {
+            // This function call will advance the stream until the signature line is parsed.
+            // If this is null,
             val nextByteAfterCr = parseSignatureBytesByReadingFirstLine()
+            // Fixing up from CRLF detection if needed.
             nextByteAfterCr ?: `in`.read()
         }
         if (on && ch != -1) {
@@ -281,15 +301,21 @@ class SignatureHeaderInputStream private constructor(
      * @see [Signature.update]
      */
     override fun read(b: ByteArray, off: Int, len: Int): Int {
-        val numBytesRead = if (signatureBytes != null || len <= 0) {
+        val numBytesRead: Int = if (signatureBytes != null || len <= 0) {
             `in`.read(b, off, len)
         } else {
-            val nextByteAfterCr = parseSignatureBytesByReadingFirstLine()
-            nextByteAfterCr?.let {
+            val nonLineFeedByteRightAfterCr = parseSignatureBytesByReadingFirstLine()
+            nonLineFeedByteRightAfterCr?.let {
+                // We're fixing up the CRLF detection.
                 b[off] = it.toByte()
                 if (len > 1) {
-                    1 + `in`.read(b, off + 1, len - 1)
+                    val result = `in`.read(b, off + 1, len - 1)
+                    // If the underlying input stream returns -1, we still want to communicate to the caller that
+                    // the CRLF line fixup resulted in a byte "read". If we just left this at -1, then 1 - 1 = 0 :o
+                    1 + if (result == -1) 0 else result
                 } else {
+                    // Note: We know that len > 0 here from the outer if statement; so since in here we have len <= 1,
+                    // we conclude that len == 1. Therefore, the single-byte fixup is the number of bytes read.
                     1
                 }
             } ?: `in`.read(b, off, len)

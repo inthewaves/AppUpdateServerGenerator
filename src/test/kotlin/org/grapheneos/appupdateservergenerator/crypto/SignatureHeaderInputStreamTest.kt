@@ -184,6 +184,7 @@ internal class SignatureHeaderInputStreamTest {
     @ParameterizedTest(name = "verify {0}")
     @ValueSource(
         strings = [
+            "a",
             "1. This is a string: to sign.\nThere are multiple lines.\nHello there",
             "2. This is a string: to sign.\nThere are multiple lines.\nHello there\n",
             "3. This is a string: to sign.\rThere are multiple lines.\rHello there\r",
