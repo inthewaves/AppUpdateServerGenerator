@@ -16,14 +16,38 @@ import java.security.cert.Certificate
 import java.util.Base64
 
 /**
- * This InputStream is a special [InputStream] for reading files that are expected to have a base64-encoded signature
- * signed by the given [publicKey] in the first line.
+ * This InputStream is a special [InputStream] for reading plaintext files that are expected to have a base64-encoded
+ * signature signed by the given public key or certificate in the first line, and the signed contents in the rest of the
+ * file.
+ *
+ * The [SignatureHeaderInputStream] can be used as a normal [InputStream], with the operations such as [read]. The
+ * parser will exclude the line separator and the signature line from signature verification. The bytes that are given
+ * to the user via the [read] functions will not include the base64-encoded signature or the line separator between the
+ * signature and the rest of the contents.
  *
  * On instance creation, the [signature] instance is initiated with the public key. The signature is parsed on the
  * first invocations of [read], and then the signature stored in the stream. The signature can be verified against the
  * bytes in the underlying [in]put stream by using [verify] or [verifyOrThrow].
  *
+ * An example of such a file (with a ECDSA signature):
+ *
+ *     MEQCIEeMy08Ef6Kd+KuR1IkalbM7vb3jd8xz2BFwWldDKwBOAiBLT7DOZokfWSMZec7VCS5Ggq2Y9nAAzVlVEJlU1T2cmg==
+ *     This is going to be signed
+ *     This is more signed text.
+ *
+ * The signed contents are exactly the bytes of the string "This is going to be signed\nThis is more signed text." The
+ * public key used to sign the above example is
+ *
+ *     -----BEGIN PUBLIC KEY-----
+ *     MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJKBDo8lXMKktway7BM+1CJpsLNbt
+ *     Ws9SWYO7r967MOdecCQwbLGSO35cSsI8L1C1mMeMNbLqjoHy6TUruik+rQ==
+ *     -----END PUBLIC KEY-----
+ *
  * Note: This class is **not** thread-safe.
+ *
+ * Note: The signature header files should NOT use a single CR control character (`\r`) to separate the signature from
+ * the associated signed contents. If the contents of a file begins with a LF control character (`\n`), the parser will
+ * interpret that as a CRLF sequence and skip both the CR and LF from signature verification.
  */
 class SignatureHeaderInputStream private constructor(
     stream: InputStream,
@@ -35,6 +59,18 @@ class SignatureHeaderInputStream private constructor(
     val signature: Signature
 ) : FilterInputStream(stream) {
 
+    /**
+     * Constructs a [SignatureHeaderInputStream] instance using the [certificate] and the [signatureAlgorithm] for
+     * verifying the stream contents past the signature header.
+     *
+     * @throws IllegalArgumentException – if the provider name is null or empty
+     * @throws java.security.InvalidKeyException – if the public key in the [certificate] is not encoded properly or
+     * does not include required parameter information or cannot be used for digital signature purposes.
+     * @throws java.security.NoSuchAlgorithmException – if a SignatureSpi implementation for the specified algorithm is
+     * not available from the specified provider
+     * @throws java.security.NoSuchProviderException – if the specified provider is not registered in the security
+     * provider list
+     */
     constructor(
         stream: InputStream,
         certificate: Certificate,
@@ -49,6 +85,10 @@ class SignatureHeaderInputStream private constructor(
             ?: Signature.getInstance(signatureAlgorithm)
     )
 
+    /**
+     * @throws java.security.InvalidKeyException – if the public key in the [certificate] is not encoded properly or
+     * does not include required parameter information or cannot be used for digital signature purposes.
+     */
     constructor(
         stream: InputStream,
         certificate: Certificate,
@@ -93,32 +133,39 @@ class SignatureHeaderInputStream private constructor(
         signature = signature
     )
 
-    private val maxSignatureLength: Int
+    private val maxSignatureLengthEncodedInBase64: Int
     init {
         require((publicKey != null) xor (certificate != null))
-        maxSignatureLength = if (publicKey != null) {
-            signature.initVerify(publicKey)
-            publicKey.maxSignatureLength()
-        } else {
-            signature.initVerify(certificate!!)
-            certificate.publicKey.maxSignatureLength()
-        }
+        maxSignatureLengthEncodedInBase64 = Base64Util.getBase64SizeForLength(
+            if (publicKey != null) {
+                signature.initVerify(publicKey)
+                publicKey.maxSignatureLength()
+            } else {
+                signature.initVerify(certificate!!)
+                certificate.publicKey.maxSignatureLength()
+            }
+        )
     }
 
+    /**
+     * The signature extracted from the header. This is initialized on the first call to the [read] functions, because
+     * those functions need to know about the CRLF edge case.
+     */
     private var signatureBytes: ByteArray? = null
 
     /**
      * @return the next byte after the carriage return, if any. Such a value will be returned if the signature line
-     * is separated from the rest of the contents by a singular \r.
+     * is separated from the rest of the contents by a singular `\r`. Callers of this function should patch contents
+     * with the returned byte if it's not null.
      * @throws IOException
      */
     @Throws(IOException::class)
-    private fun initiateSignatureBytesByReadingFirstLine(): Int? {
+    private fun parseSignatureBytesByReadingFirstLine(): Int? {
         if (signatureBytes != null) return null
 
         // Parse the signature header. Don't verify this part of the stream.
         on = false
-        val signatureStream = ByteArrayOutputStream(Base64Util.getBase64SizeForLength(maxSignatureLength))
+        val signatureStream = ByteArrayOutputStream(maxSignatureLengthEncodedInBase64)
         var current: Int = `in`.read()
         while (
             current != -1 &&
@@ -183,7 +230,10 @@ class SignatureHeaderInputStream private constructor(
     var on = true
 
     /**
-     * Reads a byte, and updates the signature instance if [on]
+     * Reads a byte, and updates the signature instance if [on].
+     *
+     * If this is the first time either of the [read] functions have been called, the stream will be first parsed for
+     * the signature in the first line.
      *
      * @return the next byte of data, or -1 if the end of the stream is reached.
      * @exception IOException if an IO error occurs.
@@ -194,7 +244,7 @@ class SignatureHeaderInputStream private constructor(
         val ch = if (signatureBytes != null) {
             `in`.read()
         } else {
-            val nextByteAfterCr = initiateSignatureBytesByReadingFirstLine()
+            val nextByteAfterCr = parseSignatureBytesByReadingFirstLine()
             nextByteAfterCr ?: `in`.read()
         }
         if (on && ch != -1) {
@@ -221,6 +271,9 @@ class SignatureHeaderInputStream private constructor(
      * elements b[off] through b[off+k-1], leaving elements b[off+k] through b[off+len-1] unaffected.
      * In every case, elements `b[0]` through `b[off-1]` and elements `b[off+len]` through `b[b.length-1]` are unaffected.
      *
+     * If this is the first time either of the [read] functions have been called, the stream will be first parsed for
+     * the signature in the first line.
+     *
      * @return the total number of bytes read into the buffer, or -1 if there is no more data because the end of the
      * stream has been reached.
      * @exception IOException if an IO error occurs.
@@ -231,7 +284,7 @@ class SignatureHeaderInputStream private constructor(
         val numBytesRead = if (signatureBytes != null || len <= 0) {
             `in`.read(b, off, len)
         } else {
-            val nextByteAfterCr = initiateSignatureBytesByReadingFirstLine()
+            val nextByteAfterCr = parseSignatureBytesByReadingFirstLine()
             nextByteAfterCr?.let {
                 b[off] = it.toByte()
                 if (len > 1) {

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -190,6 +191,7 @@ internal class SignatureHeaderInputStreamTest {
             "5. This is a string: to sign.\rThere are multiple lines.\rHello there\r\r\r",
             "6. This is a string: to sign.\nThere are multiple lines.\rHello there\n\n\n",
             "\r7. This starts with carriage return.\nThere are multiple lines.\nHello!\n\r\r\n\r\n\n\r\r\n\r",
+            "\n8. This starts with line feed.",
             """{
                 "package":"com.example.appa",
                 "label":"AppA",
@@ -227,6 +229,20 @@ internal class SignatureHeaderInputStreamTest {
 
         val encodedFilesToTest = createSignatureHeaderFilesForTest(signature, stringToSign)
         encodedFilesToTest.forEachIndexed { index, encodedFile ->
+            if (encodedFile is SignatureHeaderFile.CRSeparatingTheSignature) {
+                Assumptions.assumeFalse({ stringToSign.startsWith('\n') }) {
+                    """a CR separating the signature and the string beginning with LF means the 
+                        |${SignatureHeaderInputStream::class.java.simpleName} will treat it as a CRLF sequence. This
+                        |means the stream will skip over the LF character in the string, and the signature verifications
+                        |will only include content after that. 
+                        |
+                        |However, this is not likely to happen in any actual usage. This software is
+                        |designed for Linux, so using CR is very unlikely. Furthermore, the software specifically
+                        |inserts a LF (\n) character when constructing signature header files.
+                    """.trimMargin()
+                }
+            }
+
             val expectedLines: List<String> = encodedFile.fileContents.byteInputStream().bufferedReader().useLines {
                 it.drop(1).toList() // drop the signature line
             }

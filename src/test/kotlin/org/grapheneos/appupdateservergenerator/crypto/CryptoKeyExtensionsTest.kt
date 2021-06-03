@@ -47,7 +47,7 @@ internal class CryptoKeyExtensionsTest {
     class ECStdNameStringToSignArguments : ArgumentsProvider {
         override fun provideArguments(context: ExtensionContext?): Stream<out Arguments> =
             Stream.of(
-                Arguments.of("secp256r1", "This is going to be signed"),
+                Arguments.of("secp256r1", "This is going to be signed\nThis is more signed text."),
                 Arguments.of("secp224r1", "sign this piece of text!"),
                 Arguments.of("secp384r1", "this is something that you need to sign"),
                 Arguments.of("secp521r1", "Another piece of text that needs signing!"),
