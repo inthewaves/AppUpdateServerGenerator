@@ -22,19 +22,34 @@ version = "0.1"
 
 repositories {
     mavenCentral()
+    google()
 }
 
 dependencies {
     implementation(fileTree("include" to "*.jar", "dir" to "libs"))
-    implementation(project(":apksig"))
+    implementation(project(":apksig")) {
+        // the library doesn't even use protos
+        exclude("com.google.protobuf")
+    }
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0")
     implementation("com.github.ajalt.clikt:clikt:3.2.0")
-
+    implementation("com.android.tools.apkparser:apkanalyzer:30.1.0-alpha01") {
+        exclude("com.android.tools.lint")
+        exclude("com.google.protobuf")
+        exclude("com.android.tools.build", "aapt2-proto")
+        exclude("com.android.tools", "repository")
+        exclude("org.apache.httpcomponents")
+        exclude("org.apache.commons")
+        exclude("org.glassfish.jaxb")
+        exclude("org.jetbrains.kotlin", "kotlin-reflect")
+        exclude("com.android.tools.analytics-library")
+        exclude("org.bouncycastle")
+        exclude("xerces")
+    }
+    implementation("com.android.tools.apkparser:binary-resources:30.1.0-alpha01")
     implementation("com.squareup.sqldelight:sqlite-driver:1.5.0")
-    implementation("com.squareup.sqldelight:coroutines-extensions-jvm:1.5.0")
-
     implementation("org.bouncycastle:bcprov-jdk15on:1.68")
 
     testImplementation(kotlin("test-junit5"))
@@ -72,7 +87,9 @@ tasks.jar {
 }
 
 tasks.create("copyDeps", type = Copy::class) {
-    into("build/libs")
+    val destDir = "build/libs"
+    doFirst { delete(destDir) }
+    into(destDir)
     from(configurations.runtimeClasspath)
 }
 
