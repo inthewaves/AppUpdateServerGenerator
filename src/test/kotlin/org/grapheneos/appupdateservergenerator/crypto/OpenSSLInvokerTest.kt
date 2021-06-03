@@ -142,15 +142,9 @@ internal class OpenSSLInvokerTest {
             assert(verify(signature.bytes))
         }
 
-        // The last line from lines() can be just a blank string for some reason.
-        // The BufferedReader will not have a last line that is just a blank string, so
-        // we need to remove it.
-        val expectedLines = stringToSign.lines().toMutableList()
-            .apply {
-                if (last().isBlank()) {
-                    removeLast()
-                }
-            }
+        val expectedLines: List<String> = tempFileToSign.bufferedReader().useLines {
+            it.drop(1).toList() // drop the signature line
+        }
         val actualLines = ArrayList<String>(expectedLines.size)
         SignatureVerificationInputStream(
             stream = tempFileToSign.inputStream(),
@@ -192,7 +186,7 @@ internal class OpenSSLInvokerTest {
         // Failing on GitHub Runners --- IOException is thrown
         // assert(openSSLInvoker.isExecutablePresent()) { "missing openssl executable" }
 
-        val tempFileToSign = Files.createTempFile(
+        val signedDifferentStringFile = Files.createTempFile(
             "test-${UnixTimestamp.now().seconds}-${stringToSign.hashCode()}",
             null
         ).toFile()
@@ -202,34 +196,26 @@ internal class OpenSSLInvokerTest {
             }
 
         val key = PKCS8PrivateKeyFile.RSA(file = keyFile)
-        val signature = openSSLInvoker.signFile(key, tempFileToSign)
+        val signatureForStringToSign = openSSLInvoker.signFile(key, signedDifferentStringFile)
         // Replace the temp file contents with the different, unexpected string.
         // This function overwrites the file.
-        tempFileToSign.writeText(differentString)
+        signedDifferentStringFile.writeText(differentString)
         // Add the wrong signature.
-        tempFileToSign.prependLine(signature.s)
+        signedDifferentStringFile.prependLine(signatureForStringToSign.s)
 
         // sanity check
         Signature.getInstance(SIGNATURE_ALGORITHM, PROVIDER).apply {
             initVerify(publicKey)
             update(stringToSign.encodeToByteArray())
-            assert(verify(signature.bytes))
+            assert(verify(signatureForStringToSign.bytes))
             update(differentString.encodeToByteArray())
-            assertFalse(verify(signature.bytes))
+            assertFalse(verify(signatureForStringToSign.bytes))
         }
 
-        // The last line from lines() can be just a blank string for some reason.
-        // The BufferedReader will not have a last line that is just a blank string, so
-        // we need to remove it.
-        val expectedLines = stringToSign.lines().toMutableList()
-            .apply {
-                if (last().isBlank()) {
-                    removeLast()
-                }
-            }
-        val actualLines = ArrayList<String>(expectedLines.size)
+
+        val actualLines = ArrayList<String>()
         SignatureVerificationInputStream(
-            stream = tempFileToSign.inputStream(),
+            stream = signedDifferentStringFile.inputStream(),
             publicKey = publicKey,
             signatureAlgorithm = SIGNATURE_ALGORITHM,
         ).use {
@@ -237,7 +223,8 @@ internal class OpenSSLInvokerTest {
                 it.forEachLineThenVerify { actualLines.add(it) }
             }
         }
-        assertNotEquals(expectedLines, actualLines)
+        val linesFromStringToSign: List<String> = signedDifferentStringFile.bufferedReader().useLines { it.toList() }
+        assertNotEquals(linesFromStringToSign, actualLines)
     }
 
     @Test

@@ -18,6 +18,7 @@ import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.RSAPublicKeySpec
 import java.util.*
 import java.util.stream.Stream
+import kotlin.streams.toList
 
 internal class SignatureVerificationInputStreamTest {
     companion object {
@@ -134,6 +135,23 @@ internal class SignatureVerificationInputStreamTest {
             "4. This is a string: to sign.\r\nThere are multiple lines.\r\nHello there\r\n",
             "5. This is a string: to sign.\rThere are multiple lines.\rHello there\r\r\r",
             "6. This is a string: to sign.\nThere are multiple lines.\rHello there\n\n\n",
+            """{
+    "package":"com.example.appa",
+    "label":"AppA",
+    "lastUpdateTimestamp":1622699767,
+    "releases":[
+        {
+            "versionCode":1,
+            "versionName":"1.0",
+            "minSdkVersion":29,
+            "releaseTimestamp":1622699767,
+            "apkSha256":"/I+iQcq4RsmVu0MLfW+uZZL2mUv5WLJeNh4qv6PomJg=",
+            "v4SigSha256":"3/PxeJvFHKDlqUgk5PMojd2A6jfHklAQ3d51GMtCLu4=",
+            "releaseNotes":null
+        }
+    ]
+}"""
+            ,
             "app.attestation.auditor:26\norg.chromium.chrome:443009134\n",
             "app.attestation.auditor:26\norg.chromium.chrome:443009134",
         ]
@@ -171,15 +189,8 @@ internal class SignatureVerificationInputStreamTest {
         )
 
         encodedFilesToTest.forEachIndexed { index, encodedFile ->
-            // The last line from lines() can be just a blank string for some reason.
-            // The BufferedReader will not have a last line that is just a blank string, so
-            // we need to remove it.
-            val expectedLines: List<String> = stringToSign.lines().run {
-                if (last().isEmpty()) {
-                    subList(0, lastIndex)
-                } else {
-                    this
-                }
+            val expectedLines: List<String> = encodedFile.byteInputStream().bufferedReader().useLines {
+                it.drop(1).toList() // drop the signature line
             }
 
             val processedLinesFromStream: List<String> = SignatureVerificationInputStream(
@@ -223,9 +234,9 @@ internal class SignatureVerificationInputStreamTest {
                 "1620429240\napp.attestation.auditor:26\norg.chromium.chrome:443009135\n",
             ),
             Arguments.of(
-                "1620429240\napp.attestation.auditor:26\norg.chromium.chrome:443009135",
+                "1620429240\r\napp.attestation.auditor:26\r\norg.chromium.chrome:443009135",
                 // Auditor version is different
-                "1620429240\napp.attestation.auditor:25\norg.chromium.chrome:443009135",
+                "1620429240\r\napp.attestation.auditor:25\r\norg.chromium.chrome:443009135",
             ),
             Arguments.of(
                 "1620429240\napp.attestation.auditor:26\norg.chromium.chrome:443009135",
