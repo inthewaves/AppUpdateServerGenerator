@@ -39,7 +39,8 @@ object DbWrapper {
         appAdapter = App.Adapter(
             lastUpdateTimestampAdapter = unixTimestampAdapter,
             packageNameAdapter = packageNameAdapter,
-            groupIdAdapter = groupIdAdapter
+            groupIdAdapter = groupIdAdapter,
+            iconSignatureAdapter = base64StringAdapter
         )
         appReleaseAdapter = AppRelease.Adapter(
             versionCodeAdapter = versionCodeAdapter,

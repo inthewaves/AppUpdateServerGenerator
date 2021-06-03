@@ -597,6 +597,7 @@ private class AppRepoManagerImpl(
                             apksToInsert = apkInsertionGroup,
                             timestampForMetadata = timestampForMetadata,
                             promptForReleaseNotes = promptForReleaseNotes,
+                            signingKey = signingPrivateKey
                         )
 
                         deltaGenChannel.send(DeltaGenerationManager.GenerationRequest.ForPackage(
@@ -661,6 +662,7 @@ private class AppRepoManagerImpl(
         apksToInsert: PackageApkGroup.AscendingOrder,
         timestampForMetadata: UnixTimestamp,
         promptForReleaseNotes: Boolean,
+        signingKey: PKCS8PrivateKeyFile,
     ): Unit = withContext(repoDispatcher) {
         if (apksToInsert.sortedApks.isEmpty()) {
             return@withContext
@@ -709,7 +711,16 @@ private class AppRepoManagerImpl(
         }
 
         // This will handle copying the APKs.
-        appDao.upsertApks(appDir, apksToInsert, icon, releaseNotesForMostRecentVersion, timestampForMetadata, fileManager)
+        appDao.upsertApks(
+            appDir = appDir,
+            apksToInsert = apksToInsert,
+            icon = icon,
+            releaseNotesForMostRecentVersion = releaseNotesForMostRecentVersion,
+            updateTimestamp = timestampForMetadata,
+            signingKey = signingKey,
+            fileManager = fileManager,
+            openSSLInvoker = openSSLInvoker
+        )
     }
 
     /**

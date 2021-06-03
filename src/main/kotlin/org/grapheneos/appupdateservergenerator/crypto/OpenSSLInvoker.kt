@@ -96,6 +96,9 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
         return signature
     }
 
+    fun signBytes(privateKey: PKCS8PrivateKeyFile, byteArray: ByteArray): Base64String =
+        signFromInputStream(privateKey, byteArray.inputStream())
+
     /**
      * @see signFromInputStream
      * @return a base64-encoded signature of the [string]

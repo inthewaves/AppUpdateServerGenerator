@@ -36,6 +36,7 @@ data class AppMetadata(
     val packageName: PackageName,
     val groupId: GroupId? = null,
     val label: String,
+    val iconSignature: Base64String? = null,
     val lastUpdateTimestamp: UnixTimestamp,
     val releases: Set<ReleaseInfo>
 ) {
@@ -134,6 +135,7 @@ fun App.toSerializableModel(releases: Set<AppMetadata.ReleaseInfo>) = AppMetadat
     packageName = packageName,
     groupId = groupId,
     label = label,
+    iconSignature = iconSignature,
     lastUpdateTimestamp = lastUpdateTimestamp,
     releases = releases
 )
