@@ -124,7 +124,7 @@ sealed class PackageApkGroup private constructor(
                     }
 
                     async {
-                        AndroidApk.buildFromApkFileAndVerifySig(apkFile, aaptInvoker)
+                        AndroidApk.buildFromApkAndVerifySignature(apkFile, aaptInvoker)
                     }
                 }
                 .awaitAll()
@@ -175,7 +175,7 @@ sealed class PackageApkGroup private constructor(
             }
 
             val set = appDir.listApkFilesUnsorted()
-                .map { async { AndroidApk.buildFromApkFileAndVerifySig(it, aaptInvoker) } }
+                .map { async { AndroidApk.buildFromApkAndVerifySignature(it, aaptInvoker) } }
                 .mapTo(TreeSet(comparator)) { it.await() }
 
             val packageName = if (set.isEmpty()) appDir.packageName else set.first().packageName

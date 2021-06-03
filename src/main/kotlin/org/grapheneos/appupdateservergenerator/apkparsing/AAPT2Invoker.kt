@@ -16,20 +16,12 @@ import java.util.zip.ZipFile
  */
 class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath = aaptPath) {
     /**
-     * Reads the [apkFile] and populates the and returns an [AndroidApk.Builder] using the info extracted from the APK's
-     * manifest via `aapt2 dump badging`.
+     * Reads the [apkFile] and returns a [Pair] of the version name and the label for the APK using the info extracted
+     * from the APK's AndroidManifest via `aapt2 dump badging`.
      *
-     * Note: The returned builder is not complete; the only filled-in fields are [AndroidApk.Builder.packageName],
-     * [AndroidApk.Builder.apkFile], [AndroidApk.Builder.label], and [AndroidApk.Builder.versionName]. Other fields such
-     * as [AndroidApk.Builder.versionCode], [AndroidApk.Builder.minSdkVersion], and [AndroidApk.Builder.certificates]
-     * require special handling.
-     *
-     * @throws IOException if the APK file can't be processed by aapt2 / there is missing information
+     * @throws IOException if the APK file can't be processed or parsed by aapt2 / there is missing information
      */
-    fun getPartialAndroidAppDetailsAsBuilder(apkFile: File): AndroidApk.Builder {
-        val androidApkBuilder = AndroidApk.Builder()
-        androidApkBuilder.apkFile = apkFile
-
+    fun getVersionNameAndLabel(apkFile: File): Pair<String, String> {
         val badgingProcess: Process = ProcessBuilder(
             executablePath.toString(), "dump", "badging", apkFile.absolutePath,
         ).start()
@@ -70,36 +62,27 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
         locales: '--_--'
         densities: '120' '160' '240' '320' '480' '640' '65534'aa
          */
+        var versionName: String? = null
+        var label: String? = null
         badgingProcess.inputStream.bufferedReader().useLines { lineSequence ->
             lineSequence.forEach { line ->
-                androidApkBuilder.apply {
-                    when {
-                        packageName == null || versionCode == null || versionName == null -> {
-                            badgingFirstLineRegex.matchEntire(line)
-                                ?.let {
-                                    packageName = PackageName(it.groupValues[1])
-
-                                    versionCode = try {
-                                        VersionCode(it.groupValues[2].toLong())
-                                    } catch (e: NumberFormatException) {
-                                        throw IOException("failed to parse versionCode for $apkFile", e)
-                                    }
-
-                                    versionName = it.groupValues[3]
-                                }
-                        }
-                        label == null -> {
-                            badgingApplicationLabelLineRegex.matchEntire(line)
-                                ?.let { label = it.groupValues[1] }
-                        }
-                        else -> return androidApkBuilder
+                when {
+                    versionName == null -> {
+                        badgingFirstLineRegex.matchEntire(line)
+                            ?.let { versionName = it.groupValues[3] }
                     }
+                    label == null -> {
+                        badgingApplicationLabelLineRegex.matchEntire(line)
+                            ?.let { label = it.groupValues[1] }
+                    }
+                    else -> return@useLines
                 }
             }
         }
+        if (versionName != null && label != null) return versionName!! to label!!
 
         badgingProcess.waitFor()
-        throw IOException("failed to read APK details from aapt2; the builder is $androidApkBuilder")
+        throw IOException("failed to read versionName and label APK details from aapt2 for $apkFile")
     }
 
     /**

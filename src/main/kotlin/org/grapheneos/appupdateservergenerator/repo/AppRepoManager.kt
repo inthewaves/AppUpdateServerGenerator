@@ -277,7 +277,7 @@ private class AppRepoManagerImpl(
             )
         }
 
-        val latestApk = AndroidApk.buildFromApkFileAndVerifySig(apks.last(), aaptInvoker)
+        val latestApk = AndroidApk.buildFromApkAndVerifySignature(apks.last(), aaptInvoker)
         if (metadata.latestRelease().versionCode != latestApk.versionCode) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: latest APK versionCode in manifest mismatches with filename"
@@ -381,7 +381,7 @@ private class AppRepoManagerImpl(
         val parsedApks: SortedSet<AndroidApk> = coroutineScope {
             apks.map { apkFile ->
                 async {
-                    val parsedApk = AndroidApk.buildFromApkFileAndVerifySig(apkFile, aaptInvoker)
+                    val parsedApk = AndroidApk.buildFromApkAndVerifySignature(apkFile, aaptInvoker)
                     if (parsedApk.packageName != metadata.packageName) {
                         throw AppRepoException.InvalidRepoState(
                             "$pkg: mismatch between metadata package and package from manifest ($apkFile)"
