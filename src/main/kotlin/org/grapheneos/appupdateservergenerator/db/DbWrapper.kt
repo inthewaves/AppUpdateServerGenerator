@@ -24,7 +24,7 @@ object DbWrapper {
             override fun encode(value: VersionCode): Long = value.code
         }
         val base64StringAdapter = object : ColumnAdapter<Base64String, String> {
-            override fun decode(databaseValue: String): Base64String = Base64String(databaseValue)
+            override fun decode(databaseValue: String): Base64String = Base64String.fromBase64(databaseValue)
             override fun encode(value: Base64String): String = value.s
         }
         val packageNameAdapter = object : ColumnAdapter<PackageName, String> {

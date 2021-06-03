@@ -1,6 +1,7 @@
 package org.grapheneos.appupdateservergenerator.crypto
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.grapheneos.appupdateservergenerator.model.encodeToBase64String
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -17,7 +18,6 @@ import java.security.GeneralSecurityException
 import java.security.KeyFactory
 import java.security.Security
 import java.security.Signature
-import java.security.SignatureException
 import java.security.interfaces.RSAPrivateCrtKey
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
@@ -27,7 +27,7 @@ import java.util.stream.Stream
 
 internal class SignatureHeaderInputStreamTest {
     companion object {
-        private const val SIGNATURE_ALGORITHM = "SHA256withRSA"
+        private const val SIGNATURE_ALGORITHM = "SHA256withRSA/PSS"
     }
     private val privateKey: RSAPrivateCrtKey
     private val publicKey: RSAPublicKey
@@ -117,18 +117,21 @@ internal class SignatureHeaderInputStreamTest {
     @ParameterizedTest(name = "testNonSignatureBase64Header: {0}")
     @ValueSource(
         strings = [
-            "dGhpcyBpcyBub3QgYSBzaWduYXR1cmU=\nThat might be base64-encoded, but it's not a signature!",
+            "VGhhdCBtaWdodCBiZSBiYXNlNjQtZW5jb2RlZCwgYnV0IGl0J3Mgbm90IGEgc2lnbmF0dXJlIQ==\n" +
+                    "That might be base64-encoded, but it's not a signature!",
+            "bm9wZQ==\n\nThat might be base64-encoded, but it's not a signature!\n",
+            "Tm9wZQ==\r\nThat might be base64-encoded, but it's not a signature!\r",
         ]
     )
-    fun testNonSignatureBase64Header(stringToParse: String) {
+    fun testNonSignatureBase64Header(stringWithFakeSignatureHeader: String) {
         SignatureHeaderInputStream(
-            stream = stringToParse.byteInputStream(),
+            stream = stringWithFakeSignatureHeader.byteInputStream(),
             signatureAlgorithm = SIGNATURE_ALGORITHM,
             publicKey = publicKey
         ).use { verifiedStream ->
             while (verifiedStream.read() != -1) { // infinite loop
             }
-            assertThrows(SignatureException::class.java) { verifiedStream.verifyOrThrow() }
+            assertThrows(GeneralSecurityException::class.java) { verifiedStream.verifyOrThrow() }
         }
     }
 
@@ -138,7 +141,7 @@ internal class SignatureHeaderInputStreamTest {
         inputTestIndex: Int
     ) {
         mapOf(
-             "with signature algorithm with default provider" to SignatureHeaderInputStream(
+            "with signature algorithm with default provider" to SignatureHeaderInputStream(
                 stream = input.byteInputStream(),
                 publicKey = publicKey,
                 signatureAlgorithm = SIGNATURE_ALGORITHM,
@@ -155,7 +158,7 @@ internal class SignatureHeaderInputStreamTest {
                 publicKey = publicKey,
                 signature = Signature.getInstance(SIGNATURE_ALGORITHM)
             ),
-            "with pre-constructed Signature instance with BouncyCastle providerr" to SignatureHeaderInputStream(
+            "with pre-constructed Signature instance with BouncyCastle provider" to SignatureHeaderInputStream(
                 stream = input.byteInputStream(),
                 publicKey = publicKey,
                 signature = Signature.getInstance(SIGNATURE_ALGORITHM, "BC")
@@ -186,23 +189,24 @@ internal class SignatureHeaderInputStreamTest {
             "4. This is a string: to sign.\r\nThere are multiple lines.\r\nHello there\r\n",
             "5. This is a string: to sign.\rThere are multiple lines.\rHello there\r\r\r",
             "6. This is a string: to sign.\nThere are multiple lines.\rHello there\n\n\n",
+            "\r7. This starts with carriage return.\nThere are multiple lines.\nHello!\n\r\r\n\r\n\n\r\r\n\r",
             """{
-    "package":"com.example.appa",
-    "label":"AppA",
-    "lastUpdateTimestamp":1622699767,
-    "releases":[
-        {
-            "versionCode":1,
-            "versionName":"1.0",
-            "minSdkVersion":29,
-            "releaseTimestamp":1622699767,
-            "apkSha256":"/I+iQcq4RsmVu0MLfW+uZZL2mUv5WLJeNh4qv6PomJg=",
-            "v4SigSha256":"3/PxeJvFHKDlqUgk5PMojd2A6jfHklAQ3d51GMtCLu4=",
-            "releaseNotes":null
-        }
-    ]
-}"""
-            ,
+                "package":"com.example.appa",
+                "label":"AppA",
+                "lastUpdateTimestamp":1622699767,
+                "releases":[
+                    {
+                        "versionCode":1,
+                        "versionName":"1.0",
+                        "minSdkVersion":29,
+                        "releaseTimestamp":1622699767,
+                        "apkSha256":"/I+iQcq4RsmVu0MLfW+uZZL2mUv5WLJeNh4qv6PomJg=",
+                        "v4SigSha256":"3/PxeJvFHKDlqUgk5PMojd2A6jfHklAQ3d51GMtCLu4=",
+                        "releaseNotes":null
+                    }
+                ]
+            }           
+            """,
             "app.attestation.auditor:26\norg.chromium.chrome:443009134\n",
             "app.attestation.auditor:26\norg.chromium.chrome:443009134",
         ]
@@ -221,30 +225,45 @@ internal class SignatureHeaderInputStreamTest {
             assert(verify(signature))
         }
 
-        val encodedFilesToTest = listOf(
-            buildString {
-                append(Base64.getEncoder().encodeToString(signature))
-                append('\n')
-                append(stringToSign)
-            },
-            buildString {
-                append(Base64.getEncoder().encodeToString(signature))
-                append("\r\n")
-                append(stringToSign)
-            },
-            buildString {
-                append(Base64.getEncoder().encodeToString(signature))
-                append("\r")
-                append(stringToSign)
-            },
-        )
-
+        val encodedFilesToTest = createSignatureHeaderFilesForTest(signature, stringToSign)
         encodedFilesToTest.forEachIndexed { index, encodedFile ->
-            val expectedLines: List<String> = encodedFile.byteInputStream().bufferedReader().useLines {
+            val expectedLines: List<String> = encodedFile.fileContents.byteInputStream().bufferedReader().useLines {
                 it.drop(1).toList() // drop the signature line
             }
-            readSignatureHeaderStreamAndVerifyContentsAndSignature(expectedLines, encodedFile, index)
+            readSignatureHeaderStreamAndVerifyContentsAndSignature(expectedLines, encodedFile.fileContents, index)
         }
+    }
+
+    private sealed class SignatureHeaderFile private constructor(
+        signature: ByteArray,
+        lineSeparator: String,
+        stringSignedBySignature: String
+    ) {
+        val fileContents: String = "${signature.encodeToBase64String().s}$lineSeparator$stringSignedBySignature"
+
+        class LFSeparatingTheSignature(
+            signature: ByteArray,
+            stringSignedBySignature: String
+        ) : SignatureHeaderFile(signature, "\n", stringSignedBySignature)
+        class CRLFSeparatingTheSignature(
+            signature: ByteArray,
+            stringSignedBySignature: String
+        ) : SignatureHeaderFile(signature, "\r\n", stringSignedBySignature)
+        class CRSeparatingTheSignature(
+            signature: ByteArray,
+            stringSignedBySignature: String
+        ) : SignatureHeaderFile(signature, "\r", stringSignedBySignature)
+    }
+
+    private fun createSignatureHeaderFilesForTest(
+        signature: ByteArray,
+        stringToSign: String
+    ): List<SignatureHeaderFile> {
+        return listOf(
+            SignatureHeaderFile.LFSeparatingTheSignature(signature, stringToSign),
+            SignatureHeaderFile.CRLFSeparatingTheSignature(signature, stringToSign),
+            SignatureHeaderFile.CRSeparatingTheSignature(signature, stringToSign),
+        )
     }
 
     class FailedVerificationArgumentProvider : ArgumentsProvider {
@@ -286,29 +305,10 @@ internal class SignatureHeaderInputStreamTest {
             assertFalse(verify(signature))
         }
 
-        val encodedSignature = Base64.getEncoder().encodeToString(signature)
-
-        val encodedFilesToTest = listOf(
-            buildString {
-                append(encodedSignature)
-                append('\n')
-                append(differentString)
-            },
-            buildString {
-                append(encodedSignature)
-                append("\r\n")
-                append(differentString)
-            },
-            buildString {
-                append(encodedSignature)
-                append("\r")
-                append(differentString)
-            },
-        )
-
-        encodedFilesToTest.forEachIndexed { index, encodedFile ->
+        val encodedFilesMismatched = createSignatureHeaderFilesForTest(signature, differentString)
+        encodedFilesMismatched.forEachIndexed { index, encodedFile: SignatureHeaderFile ->
             SignatureHeaderInputStream(
-                stream = encodedFile.byteInputStream(),
+                stream = encodedFile.fileContents.byteInputStream(),
                 publicKey = publicKey,
                 signatureAlgorithm = SIGNATURE_ALGORITHM,
             ).use { verificationInputStream ->
@@ -320,9 +320,9 @@ internal class SignatureHeaderInputStreamTest {
                     "expected encoded file[$index] to fail verification, but didn't"
                 )
                 val linesFromSignedString = stringToSign.byteInputStream().bufferedReader().lineSequence().toList()
-                assertNotEquals(linesFromSignedString, linesRead)
+                assertNotEquals(linesFromSignedString, linesRead) { "expected not equal for encoded index $index,, but was equal" }
                 val linesFromOriginalString = differentString.byteInputStream().bufferedReader().lineSequence().toList()
-                assertEquals(linesFromOriginalString, linesRead)
+                assertEquals(linesFromOriginalString, linesRead) { "not equal for encoded index $index" }
             }
         }
     }

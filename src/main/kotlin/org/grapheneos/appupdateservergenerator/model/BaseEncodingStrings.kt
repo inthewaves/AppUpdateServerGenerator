@@ -5,22 +5,23 @@ import java.util.Base64
 
 @Serializable
 @JvmInline
-value class Base64String(val s: String) {
+value class Base64String private constructor(val s: String) {
     val bytes: ByteArray get() = Base64.getDecoder().decode(s)
-    init {
-        // make sure that this is actually a base64 string
-        require(Base64.getDecoder().decode(s) != null)
-    }
 
     companion object {
         /**
          * Encodes the given bytes into a [Base64String].
          */
         fun encodeFromBytes(bytes: ByteArray) = Base64String(Base64.getEncoder().encodeToString(bytes))
+
+        fun fromBase64(base64String: String): Base64String {
+            require(Base64.getDecoder().decode(base64String) != null)
+            return Base64String(base64String)
+        }
     }
 }
 
-fun ByteArray.toBase64String() = Base64String.encodeFromBytes(this)
+fun ByteArray.encodeToBase64String() = Base64String.encodeFromBytes(this)
 
 @Serializable
 @JvmInline

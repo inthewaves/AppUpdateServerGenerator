@@ -38,7 +38,7 @@ import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
-import org.grapheneos.appupdateservergenerator.model.toBase64String
+import org.grapheneos.appupdateservergenerator.model.encodeToBase64String
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import org.grapheneos.appupdateservergenerator.util.Either
 import org.grapheneos.appupdateservergenerator.util.asEitherLeft
@@ -415,7 +415,7 @@ private class AppRepoManagerImpl(
                             "$pkg: APK ($apkFile) exceeds the latest version code from metadata"
                         )
                     }
-                    if (parsedApk.apkFile.digest("SHA-256").toBase64String() !=
+                    if (parsedApk.apkFile.digest("SHA-256").encodeToBase64String() !=
                         releaseInfoForThisVersion.apkSha256
                     ) {
                         throw AppRepoException.InvalidRepoState(

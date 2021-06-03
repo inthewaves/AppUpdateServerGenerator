@@ -15,14 +15,11 @@ import org.grapheneos.appupdateservergenerator.db.App
 import org.grapheneos.appupdateservergenerator.db.AppRelease
 import org.grapheneos.appupdateservergenerator.db.DeltaInfo
 import org.grapheneos.appupdateservergenerator.files.FileManager
-import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
-import org.grapheneos.appupdateservergenerator.model.toBase64String
-import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.FileFilter
 import java.io.IOException
 import java.util.SortedSet

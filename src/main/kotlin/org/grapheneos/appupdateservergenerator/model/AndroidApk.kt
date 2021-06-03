@@ -1,10 +1,8 @@
 package org.grapheneos.appupdateservergenerator.model
 
 import com.android.apksig.ApkSigner
-import com.android.apksig.ApkVerifier
 import com.android.apksig.apk.ApkFormatException
 import com.android.apksig.apk.ApkUtils
-import com.android.apksig.internal.util.AndroidSdkVersion
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.db.AppRelease
 import org.grapheneos.appupdateservergenerator.util.digest
@@ -43,10 +41,10 @@ data class AndroidApk private constructor(
         versionCode = versionCode,
         minSdkVersion = minSdkVersion,
         releaseTimestamp = releaseTimestamp,
-        apkSha256 = apkFile.digest("SHA-256").toBase64String(),
+        apkSha256 = apkFile.digest("SHA-256").encodeToBase64String(),
         v4SigSha256 = (verifyResult as? ApkVerifyResult.V4)?.v4SignatureFile
             ?.digest("SHA-256")
-            ?.toBase64String(),
+            ?.encodeToBase64String(),
         releaseNotes = releaseNotes
     )
 
