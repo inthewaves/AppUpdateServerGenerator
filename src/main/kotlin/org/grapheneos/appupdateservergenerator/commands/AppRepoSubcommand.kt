@@ -1,9 +1,12 @@
 package org.grapheneos.appupdateservergenerator.commands
 
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.parameters.options.default
+import com.github.ajalt.clikt.parameters.options.defaultLazy
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.file
+import com.github.ajalt.clikt.parameters.types.int
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.files.FileManager
@@ -46,6 +49,14 @@ abstract class AppRepoSubcommand(
         help = "Whether to turn on verbosity (exception stack traces will be printed)"
     ).flag()
 
+    protected val numJobs: Int by option(
+        names = arrayOf("--jobs", "-j"),
+        help = "Number of threads / jobs to use for the thread pool.",
+    ).int().default(
+        Runtime.getRuntime().availableProcessors() + 2,
+        defaultForHelp = "Defaults to numCpus + 2 (${Runtime.getRuntime().availableProcessors() + 2})"
+    )
+
     protected val aaptInvoker = AAPT2Invoker()
     protected val openSSLInvoker = OpenSSLInvoker()
 
@@ -61,7 +72,8 @@ abstract class AppRepoSubcommand(
         AppRepoManager(
             fileManager = fileManager,
             aaptInvoker = aaptInvoker,
-            openSSLInvoker = openSSLInvoker
+            openSSLInvoker = openSSLInvoker,
+            numJobs = numJobs
         )
     }
 

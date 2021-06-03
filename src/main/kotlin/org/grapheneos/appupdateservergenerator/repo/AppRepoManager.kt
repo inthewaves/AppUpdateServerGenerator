@@ -133,8 +133,9 @@ interface AppRepoManager {
 fun AppRepoManager(
     fileManager: FileManager,
     aaptInvoker: AAPT2Invoker,
-    openSSLInvoker: OpenSSLInvoker
-): AppRepoManager = AppRepoManagerImpl(fileManager, aaptInvoker, openSSLInvoker)
+    openSSLInvoker: OpenSSLInvoker,
+    numJobs: Int
+): AppRepoManager = AppRepoManagerImpl(fileManager, aaptInvoker, openSSLInvoker, numJobs)
 
 /**
  * The implementation of [AppRepoManager].
@@ -144,14 +145,15 @@ fun AppRepoManager(
 private class AppRepoManagerImpl(
     private val fileManager: FileManager,
     private val aaptInvoker: AAPT2Invoker,
-    private val openSSLInvoker: OpenSSLInvoker
+    private val openSSLInvoker: OpenSSLInvoker,
+    numJobs: Int
 ): AppRepoManager {
     companion object {
         private const val EDITOR_IGNORE_PREFIX = "//##:"
         private const val MAX_CONCURRENT_DELTA_APPLIES_FOR_VERIFICATION = 4
     }
 
-    private val executorService: ExecutorService = Executors.newFixedThreadPool(64)
+    private val executorService: ExecutorService = Executors.newFixedThreadPool(numJobs)
     private val repoDispatcher = executorService.asCoroutineDispatcher()
 
     private val database: Database = DbWrapper.getDbInstance(fileManager)
