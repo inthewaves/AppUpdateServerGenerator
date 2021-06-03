@@ -94,19 +94,19 @@ sealed class PackageApkGroup private constructor(
          * Constructs a [PackageApkGroup.AscendingOrder] list from a given list of [apkFilePaths].
          * This will group every APK by package.
          */
-        suspend fun fromFilesAscending(
+        suspend fun createListFromFilesAscending(
             apkFilePaths: Iterable<File>,
             aaptInvoker: AAPT2Invoker,
         ): List<AscendingOrder> {
             @Suppress("UNCHECKED_CAST")
-            return fromFiles(
+            return createListFromFiles(
                 apkFilePaths = apkFilePaths,
                 aaptInvoker = aaptInvoker,
                 ascendingOrder = true
             ) as List<AscendingOrder>
         }
 
-        private suspend fun fromFiles(
+        private suspend fun createListFromFiles(
             apkFilePaths: Iterable<File>,
             aaptInvoker: AAPT2Invoker,
             ascendingOrder: Boolean

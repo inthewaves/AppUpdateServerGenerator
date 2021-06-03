@@ -515,7 +515,7 @@ private class AppRepoManagerImpl(
         val packageApkGroups: List<PackageApkGroup.AscendingOrder>
         val timeTaken = measureTimeMillis {
             packageApkGroups = try {
-                PackageApkGroup.fromFilesAscending(
+                PackageApkGroup.createListFromFilesAscending(
                     apkFilePaths = apkFilePaths,
                     aaptInvoker = aaptInvoker
                 )
@@ -525,6 +525,17 @@ private class AppRepoManagerImpl(
         }
         println("took $timeTaken ms to parse APKs")
         println("found the following packages: ${packageApkGroups.map { it.packageName }}")
+
+        packageApkGroups.forEach { apkGroup ->
+            apkGroup.sortedApks.forEach { apk ->
+                if (apk.debuggable) {
+                    throw AppRepoException.InsertFailed(
+                        "${apk.apkFile} is marked as debuggable, which is not allowed for security reasons. " +
+                                "The Android platform loosens security checks for such APKs."
+                    )
+                }
+            }
+        }
 
         val timestampForMetadata = UnixTimestamp.now()
 
