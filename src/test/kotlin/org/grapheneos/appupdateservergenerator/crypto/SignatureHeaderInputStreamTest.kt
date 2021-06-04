@@ -1,5 +1,8 @@
 package org.grapheneos.appupdateservergenerator.crypto
 
+import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.encodeToBase64String
@@ -8,6 +11,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -325,6 +329,142 @@ internal class SignatureHeaderInputStreamTest {
             val linesFromOriginalString = differentString.byteInputStream().bufferedReader().lineSequence().toList()
             assertEquals(linesFromOriginalString, linesRead) { "not equal" }
         }
+    }
 
+    @Test
+    fun testJsonParsing() {
+        val mapper = jacksonObjectMapper()
+
+        val instances = listOf(
+            SomethingSerializable(
+                SomeInlineClass("com.example"),
+                SomethingSerializable.NestedItem(5454),
+                listOf(
+                    SomethingSerializable.NestedItem(5454),
+                )
+            ),
+            SomethingSerializable(
+                SomeInlineClass("com.example.no"),
+                SomethingSerializable.NestedItem(111),
+                listOf(
+                    SomethingSerializable.NestedItem(2222),
+                    SomethingSerializable.NestedItem(986),
+                    SomethingSerializable.NestedItem(-45),
+                )
+            )
+        )
+        val json = """
+            [
+                {
+                    "someName":"com.example",
+                    "propertyA":{"otherProperty":5454},
+                    "propertyB":[{"otherProperty":5454}]
+                },
+                {
+                    "someName":"com.example.no",
+                    "propertyA":{"otherProperty":111},
+                    "propertyB":[{"otherProperty":2222},{"otherProperty":986},{"otherProperty":-45}]
+                }
+            ]
+            """.trimIndent()
+        val signature = Signature.getInstance(SIGNATURE_ALGORITHM).run {
+            initSign(privateKey)
+            update(json.encodeToByteArray())
+            sign()!!
+        }
+
+        val instancesJsonWithSignatureHeader =
+            "${SignatureHeaderInputStream.createSignatureHeaderWithLineFeed(signature.encodeToBase64String())}${json}"
+        // we expect that the input stream just contains the JSON stuff
+        SignatureHeaderInputStream(instancesJsonWithSignatureHeader.byteInputStream(), publicKey, SIGNATURE_ALGORITHM)
+            .use { signatureInputStream ->
+                // this should consume the whole stream and make the java.security.Signature instance ready for
+                // verification
+                val instancesFromJson = mapper.readerFor(SomethingSerializable::class.java)
+                    .readValues<SomethingSerializable>(signatureInputStream)
+                    .asSequence()
+                    .toCollection(ArrayList<SomethingSerializable>(2))
+                assertEquals(instances, instancesFromJson)
+                // check signature verification
+                assert(signatureInputStream.verify())
+            }
+
+        val differentInstances = listOf(
+            SomethingSerializable(
+                SomeInlineClass("com.example.amdifferent"),
+                SomethingSerializable.NestedItem(5454),
+                listOf(
+                    SomethingSerializable.NestedItem(5454),
+                )
+            ),
+            SomethingSerializable(
+                SomeInlineClass("com.example.no"),
+                SomethingSerializable.NestedItem(111),
+                listOf(
+                    SomethingSerializable.NestedItem(2222),
+                    SomethingSerializable.NestedItem(986),
+                    SomethingSerializable.NestedItem(-45),
+                )
+            )
+        )
+        val differentJson = """
+            [
+                {
+                    "someName":"com.example.amdifferent",
+                    "propertyA":{"otherProperty":5454},
+                    "propertyB":[{"otherProperty":5454}]
+                },
+                {
+                    "someName":"com.example.no",
+                    "propertyA":{"otherProperty":111},
+                    "propertyB":[{"otherProperty":2222},{"otherProperty":986},{"otherProperty":-45}]
+                }
+            ]
+            """.trimIndent()
+
+        val differentJsonWithMismatchedSignatureHeader =
+            SignatureHeaderInputStream.createSignatureHeaderWithLineFeed(signature.encodeToBase64String()) +
+                    differentJson
+
+        SignatureHeaderInputStream(differentJsonWithMismatchedSignatureHeader.byteInputStream(), publicKey, SIGNATURE_ALGORITHM)
+            .use { signatureInputStream ->
+                val instancesFromJson = mapper.readerFor(SomethingSerializable::class.java)
+                    .readValues<SomethingSerializable>(signatureInputStream)
+                    .asSequence()
+                    .toCollection(ArrayList<SomethingSerializable>(2))
+                assertNotEquals(instances, instancesFromJson)
+                assertEquals(differentInstances, instancesFromJson)
+                assertFalse(signatureInputStream.verify())
+            }
+    }
+}
+
+@JvmInline
+value class SomeInlineClass constructor(@JsonProperty val value: String)
+
+internal data class SomethingSerializable constructor(
+    val someName: SomeInlineClass,
+    val propertyA: NestedItem,
+    val propertyB: List<NestedItem>
+) {
+
+    data class NestedItem constructor(
+        val otherProperty: Int
+    )
+
+    companion object {
+
+        /**
+         * a [JsonCreator] to deal with inline class breakage:
+         * https://github.com/FasterXML/jackson-module-kotlin/issues/413#issuecomment-824148244
+         */
+        @JvmStatic
+        @JsonCreator
+        @Suppress("UNUSED")
+        fun create(
+            someName: String,
+            propertyA: NestedItem,
+            propertyB: List<NestedItem>
+        ) = SomethingSerializable(SomeInlineClass(someName), propertyA, propertyB)
     }
 }

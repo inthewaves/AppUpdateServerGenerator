@@ -52,6 +52,11 @@ dependencies {
     implementation("com.squareup.sqldelight:sqlite-driver:1.5.0")
     implementation("org.bouncycastle:bcprov-jdk15on:1.68")
 
+    val jacksonVersion = "2.12.3"
+    testImplementation("com.fasterxml.jackson.core:jackson-databind:$jacksonVersion")
+    testImplementation("com.fasterxml.jackson.module:jackson-module-kotlin:$jacksonVersion")
+    testImplementation("org.jetbrains.kotlin:kotlin-reflect:1.5.10")
+
     testImplementation(kotlin("test-junit5"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.6.0")
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.6.0")
