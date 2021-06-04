@@ -34,18 +34,20 @@ fun File.digest(messageDigest: MessageDigest): ByteArray {
 fun File.digest(digestAlgorithm: String): ByteArray = digest(MessageDigest.getInstance(digestAlgorithm))
 
 /**
- * Prepends the [line] to this file. The implementation creates a temporary file, appends the [line] to the temp file,
- * copies the rest of the original contents under it, and then overwrites the original file with the temp file.
- * This file should be a plaintext file.
+ * Prepends the [string] to this file. The implementation creates a temporary file, appends the [string] to the temp
+ * file, copies the rest of the original contents to the end of the [string], and then overwrites the original file with
+ * the temp file. This [File] should be a plaintext file.
+ *
+ * The caller can decide if the [string] should be a new line or if the contents of the file should just be appended to
+ * the end of the file by choosing to include a line feed (`\n`) character in the [string].
  *
  * @throws IOException if an I/O error occurs (especially around creating temporary files).
  */
-fun File.prependLine(line: String) {
+fun File.prependString(string: String) {
     TempFile.create("temp-prependLine").useFile { tempFile ->
         // Prepend the line
         tempFile.outputStream().bufferedWriter().use {
-            it.appendLine(line)
-            it.flush()
+            it.append(string)
         }
         // Add the rest of the file
         FileOutputStream(tempFile, true).buffered().use { output ->
@@ -85,7 +87,7 @@ fun File.removeFirstLine(): String? {
 
             // Account for CRLF
             if (lastCharRead == '\r') {
-                lastCharRead = reader.read().let { if (it == -1) null else it.toChar() }
+                lastCharRead = reader.read().takeUnless { it == -1 }?.toChar()
                 if (lastCharRead == '\n') {
                     offset++
                 }

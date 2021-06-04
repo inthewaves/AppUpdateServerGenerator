@@ -11,6 +11,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.crypto.SignatureHeaderInputStream
 import org.grapheneos.appupdateservergenerator.db.App
 import org.grapheneos.appupdateservergenerator.db.AppRelease
 import org.grapheneos.appupdateservergenerator.db.DeltaInfo
@@ -82,7 +83,7 @@ data class AppMetadata(
         val latestAppVersionInfoJson = writeToString()
         val signature = openSSLInvoker.signString(privateKey, latestAppVersionInfoJson)
         fileManager.getLatestAppMetadata(pkg = packageName).bufferedWriter().use { writer ->
-            writer.appendLine(signature.s)
+            writer.append(SignatureHeaderInputStream.createSignatureHeaderWithLineFeed(signature))
             writer.append(latestAppVersionInfoJson)
             writer.flush()
         }

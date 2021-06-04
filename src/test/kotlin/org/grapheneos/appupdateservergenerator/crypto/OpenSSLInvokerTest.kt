@@ -2,7 +2,7 @@ package org.grapheneos.appupdateservergenerator.crypto
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
-import org.grapheneos.appupdateservergenerator.util.prependLine
+import org.grapheneos.appupdateservergenerator.util.prependString
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -205,7 +205,9 @@ internal class OpenSSLInvokerTest {
         // This function overwrites the file.
         signedDifferentStringFile.writeText(differentString)
         // Add the wrong signature.
-        signedDifferentStringFile.prependLine(signatureForStringToSign.s)
+        signedDifferentStringFile.prependString(
+            SignatureHeaderInputStream.createSignatureHeaderWithLineFeed(signatureForStringToSign)
+        )
 
         // sanity check
         Signature.getInstance(SIGNATURE_ALGORITHM, PROVIDER).apply {

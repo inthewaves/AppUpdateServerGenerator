@@ -1,19 +1,20 @@
 package org.grapheneos.appupdateservergenerator.crypto
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.encodeToBase64String
 import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
-import org.junit.jupiter.api.Assumptions
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.ArgumentsProvider
 import org.junit.jupiter.params.provider.ArgumentsSource
 import org.junit.jupiter.params.provider.ValueSource
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyFactory
@@ -130,37 +131,47 @@ internal class SignatureHeaderInputStreamTest {
             signatureAlgorithm = SIGNATURE_ALGORITHM,
             publicKey = publicKey
         ).use { verifiedStream ->
-            while (verifiedStream.read() != -1) { // infinite loop
+            assertThrows(IOException::class.java) {
+                verifiedStream.readBytes()
             }
-            assertThrows(GeneralSecurityException::class.java) { verifiedStream.verifyOrThrow() }
+        }
+
+        SignatureHeaderInputStream(
+            stream = stringWithFakeSignatureHeader.byteInputStream(),
+            signatureAlgorithm = SIGNATURE_ALGORITHM,
+            publicKey = publicKey
+        ).use { verifiedStream ->
+            assertThrows(IOException::class.java) {
+                while (verifiedStream.read() != -1) { // attempt to read the whole thing
+                }
+            }
         }
     }
 
     private fun readSignatureHeaderStreamAndVerifyContentsAndSignature(
         expectedLines: List<String>,
-        input: String,
-        inputTestIndex: Int
+        input: ByteArray
     ) {
         mapOf(
             "with signature algorithm with default provider" to SignatureHeaderInputStream(
-                stream = input.byteInputStream(),
+                stream = input.inputStream(),
                 publicKey = publicKey,
                 signatureAlgorithm = SIGNATURE_ALGORITHM,
                 provider = null
             ),
             "with signature algorithm with BouncyCastle provider" to SignatureHeaderInputStream(
-                stream = input.byteInputStream(),
+                stream = input.inputStream(),
                 publicKey = publicKey,
                 signatureAlgorithm = SIGNATURE_ALGORITHM,
                 provider = "BC"
             ),
             "with pre-constructed Signature instance with default provider" to SignatureHeaderInputStream(
-                stream = input.byteInputStream(),
+                stream = input.inputStream(),
                 publicKey = publicKey,
                 signature = Signature.getInstance(SIGNATURE_ALGORITHM)
             ),
             "with pre-constructed Signature instance with BouncyCastle provider" to SignatureHeaderInputStream(
-                stream = input.byteInputStream(),
+                stream = input.inputStream(),
                 publicKey = publicKey,
                 signature = Signature.getInstance(SIGNATURE_ALGORITHM, "BC")
             ),
@@ -169,11 +180,11 @@ internal class SignatureHeaderInputStreamTest {
                 verificationInputStream.bufferedReader().forEachLine { list.add(it) }
                 assertDoesNotThrow({
                     verificationInputStream.verifyOrThrow()
-                }, "unexpected exception for encoded file index $inputTestIndex using $description. " +
+                }, "unexpected exception for encoded file using $description. " +
                         "string input:\n[$input]")
             }
             assertEquals(expectedLines, processedLinesFromStream) {
-                "line processing of encodedFile failed for #$inputTestIndex using $description:\n" +
+                "line processing of encodedFile failed for using $description:\n" +
                         "string input:\n[$input]"
             }
         }
@@ -228,59 +239,32 @@ internal class SignatureHeaderInputStreamTest {
             assert(verify(signature))
         }
 
-        val encodedFilesToTest = createSignatureHeaderFilesForTest(signature, stringToSign)
-        encodedFilesToTest.forEachIndexed { index, encodedFile ->
-            if (encodedFile is SignatureHeaderFile.CRSeparatingTheSignature) {
-                Assumptions.assumeFalse({ stringToSign.startsWith('\n') }) {
-                    """a CR separating the signature and the string beginning with LF means the 
-                        |${SignatureHeaderInputStream::class.java.simpleName} will treat it as a CRLF sequence. This
-                        |means the stream will skip over the LF character in the string, and the signature verifications
-                        |will only include content after that. 
-                        |
-                        |However, this is not likely to happen in any actual usage. This software is
-                        |designed for Linux, so using CR is very unlikely. Furthermore, the software specifically
-                        |inserts a LF (\n) character when constructing signature header files.
-                    """.trimMargin()
-                }
-            }
+        val encodedFile = createSignatureHeaderFilesForTest(signature, stringToSign)
 
-            val expectedLines: List<String> = encodedFile.fileContents.byteInputStream().bufferedReader().useLines {
-                it.drop(1).toList() // drop the signature line
-            }
-            readSignatureHeaderStreamAndVerifyContentsAndSignature(expectedLines, encodedFile.fileContents, index)
+        val expectedLines: List<String> = encodedFile.fileContents.inputStream().bufferedReader().useLines {
+            it.drop(1).toList() // drop the signature line
         }
+        readSignatureHeaderStreamAndVerifyContentsAndSignature(expectedLines, encodedFile.fileContents)
+
     }
 
-    private sealed class SignatureHeaderFile private constructor(
-        signature: ByteArray,
-        lineSeparator: String,
-        stringSignedBySignature: String
+    private data class SignatureHeaderFile constructor(
+        val signature: Base64String,
+        val stringSignedBySignature: String
     ) {
-        val fileContents: String = "${signature.encodeToBase64String().s}$lineSeparator$stringSignedBySignature"
-
-        class LFSeparatingTheSignature(
-            signature: ByteArray,
-            stringSignedBySignature: String
-        ) : SignatureHeaderFile(signature, "\n", stringSignedBySignature)
-        class CRLFSeparatingTheSignature(
-            signature: ByteArray,
-            stringSignedBySignature: String
-        ) : SignatureHeaderFile(signature, "\r\n", stringSignedBySignature)
-        class CRSeparatingTheSignature(
-            signature: ByteArray,
-            stringSignedBySignature: String
-        ) : SignatureHeaderFile(signature, "\r", stringSignedBySignature)
+        val fileContents: ByteArray = ByteArrayOutputStream().run {
+            writeBytes(SignatureHeaderInputStream.createSignatureHeaderWithLineFeed(signature).encodeToByteArray())
+            bufferedWriter().use { it.write(stringSignedBySignature) }
+            toByteArray()
+        }
     }
 
     private fun createSignatureHeaderFilesForTest(
         signature: ByteArray,
         stringToSign: String
-    ): List<SignatureHeaderFile> {
-        return listOf(
-            SignatureHeaderFile.LFSeparatingTheSignature(signature, stringToSign),
-            SignatureHeaderFile.CRLFSeparatingTheSignature(signature, stringToSign),
-            SignatureHeaderFile.CRSeparatingTheSignature(signature, stringToSign),
-        )
+    ): SignatureHeaderFile {
+        val base64Signature = signature.encodeToBase64String()
+        return SignatureHeaderFile(base64Signature, stringToSign)
     }
 
     class FailedVerificationArgumentProvider : ArgumentsProvider {
@@ -322,25 +306,25 @@ internal class SignatureHeaderInputStreamTest {
             assertFalse(verify(signature))
         }
 
-        val encodedFilesMismatched = createSignatureHeaderFilesForTest(signature, differentString)
-        encodedFilesMismatched.forEachIndexed { index, encodedFile: SignatureHeaderFile ->
-            SignatureHeaderInputStream(
-                stream = encodedFile.fileContents.byteInputStream(),
-                publicKey = publicKey,
-                signatureAlgorithm = SIGNATURE_ALGORITHM,
-            ).use { verificationInputStream ->
-                val linesRead = mutableListOf<String>()
-                verificationInputStream.bufferedReader().forEachLine { linesRead.add(it) }
-                assertThrows(
-                    GeneralSecurityException::class.java,
-                    { verificationInputStream.verifyOrThrow() },
-                    "expected encoded file[$index] to fail verification, but didn't"
-                )
-                val linesFromSignedString = stringToSign.byteInputStream().bufferedReader().lineSequence().toList()
-                assertNotEquals(linesFromSignedString, linesRead) { "expected not equal for encoded index $index,, but was equal" }
-                val linesFromOriginalString = differentString.byteInputStream().bufferedReader().lineSequence().toList()
-                assertEquals(linesFromOriginalString, linesRead) { "not equal for encoded index $index" }
-            }
+        val encodedFilesMismatch = createSignatureHeaderFilesForTest(signature, differentString)
+        SignatureHeaderInputStream(
+            stream = encodedFilesMismatch.fileContents.inputStream(),
+            publicKey = publicKey,
+            signatureAlgorithm = SIGNATURE_ALGORITHM,
+        ).use { verificationInputStream ->
+            val linesRead = mutableListOf<String>()
+            verificationInputStream.bufferedReader().forEachLine { linesRead.add(it) }
+            assert(linesRead.isNotEmpty())
+            assertThrows(
+                GeneralSecurityException::class.java,
+                { verificationInputStream.verifyOrThrow() },
+                "expected encoded file to fail verification, but didn't"
+            )
+            val linesFromSignedString = stringToSign.byteInputStream().bufferedReader().lineSequence().toList()
+            assertNotEquals(linesFromSignedString, linesRead) { "expected not equal for encoded, but was equal" }
+            val linesFromOriginalString = differentString.byteInputStream().bufferedReader().lineSequence().toList()
+            assertEquals(linesFromOriginalString, linesRead) { "not equal" }
         }
+
     }
 }

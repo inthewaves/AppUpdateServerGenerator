@@ -3,7 +3,7 @@ package org.grapheneos.appupdateservergenerator.crypto
 import org.grapheneos.appupdateservergenerator.files.TempFile
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.util.Invoker
-import org.grapheneos.appupdateservergenerator.util.prependLine
+import org.grapheneos.appupdateservergenerator.util.prependString
 import org.grapheneos.appupdateservergenerator.util.readTextFromErrorStream
 import org.grapheneos.appupdateservergenerator.util.removeFirstLine
 import java.io.File
@@ -131,13 +131,15 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
      * first line of the file. The [fileToSign] should be a plaintext file.
      *
      * @see signFromInputStream
-     * @see prependLine
+     * @see prependString
      * @return a base64-encoded signature of the [fileToSign]
      * @throws IOException if an I/O exception occurs
      */
     fun signFileAndPrependSignatureToFile(privateKey: PKCS8PrivateKeyFile, fileToSign: File): Base64String =
         signFile(privateKey, fileToSign)
-            .also { signature -> fileToSign.prependLine(signature.s) }
+            .also { signature ->
+                fileToSign.prependString(SignatureHeaderInputStream.createSignatureHeaderWithLineFeed(signature))
+            }
 
     /**
      * @throws GeneralSecurityException
