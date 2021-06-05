@@ -20,6 +20,7 @@ import org.junit.jupiter.params.provider.ArgumentsSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.security.GeneralSecurityException
 import java.security.KeyFactory
 import java.security.Security
@@ -152,49 +153,6 @@ internal class SignatureHeaderInputStreamTest {
         }
     }
 
-    private fun readSignatureHeaderStreamAndVerifyContentsAndSignature(
-        expectedLines: List<String>,
-        input: ByteArray
-    ) {
-        mapOf(
-            "with signature algorithm with default provider" to SignatureHeaderInputStream(
-                stream = input.inputStream(),
-                publicKey = publicKey,
-                signatureAlgorithm = SIGNATURE_ALGORITHM,
-                provider = null
-            ),
-            "with signature algorithm with BouncyCastle provider" to SignatureHeaderInputStream(
-                stream = input.inputStream(),
-                publicKey = publicKey,
-                signatureAlgorithm = SIGNATURE_ALGORITHM,
-                provider = "BC"
-            ),
-            "with pre-constructed Signature instance with default provider" to SignatureHeaderInputStream(
-                stream = input.inputStream(),
-                publicKey = publicKey,
-                signature = Signature.getInstance(SIGNATURE_ALGORITHM)
-            ),
-            "with pre-constructed Signature instance with BouncyCastle provider" to SignatureHeaderInputStream(
-                stream = input.inputStream(),
-                publicKey = publicKey,
-                signature = Signature.getInstance(SIGNATURE_ALGORITHM, "BC")
-            ),
-        ).forEach { (description, verificationInputStream) ->
-            val processedLinesFromStream = ArrayList<String>().also { list ->
-                verificationInputStream.bufferedReader().forEachLine { list.add(it) }
-                assertDoesNotThrow({
-                    verificationInputStream.verifyOrThrow()
-                }, "unexpected exception for encoded file using $description. " +
-                        "string input:\n[$input]")
-            }
-            assertEquals(expectedLines, processedLinesFromStream) {
-                "line processing of encodedFile failed for using $description:\n" +
-                        "string input:\n[$input]"
-            }
-        }
-    }
-
-
     // https://github.com/junit-team/junit5-samples/tree/r5.7.1
     @ParameterizedTest(name = "verify {0}")
     @ValueSource(
@@ -248,7 +206,51 @@ internal class SignatureHeaderInputStreamTest {
         val expectedLines: List<String> = encodedFile.fileContents.inputStream().bufferedReader().useLines {
             it.drop(1).toList() // drop the signature line
         }
-        readSignatureHeaderStreamAndVerifyContentsAndSignature(expectedLines, encodedFile.fileContents)
+        mapOf<String, (sourceInputStream: InputStream) -> SignatureHeaderInputStream>(
+            "with signature algorithm with default provider" to { SignatureHeaderInputStream(
+                stream = it,
+                publicKey = publicKey,
+                signatureAlgorithm = SIGNATURE_ALGORITHM,
+                provider = null
+            ) },
+            "with signature algorithm with BouncyCastle provider" to { SignatureHeaderInputStream(
+                stream = it,
+                publicKey = publicKey,
+                signatureAlgorithm = SIGNATURE_ALGORITHM,
+                provider = "BC"
+            ) },
+            "with pre-constructed Signature instance with default provider" to { SignatureHeaderInputStream(
+                stream = it,
+                publicKey = publicKey,
+                signature = Signature.getInstance(SIGNATURE_ALGORITHM)
+            ) },
+            "with pre-constructed Signature instance with BouncyCastle provider" to { SignatureHeaderInputStream(
+                stream = it,
+                publicKey = publicKey,
+                signature = Signature.getInstance(SIGNATURE_ALGORITHM, "BC")
+            ) },
+        ).forEach { (description, verificationInputStreamCreator) ->
+            val processedLinesFromStream = ArrayList<String>().also { list ->
+                val verificationInputStream = verificationInputStreamCreator(encodedFile.fileContents.inputStream())
+
+                verificationInputStream.bufferedReader().forEachLine { list.add(it) }
+                assertDoesNotThrow({
+                    verificationInputStream.verifyOrThrow()
+                }, "unexpected exception for encoded file using $description. " +
+                        "string input:\n[${encodedFile.fileContents.decodeToString()}]")
+            }
+            assertEquals(expectedLines, processedLinesFromStream) {
+                "line processing of encodedFile failed for using $description:\n" +
+                        "string input:\n[${encodedFile.fileContents.decodeToString()}]"
+            }
+
+            // test the skip options
+            val streamToTestSkip: SignatureHeaderInputStream = verificationInputStreamCreator(encodedFile.fileContents.inputStream())
+            streamToTestSkip.skip(encodedFile.fileContents.size.toLong())
+            assertEquals(-1, streamToTestSkip.read())
+            // we expect verification to fail, because skips mean the underlying signature instance won't read
+            assert(!streamToTestSkip.verify())
+        }
 
     }
 
@@ -407,6 +409,7 @@ internal class SignatureHeaderInputStreamTest {
                 )
             )
         )
+        assertNotEquals(instances, differentInstances)
         val differentJson = """
             [
                 {
@@ -426,7 +429,11 @@ internal class SignatureHeaderInputStreamTest {
             SignatureHeaderInputStream.createSignatureHeaderWithLineFeed(signature.encodeToBase64String()) +
                     differentJson
 
-        SignatureHeaderInputStream(differentJsonWithMismatchedSignatureHeader.byteInputStream(), publicKey, SIGNATURE_ALGORITHM)
+        SignatureHeaderInputStream(
+            differentJsonWithMismatchedSignatureHeader.byteInputStream(),
+            publicKey,
+            SIGNATURE_ALGORITHM
+        )
             .use { signatureInputStream ->
                 val instancesFromJson = mapper.readerFor(SomethingSerializable::class.java)
                     .readValues<SomethingSerializable>(signatureInputStream)

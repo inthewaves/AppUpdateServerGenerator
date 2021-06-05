@@ -31,7 +31,7 @@ sealed interface ApkVerifyResult  {
         }
 
         override fun toString(): String {
-            return "V4Impl(apkFile=$apkFile, " +
+            return "V4(apkFile=$apkFile, " +
                     "isVerifiedUsingV4Scheme=${result.isVerifiedUsingV4Scheme}, " +
                     "v4SignatureFile=$v4SignatureFile)"
         }
