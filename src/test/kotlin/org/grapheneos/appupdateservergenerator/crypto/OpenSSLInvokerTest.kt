@@ -6,9 +6,9 @@ import org.grapheneos.appupdateservergenerator.util.prependString
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.api.fail
 import org.junit.jupiter.params.ParameterizedTest
@@ -218,7 +218,6 @@ internal class OpenSSLInvokerTest {
             assertFalse(verify(signatureForStringToSign.bytes))
         }
 
-
         val actualLines = ArrayList<String>()
         SignatureHeaderInputStream(
             stream = signedDifferentStringFile.inputStream(),
@@ -226,7 +225,7 @@ internal class OpenSSLInvokerTest {
             signatureAlgorithm = SIGNATURE_ALGORITHM,
         ).use {
             it.bufferedReader().forEachLine { actualLines.add(it) }
-            assertThrows(GeneralSecurityException::class.java) { it.verifyOrThrow() }
+            assertThrows<GeneralSecurityException> { it.verifyOrThrow() }
         }
         val linesFromStringToSign: List<String> = signedDifferentStringFile.bufferedReader().useLines { it.toList() }
         assertNotEquals(linesFromStringToSign, actualLines)

@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.extension.ExtensionContext
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
@@ -121,7 +121,7 @@ internal class SignatureHeaderInputStreamTest {
             signatureAlgorithm = SIGNATURE_ALGORITHM,
             publicKey = publicKey
         ).use { verifiedStream ->
-            assertThrows(IOException::class.java) {
+            assertThrows<IOException>("expected IOException because of missing signature header") {
                 verifiedStream.read()
             }
         }
@@ -160,8 +160,11 @@ internal class SignatureHeaderInputStreamTest {
             signatureAlgorithm = SIGNATURE_ALGORITHM,
             publicKey = publicKey
         ).use { verifiedStream ->
-            assertThrows(IOException::class.java) {
+            try {
                 verifiedStream.readBytes()
+            } catch (e: IOException) {
+            } finally {
+                assertThrows<GeneralSecurityException> { verifiedStream.verifyOrThrow() }
             }
         }
 
@@ -170,9 +173,12 @@ internal class SignatureHeaderInputStreamTest {
             signatureAlgorithm = SIGNATURE_ALGORITHM,
             publicKey = publicKey
         ).use { verifiedStream ->
-            assertThrows(IOException::class.java) {
+            try {
                 while (verifiedStream.read() != -1) { // attempt to read the whole thing
                 }
+            } catch (e: IOException) {
+            } finally {
+                assertThrows<GeneralSecurityException> { verifiedStream.verifyOrThrow() }
             }
         }
     }
@@ -370,11 +376,10 @@ internal class SignatureHeaderInputStreamTest {
             val linesRead = mutableListOf<String>()
             verificationInputStream.bufferedReader().forEachLine { linesRead.add(it) }
             assert(linesRead.isNotEmpty())
-            assertThrows(
-                GeneralSecurityException::class.java,
-                { verificationInputStream.verifyOrThrow() },
-                "expected encoded file to fail verification, but didn't"
-            )
+            assertThrows<GeneralSecurityException>("expected encoded file to fail verification, but didn't") {
+                verificationInputStream.verifyOrThrow()
+            }
+
             val linesFromSignedString = stringToSign.byteInputStream().bufferedReader().lineSequence().toList()
             assertNotEquals(linesFromSignedString, linesRead) { "expected not equal for encoded, but was equal" }
             val linesFromOriginalString = differentString.byteInputStream().bufferedReader().lineSequence().toList()
