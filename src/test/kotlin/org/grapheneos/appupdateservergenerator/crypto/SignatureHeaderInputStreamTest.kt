@@ -23,10 +23,16 @@ import java.io.IOException
 import java.io.InputStream
 import java.security.GeneralSecurityException
 import java.security.KeyFactory
+import java.security.KeyPairGenerator
+import java.security.PrivateKey
+import java.security.PublicKey
 import java.security.Security
 import java.security.Signature
+import java.security.interfaces.ECPrivateKey
+import java.security.interfaces.ECPublicKey
 import java.security.interfaces.RSAPrivateCrtKey
 import java.security.interfaces.RSAPublicKey
+import java.security.spec.ECGenParameterSpec
 import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.RSAPublicKeySpec
 import java.util.Base64
@@ -96,7 +102,7 @@ internal class SignatureHeaderInputStreamTest {
             """.trimIndent().replace("\n", "")
         )
         val privateKeySpec = PKCS8EncodedKeySpec(privateKeyBytes)
-        KeyFactory.getInstance("RSA").run {
+        KeyFactory.getInstance("RSA", "BC").run {
             privateKey = generatePrivate(privateKeySpec) as RSAPrivateCrtKey
             publicKey = generatePublic(RSAPublicKeySpec(privateKey.modulus, privateKey.publicExponent)) as RSAPublicKey
         }
@@ -124,10 +130,28 @@ internal class SignatureHeaderInputStreamTest {
     @ParameterizedTest(name = "testNonSignatureBase64Header: {0}")
     @ValueSource(
         strings = [
-            "VGhhdCBtaWdodCBiZSBiYXNlNjQtZW5jb2RlZCwgYnV0IGl0J3Mgbm90IGEgc2lnbmF0dXJlIQ==\n" +
+            "VGhhdCBt aWdodCBiZSBiYXNlNjQtZW5jb2RlZCwgYnV0IGl0J3Mgbm90IGEgc2lnbmF0dXJlIQ==\n" +
                     "That might be base64-encoded, but it's not a signature!",
             "bm9wZQ==\n\nThat might be base64-encoded, but it's not a signature!\n",
             "Tm9wZQ==\r\nThat might be base64-encoded, but it's not a signature!\r",
+            "rAIAAA== MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA4kbBhdBUBIIpk6+Wfv+aGC27pHzASFjGF8ShHIuxuayDDq6B" +
+                    "BneQj8vqO8VaSqtQjEECCPrwPrldfgSi70Ytz6Er1BuKBPOV3a4E+zS4NcZ5iRqt7W/dn4aEJfP9jaAMTHRQ6xgdYm3Mf" +
+                    "B8fuUCtuP0UyXTXOKXikMIcxMuNopVWYF8NBNxu3n4xrjoUvSU/KJ/zHfQyiQKcn3i5CxhmCe4awfoOWIy6YGvF52IK9r" +
+                    "c4HllIZJEwX9ndEgKcrEQbB4vyUX+zhcchdwlQo/VIzNvEfpTBAgfnUwtdl/yWwF/OwI6UfLXonB7FZIuXSsgL9x3rPiv" +
+                    "VttvlQB7Du+HQeOt6HqnkoMTNRRueHO/xYZr/7Or8cVanakZDHwS3V/WiNpVg6u+NaFf2DbDL3JRaNehWeE26YlKDgTU8" +
+                    "5XulM7XyY2ZA5DiZm80ZxMalDMqKRH4mF0ufnQktTLfrZmAJI6VR8+1LCKaeyqq87siB5PIZJ5VHGq0WAsC6RKx8rI2Ti" +
+                    "ZGsyC0PDO752FgTW5iIqerigrIH+U2v5aY6fYh1untC3C0yFAcipLRrowr2VDCkXp2SBAcA8V6jcQpJwKDJ1khMFGgEYl" +
+                    "9jYvHl7KeaKh8tASjz7fq1genAubWPVmDUNCYs9rfa6OmA2PQj8+Vo9vN2im7M8Uv90YjfNld54bUCAwEAAQ== \n" +
+                    "Something",
+            "rAIAAA== BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+                    "AAAA\n"
         ]
     )
     fun testNonSignatureBase64Header(stringWithFakeSignatureHeader: String) {
@@ -188,14 +212,29 @@ internal class SignatureHeaderInputStreamTest {
         ]
     )
     fun testSuccessArbitrarySignatureVerification(stringToSign: String) {
-        val signature = Signature.getInstance(SIGNATURE_ALGORITHM).run {
+        runSignatureTests(SIGNATURE_ALGORITHM, privateKey, publicKey, stringToSign)
+        val (ecPrivateKey: ECPrivateKey, ecPubKey: ECPublicKey) = KeyPairGenerator.getInstance("EC")
+            .run {
+                initialize(ECGenParameterSpec("secp256r1"))
+                generateKeyPair().run { private as ECPrivateKey to public as ECPublicKey }
+            }
+        runSignatureTests("SHA256withECDSA", ecPrivateKey, ecPubKey, stringToSign)
+    }
+
+    private fun runSignatureTests(
+        signatureAlgorithm: String,
+        privateKey: PrivateKey,
+        publicKey: PublicKey,
+        stringToSign: String,
+    ) {
+        val signature = Signature.getInstance(signatureAlgorithm).run {
             initSign(privateKey)
             update(stringToSign.encodeToByteArray())
             sign()!!
         }
 
         // sanity check
-        Signature.getInstance(SIGNATURE_ALGORITHM).apply {
+        Signature.getInstance(signatureAlgorithm).apply {
             initVerify(publicKey)
             update(stringToSign.encodeToByteArray())
             assert(verify(signature))
@@ -207,37 +246,47 @@ internal class SignatureHeaderInputStreamTest {
             it.drop(1).toList() // drop the signature line
         }
         mapOf<String, (sourceInputStream: InputStream) -> SignatureHeaderInputStream>(
-            "with signature algorithm with default provider" to { SignatureHeaderInputStream(
-                stream = it,
-                publicKey = publicKey,
-                signatureAlgorithm = SIGNATURE_ALGORITHM,
-                provider = null
-            ) },
-            "with signature algorithm with BouncyCastle provider" to { SignatureHeaderInputStream(
-                stream = it,
-                publicKey = publicKey,
-                signatureAlgorithm = SIGNATURE_ALGORITHM,
-                provider = "BC"
-            ) },
-            "with pre-constructed Signature instance with default provider" to { SignatureHeaderInputStream(
-                stream = it,
-                publicKey = publicKey,
-                signature = Signature.getInstance(SIGNATURE_ALGORITHM)
-            ) },
-            "with pre-constructed Signature instance with BouncyCastle provider" to { SignatureHeaderInputStream(
-                stream = it,
-                publicKey = publicKey,
-                signature = Signature.getInstance(SIGNATURE_ALGORITHM, "BC")
-            ) },
+            "with signature algorithm with default provider" to {
+                SignatureHeaderInputStream(
+                    stream = it,
+                    publicKey = publicKey,
+                    signatureAlgorithm = signatureAlgorithm,
+                    provider = null
+                )
+            },
+            "with signature algorithm with BouncyCastle provider" to {
+                SignatureHeaderInputStream(
+                    stream = it,
+                    publicKey = publicKey,
+                    signatureAlgorithm = signatureAlgorithm,
+                    provider = "BC"
+                )
+            },
+            "with pre-constructed Signature instance with default provider" to {
+                SignatureHeaderInputStream(
+                    stream = it,
+                    publicKey = publicKey,
+                    signature = Signature.getInstance(signatureAlgorithm)
+                )
+            },
+            "with pre-constructed Signature instance with BouncyCastle provider" to {
+                SignatureHeaderInputStream(
+                    stream = it,
+                    publicKey = publicKey,
+                    signature = Signature.getInstance(signatureAlgorithm, "BC")
+                )
+            },
         ).forEach { (description, verificationInputStreamCreator) ->
             val processedLinesFromStream = ArrayList<String>().also { list ->
                 val verificationInputStream = verificationInputStreamCreator(encodedFile.fileContents.inputStream())
 
                 verificationInputStream.bufferedReader().forEachLine { list.add(it) }
-                assertDoesNotThrow({
-                    verificationInputStream.verifyOrThrow()
-                }, "unexpected exception for encoded file using $description. " +
-                        "string input:\n[${encodedFile.fileContents.decodeToString()}]")
+                assertDoesNotThrow(
+                    {
+                        verificationInputStream.verifyOrThrow()
+                    }, "unexpected exception for encoded file using $description. " +
+                            "string input:\n[${encodedFile.fileContents.decodeToString()}]"
+                )
             }
             assertEquals(expectedLines, processedLinesFromStream) {
                 "line processing of encodedFile failed for using $description:\n" +
@@ -245,13 +294,13 @@ internal class SignatureHeaderInputStreamTest {
             }
 
             // test the skip options
-            val streamToTestSkip: SignatureHeaderInputStream = verificationInputStreamCreator(encodedFile.fileContents.inputStream())
+            val streamToTestSkip: SignatureHeaderInputStream =
+                verificationInputStreamCreator(encodedFile.fileContents.inputStream())
             streamToTestSkip.skip(encodedFile.fileContents.size.toLong())
             assertEquals(-1, streamToTestSkip.read())
             // we expect verification to fail, because skips mean the underlying signature instance won't read
             assert(!streamToTestSkip.verify())
         }
-
     }
 
     private data class SignatureHeaderFile constructor(
