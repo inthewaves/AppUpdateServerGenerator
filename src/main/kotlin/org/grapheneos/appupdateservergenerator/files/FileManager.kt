@@ -74,6 +74,9 @@ class FileManager constructor(
     fun getVersionedApk(packageName: PackageName, versionCode: VersionCode) =
         File(getDirForApp(packageName).dir, "${versionCode.code}.apk")
 
+    /**
+     * The file location for an APK Signing Scheme v4 signature.
+     */
     fun getVersionedApkV4Signature(packageName: PackageName, versionCode: VersionCode) =
         File(getDirForApp(packageName).dir, "${versionCode.code}.apk.idsig")
 

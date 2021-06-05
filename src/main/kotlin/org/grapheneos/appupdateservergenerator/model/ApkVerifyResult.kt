@@ -2,17 +2,29 @@ package org.grapheneos.appupdateservergenerator.model
 
 import com.android.apksig.ApkVerifier
 import com.android.apksig.internal.util.AndroidSdkVersion
-import java.io.EOFException
+import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult.V3AndBelow
+import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult.V4
 import java.io.File
 import java.io.IOException
 
-sealed interface ApkVerifyResult  {
+/**
+ * An interface meant to enforce type safety on APK signature verification results. Use [ApkVerifyResult.verifyApk] to
+ * verify an APK and create an instance of this interface.
+ *
+ * There are two known inheritors: [V4], which represents an APK verification attempt with a APK Signing Scheme v4
+ * signature (`.apk.idsig`), and [V3AndBelow], which represents all other APK Signing Schemes.
+ */
+sealed interface ApkVerifyResult {
+    /** The APK file that was input during verification */
     val apkFile: File
+    /** The verification result from [ApkVerifier], containing information such as certificates of the signers. */
     val result: ApkVerifier.Result
+    /** Whether the APK's signatures are verified. */
     val isVerified: Boolean get() = result.isVerified
 
     /** Represents verifications where a APK Signature Scheme v4 signature is present. */
     interface V4 : ApkVerifyResult {
+        /** The APK Signature Scheme v4 signature file used during verification */
         val v4SignatureFile: File
     }
 
@@ -62,9 +74,19 @@ sealed interface ApkVerifyResult  {
     }
 
     companion object {
+        /**
+         * Verifies the given [apkFile] against its signatures.
+         *
+         * @return an [ApkVerifyResult]. There are two known inheritors: [V4], which represents an APK verification
+         * attempt with a APK Signing Scheme v4 signature (`.apk.idsig`), and [V3AndBelow], which represents all other
+         * APK Signing Schemes.
+         *
+         * @see [V4]
+         * @see [V3AndBelow]
+         */
         fun verifyApk(apkFile: File): ApkVerifyResult {
             val apkV4Signature: File? = File(apkFile.parentFile, "${apkFile.name}.idsig")
-                .takeIf { it.exists() && it.isFile }
+                .takeIf { it.exists() && it.canRead() && it.isFile }
 
             val verifyResult = try {
                 ApkVerifier.Builder(apkFile)
@@ -74,7 +96,7 @@ sealed interface ApkVerifyResult  {
                     }
                     .build()
                     .verify()
-            } catch (e: EOFException) {
+            } catch (e: IOException) {
                 throw if (
                     apkV4Signature != null &&
                     e.stackTraceToString().contains("com.android.apksig.internal.apk.v4.")
