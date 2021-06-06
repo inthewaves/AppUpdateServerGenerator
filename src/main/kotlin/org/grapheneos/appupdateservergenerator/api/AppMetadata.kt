@@ -39,11 +39,6 @@ data class AppMetadata(
     val releases: Set<ReleaseInfo>
 ) {
     @Serializable
-    data class DeltaInfo(val baseVersionCode: VersionCode, val sha256Checksum: Base64String) : Comparable<DeltaInfo> {
-        override fun compareTo(other: DeltaInfo) = baseVersionCode.compareTo(other.baseVersionCode)
-    }
-
-    @Serializable
     data class ReleaseInfo(
         val versionCode: VersionCode,
         val versionName: String,
@@ -59,9 +54,19 @@ data class AppMetadata(
         val v4SigSha256: Base64String? = null,
         /** Set containing previous releases that have a delta available for this version. */
         val deltaInfo: Set<DeltaInfo>? = null,
-        val releaseNotes: String?
+        /**
+         * Optional release notes for this release. This can be in Markdown (flavor configured in
+         * [org.grapheneos.appupdateservergenerator.api.MarkdownProcessor]) or HTML. Contents will be compressed
+         * during metadata generation, but contents in the database are left as is.
+         */
+        val releaseNotes: String? = null
     ) : Comparable<ReleaseInfo> {
         override fun compareTo(other: ReleaseInfo): Int = versionCode.compareTo(other.versionCode)
+    }
+
+    @Serializable
+    data class DeltaInfo(val baseVersionCode: VersionCode, val sha256Checksum: Base64String) : Comparable<DeltaInfo> {
+        override fun compareTo(other: DeltaInfo) = baseVersionCode.compareTo(other.baseVersionCode)
     }
 
     fun latestRelease(): ReleaseInfo = if (releases is SortedSet<ReleaseInfo> && releases.comparator() == null) {
@@ -146,7 +151,7 @@ fun AppRelease.toSerializableModel(deltaInfo: Set<AppMetadata.DeltaInfo>) = AppM
     apkSha256 = apkSha256,
     v4SigSha256 = v4SigSha256,
     deltaInfo = deltaInfo.ifEmpty { null },
-    releaseNotes = releaseNotes
+    releaseNotes = releaseNotes?.takeIf { it.isNotBlank() }?.let(MarkdownProcessor::markdownToCompressedHtml)
 )
 
 fun DeltaInfo.toSerializableModel() = AppMetadata.DeltaInfo(baseVersion, sha256Checksum)

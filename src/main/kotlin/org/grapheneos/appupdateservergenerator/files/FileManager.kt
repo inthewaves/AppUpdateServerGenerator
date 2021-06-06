@@ -52,7 +52,7 @@ class FileManager constructor(
      */
     val appDirectory = File(dataRootDirectory, STANDALONE_APP_DATA_DIRNAME)
 
-    val systemTempDir: File = TempFile.create("FileManager_systemTempDir").useFile { it.parentFile }
+    val systemTempDir: File by lazy { TempFile.create("FileManager_systemTempDir").useFile { it.parentFile } }
 
     init {
         attemptToCreateDirIfNotExists(dataRootDirectory)

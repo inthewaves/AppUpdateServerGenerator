@@ -120,6 +120,13 @@ interface AppRepoManager {
 
     fun getMetadataForPackage(pkg: PackageName): AppMetadata?
 
+    /**
+     * Edits the release notes for the given [pkg] and then regenerates all metadata, singing it using the
+     * [signingPrivateKey].
+     *
+     * If [versionCode] is null, it will edit the most recent release; otherwise, it will edit release notes for that
+     * particular release.
+     */
     suspend fun editReleaseNotesForPackage(
         pkg: PackageName,
         versionCode: VersionCode? = null,
@@ -149,7 +156,7 @@ private class AppRepoManagerImpl(
     numJobs: Int
 ): AppRepoManager {
     companion object {
-        private const val EDITOR_IGNORE_PREFIX = "//##:"
+        private const val HTML_COMMENT_FORMAT = "<!--_ %s -->"
         private const val MAX_CONCURRENT_DELTA_APPLIES_FOR_VERIFICATION = 4
     }
 
@@ -865,36 +872,37 @@ private class AppRepoManagerImpl(
                 }
             }
 
-            val pkgAndVersion = "$EDITOR_IGNORE_PREFIX $label ($packageName), version $versionName (${versionCode.code})."
+            val pkgAndVersion = HTML_COMMENT_FORMAT
+                .format("$label ($packageName), version $versionName (${versionCode.code}).")
             if (appInfo is Either.Left && existingReleaseNotes != null) {
                 val (app, _) = appInfo.value
                 append(existingReleaseNotes)
                 if (!existingReleaseNotes.trimEnd().endsWith('\n')) appendLine()
-                appendLine("$EDITOR_IGNORE_PREFIX Editing existing release notes for")
+                appendLine(HTML_COMMENT_FORMAT.format("Editing existing release notes for"))
                 appendLine(pkgAndVersion)
-                appendLine(
-                    "$EDITOR_IGNORE_PREFIX Last edited: ${
+                appendLine(HTML_COMMENT_FORMAT.format(
+                    "Last edited: ${
                         ZonedDateTime.ofInstant(
                             Instant.ofEpochSecond(app.lastUpdateTimestamp.seconds),
                             ZoneId.systemDefault()
                         ).format(DateTimeFormatter.RFC_1123_DATE_TIME)
                     }"
-                )
+                ))
             } else {
                 appendLine()
-                appendLine("$EDITOR_IGNORE_PREFIX Enter new release notes for")
+                appendLine(HTML_COMMENT_FORMAT.format("Enter new release notes for"))
                 appendLine(pkgAndVersion)
             }
-            appendLine("$EDITOR_IGNORE_PREFIX Lines or sections starting with $EDITOR_IGNORE_PREFIX are ignored.")
-            append("$EDITOR_IGNORE_PREFIX Text can be plaintext or HTML.")
+            append(HTML_COMMENT_FORMAT.format("You can use GitHub Flavored Markdown / HTML."))
         }
 
         return deltaGenerationManager.asyncPrintMutex.withLock {
             TermUi.editText(
                 text = textToEdit,
                 requireSave = true
-            )?.replace(Regex("$EDITOR_IGNORE_PREFIX[^\n]*\n"), "")
+            )?.replace(Regex("<!--_? [^\n]* -->\n"), "")
                 ?.trimEnd('\n')
+                ?.takeIf { it.isNotBlank() }
         }
     }
 

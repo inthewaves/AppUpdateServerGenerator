@@ -32,10 +32,14 @@ dependencies {
         exclude("com.google.protobuf")
     }
 
+    implementation("org.jetbrains:markdown:0.2.4")
+    implementation("com.googlecode.htmlcompressor:htmlcompressor:1.5.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.2.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.0")
     implementation("com.github.ajalt.clikt:clikt:3.2.0")
-    implementation("com.android.tools.apkparser:apkanalyzer:30.1.0-alpha01") {
+
+    val apkParserVersion = "30.1.0-alpha01"
+    implementation("com.android.tools.apkparser:apkanalyzer:$apkParserVersion") {
         exclude("com.android.tools.lint")
         exclude("com.google.protobuf")
         exclude("com.android.tools.build", "aapt2-proto")
@@ -48,7 +52,7 @@ dependencies {
         exclude("org.bouncycastle")
         exclude("xerces")
     }
-    implementation("com.android.tools.apkparser:binary-resources:30.1.0-alpha01")
+    implementation("com.android.tools.apkparser:binary-resources:$apkParserVersion")
     implementation("com.squareup.sqldelight:sqlite-driver:1.5.0")
     implementation("org.bouncycastle:bcprov-jdk15on:1.68")
 

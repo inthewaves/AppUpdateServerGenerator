@@ -9,7 +9,6 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.file
-import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.clikt.parameters.types.long
 import kotlinx.coroutines.runBlocking
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
@@ -62,7 +61,7 @@ class EditCommand private constructor(): CliktCommand(name = "edit", help = "Com
             .required()
 
         private val versionCode: VersionCode? by option(
-            names = arrayOf("--versioncode", "-c"),
+            names = arrayOf("--version-code", "-c"),
             help = "The version code to edit release notes for. Defaults to the most recent version."
         ).long().convert { VersionCode(it) }
 
@@ -92,7 +91,7 @@ class EditCommand private constructor(): CliktCommand(name = "edit", help = "Com
 
             if (delete) {
                 if (metadata.latestRelease().releaseNotes == null) {
-                    println("not deleting: $packageToEdit already has no release notes")
+                    println("not deleting: ${metadata.packageName} already has no release notes")
                 } else {
                     println("deleting release notes for $packageToEdit")
                     appRepoManager.editReleaseNotesForPackage(

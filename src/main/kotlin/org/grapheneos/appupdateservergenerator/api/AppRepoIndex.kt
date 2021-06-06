@@ -6,6 +6,7 @@ import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.coroutineScope
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
+import org.grapheneos.appupdateservergenerator.crypto.SignatureHeaderInputStream
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
@@ -18,11 +19,12 @@ import java.util.TreeMap
  * The index of all the apps in the repo.
  *
  * Format:
- * - line 1: base64-encoded signature of the below contents
- * - line 2: a timestamp of when the index was last updated (i.e., the last time the insert-apk command was run)
+ * - line 1: a header containing a signature of the below contents (see
+ *   [SignatureHeaderInputStream.createSignatureHeaderWithLineFeed])
+ * - line 2: a timestamp of when the index was last updated (i.e., the last time the `add` command was run)
  * - line 3+: a line for each app in the repo of the form
  *     ```
- *     packageName versionCode lastUpdateTimestamp
+ *     packageName latestVersionCode lastUpdateTimestamp
  *     ```
  *     where lastUpdateTimestamp is the last time the app's metadata was last updated or the latest release date.
  */
