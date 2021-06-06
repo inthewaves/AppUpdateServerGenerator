@@ -9,6 +9,7 @@ import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.sqlite.SQLiteConfig
+import java.sql.DriverManager
 
 object DbWrapper {
     private val appAdapter: App.Adapter
@@ -74,9 +75,11 @@ object DbWrapper {
                 .also { driver = it }
         }
 
+    private fun getDatabaseUrl(fileManager: FileManager) = "jdbc:sqlite:${fileManager.databaseFile.absolutePath}"
+
     private fun createDriverInstance(fileManager: FileManager, enforceForeignKeys: Boolean) =
         JdbcSqliteDriver(
-            "jdbc:sqlite:${fileManager.databaseFile.absolutePath}",
+            getDatabaseUrl(fileManager),
             SQLiteConfig().apply {
                 enforceForeignKeys(enforceForeignKeys)
                 setJournalMode(SQLiteConfig.JournalMode.WAL)
@@ -129,6 +132,14 @@ object DbWrapper {
                 }
 
             val database = createDatabaseInstance(driver)
+
+            val dbUrl = getDatabaseUrl(fileManager)
+            Runtime.getRuntime().addShutdownHook(Thread {
+                DriverManager.getConnection(dbUrl).use { connection ->
+                    connection.prepareStatement("PRAGMA wal_checkpoint(TRUNCATE)").execute()
+                }
+            })
+
             this.database = database
             return@synchronized database
         }
