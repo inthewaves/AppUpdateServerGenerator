@@ -116,7 +116,7 @@ data class AppMetadata(
          */
         suspend fun getAllAppMetadataFromDisk(fileManager: FileManager): SortedSet<AppMetadata> = coroutineScope {
             fileManager.appDirectory.listFiles(FileFilter { it.isDirectory })
-                ?.mapTo(ArrayList()) { dirForApp ->
+                ?.map { dirForApp ->
                     async {
                         try {
                             getMetadataFromDiskForPackage(PackageName(dirForApp.name), fileManager)
@@ -127,6 +127,7 @@ data class AppMetadata(
                     }
                 }
                 ?.awaitAll()
+                ?.asSequence()
                 ?.filterNotNull()
                 ?.toSortedSet(packageComparator)
                 ?: throw IOException("unable to get all app metadata from disk")
