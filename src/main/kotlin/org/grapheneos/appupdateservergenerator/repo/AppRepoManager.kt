@@ -445,7 +445,7 @@ private class AppRepoManagerImpl(
                         val deltaInfo = baseDeltaVersionsToFileMapFromMetadata[parsedApk.versionCode]
                             ?: error("impossible")
                         val deltaDigest = Base64String.encodeFromBytes(deltaFile.digest("SHA-256"))
-                        if (deltaDigest != deltaInfo.sha256Checksum) {
+                        if (deltaDigest != deltaInfo.sha256) {
                             throw AppRepoException.InvalidRepoState(
                                 "$pkg: delta file $deltaFile checksum doesn't match metadata checksum for $deltaInfo"
                             )

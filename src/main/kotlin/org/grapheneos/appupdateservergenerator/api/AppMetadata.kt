@@ -65,7 +65,7 @@ data class AppMetadata(
     }
 
     @Serializable
-    data class DeltaInfo(val baseVersionCode: VersionCode, val sha256Checksum: Base64String) : Comparable<DeltaInfo> {
+    data class DeltaInfo(val baseVersionCode: VersionCode, val sha256: Base64String) : Comparable<DeltaInfo> {
         override fun compareTo(other: DeltaInfo) = baseVersionCode.compareTo(other.baseVersionCode)
     }
 
