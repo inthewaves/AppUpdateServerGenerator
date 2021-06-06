@@ -8,6 +8,7 @@ import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
+import org.sqlite.SQLiteConfig
 
 object DbWrapper {
     private val appAdapter: App.Adapter

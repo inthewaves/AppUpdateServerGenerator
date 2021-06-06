@@ -54,6 +54,8 @@ dependencies {
     }
     implementation("com.android.tools.apkparser:binary-resources:$apkParserVersion")
     implementation("com.squareup.sqldelight:sqlite-driver:1.5.0")
+    // transitive dependency of com.squareup.sqldelight:sqlite-driver anyway, included for config options
+    implementation("org.xerial:sqlite-jdbc:3.34.0")
     implementation("org.bouncycastle:bcprov-jdk15on:1.68")
 
     val jacksonVersion = "2.12.3"
