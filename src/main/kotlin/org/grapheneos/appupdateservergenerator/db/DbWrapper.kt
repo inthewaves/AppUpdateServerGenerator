@@ -96,6 +96,7 @@ object DbWrapper {
         val config = SQLiteConfig().apply {
             enforceForeignKeys(enforceForeignKeys)
             setJournalMode(SQLiteConfig.JournalMode.WAL)
+            setSynchronous(SQLiteConfig.SynchronousMode.FULL)
         }.toProperties()
 
         return if (singleConnection) {
