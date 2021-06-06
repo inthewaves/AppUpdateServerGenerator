@@ -106,25 +106,7 @@ object DbWrapper {
                 singleConnection = true
             ).use { driverNoEnforcedForeignKeys ->
                 val dbForMigration = createDatabaseInstance(driverNoEnforcedForeignKeys)
-
                 val newVersion = Database.Schema.version
-                if (!fileManager.databaseFile.exists()) {
-                    try {
-                        dbForMigration.transaction {
-                            Database.Schema.create(driverNoEnforcedForeignKeys)
-                            // Database.Schema.create doesn't actually set user_version
-                            driverNoEnforcedForeignKeys.execute(null, "PRAGMA user_version=$newVersion", 0)
-                        }
-                    } catch (e: Throwable) {
-                        if (fileManager.databaseFile.exists() && fileManager.databaseFile.canWrite()) {
-                            try {
-                                fileManager.databaseFile.delete()
-                            } catch (_: Exception) {
-                            }
-                        }
-                        throw e
-                    }
-                }
                 val version = driverNoEnforcedForeignKeys.executeQuery(null, "PRAGMA user_version", 0)
                     .use { cursor ->
                         cursor.next()
@@ -132,9 +114,15 @@ object DbWrapper {
                     }
                 println("database versions: user_version: $version, schema ver: $newVersion")
                 if (version < newVersion) {
-                    println("running database migrations to new version $newVersion")
                     dbForMigration.transaction {
-                        Database.Schema.migrate(driverNoEnforcedForeignKeys, version, newVersion)
+                        // If the database hasn't been created before, user_version will be 0.
+                        if (version == 0) {
+                            println("creating database with version $newVersion")
+                            Database.Schema.create(driverNoEnforcedForeignKeys)
+                        } else {
+                            println("running database migrations to new version $newVersion")
+                            Database.Schema.migrate(driverNoEnforcedForeignKeys, version, newVersion)
+                        }
                         driverNoEnforcedForeignKeys.execute(null, "PRAGMA user_version=$newVersion", 0)
                     }
                 } else if (version > newVersion) {
