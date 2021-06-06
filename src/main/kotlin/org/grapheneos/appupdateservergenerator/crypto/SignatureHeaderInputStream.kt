@@ -338,15 +338,6 @@ class SignatureHeaderInputStream private constructor(
         return super.skip(n)
     }
 
-    override fun skipNBytes(n: Long) {
-        // these skip methods are not intended to be used with this class, since it defeats the purpose of verifying
-        // the bytes of this stream
-        if (signatureBytes == null) {
-            parseSignatureBytesByReadingFirstLine()
-        }
-        super.skipNBytes(n)
-    }
-
     /**
      * Tests if this [InputStream] supports the [mark] and [reset], which it doesn't.
      */
