@@ -10,5 +10,9 @@ internal class ByteArrayExtensionsKtTest {
     fun testWriteAndReadInt32LE(int: Int) {
         val output = int.writeInt32Le()
         assertEquals(int, output.readInt32Le())
+
+        val outputWithOffsetAtIndex4 = ByteArray(16)
+        output.copyInto(outputWithOffsetAtIndex4, destinationOffset = 4)
+        assertEquals(int, outputWithOffsetAtIndex4.readInt32Le(offset = 4))
     }
 }

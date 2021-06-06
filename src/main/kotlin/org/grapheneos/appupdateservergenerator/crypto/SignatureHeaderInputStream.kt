@@ -69,7 +69,10 @@ class SignatureHeaderInputStream private constructor(
     stream: InputStream,
     publicKey: PublicKey?,
     certificate: Certificate?,
-    /** The signature associated with this stream. */
+    /**
+     * The [java.security.Signature] instance associated with this stream, which will be initialized for verification
+     * with a public key.
+     */
     val signature: Signature
 ) : FilterInputStream(stream) {
 
@@ -187,8 +190,10 @@ class SignatureHeaderInputStream private constructor(
     /**
      * Parses the signature line and populates the [signatureBytes] property with the signature for future verification.
      *
-     * @throws IOException
+     * @throws IOException if an I/O error occurs or the signature header is malformed. [IOException] is thrown in the
+     * latter case for compatibility reasons, since function can be executed in [read] and [skip].
      */
+    @Synchronized
     private fun parseSignatureBytesByReadingFirstLine() {
         if (signatureBytes != null) return
 
@@ -215,17 +220,22 @@ class SignatureHeaderInputStream private constructor(
             throw IOException("signature length isn't valid base64", e)
         }
         if (signatureLength <= 0) throw IOException("signature length too small")
+        // allow some slack
         if (signatureLength > maxSignatureLengthEncodedInBase64 + 2) throw IOException("signature length too big")
 
+        if (`in`.read().let { it == -1 || it.toChar() != ' ' }) {
+            throw IOException("malformed signature header: expected space between length and signature")
+        }
         // Read the actual signature
-        if (`in`.read() == -1) throw IOException("reached end of stream: expected space between length and signature")
         val signatureBuffer = ByteArray(signatureLength)
         if (`in`.read(signatureBuffer) != signatureBuffer.size) {
             throw IOException("reached end of stream instead of signature")
         }
         // Note: \n is the only acceptable new line delimiter. CRLF \r\n is undefined, and this tool specifically
         // doesn't do CRLF when creating signed metadata.
-        if (`in`.read() == -1) throw IOException("malformed signature: missing line feed after signature")
+        if (`in`.read().let { it == -1 || it.toChar() != '\n' }) {
+            throw IOException("malformed signature header: missing line feed after signature")
+        }
 
         signatureBytes = try {
             Base64.getDecoder().decode(signatureBuffer)
