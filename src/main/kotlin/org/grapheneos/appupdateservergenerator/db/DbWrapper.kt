@@ -1,6 +1,7 @@
 package org.grapheneos.appupdateservergenerator.db
 
 import com.squareup.sqldelight.ColumnAdapter
+import com.squareup.sqldelight.sqlite.driver.JdbcDriver
 import com.squareup.sqldelight.sqlite.driver.JdbcSqliteDriver
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.Base64String
@@ -59,7 +60,7 @@ object DbWrapper {
         )
         appGroupAdapter = AppGroup.Adapter(groupIdAdapter)
     }
-    private fun createDatabaseInstance(driver: JdbcSqliteDriver) = Database(
+    private fun createDatabaseInstance(driver: JdbcDriver) = Database(
         driver = driver,
         AppAdapter = appAdapter,
         AppReleaseAdapter = appReleaseAdapter,
@@ -68,69 +69,88 @@ object DbWrapper {
     )
 
     @Volatile
-    private var driver: JdbcSqliteDriver? = null
-    private fun getDriverInstance(fileManager: FileManager): JdbcSqliteDriver =
+    private var driver: JdbcDriver? = null
+    private fun getDriverInstance(fileManager: FileManager): JdbcDriver =
         driver ?: synchronized(DbWrapper::class) {
-            createDriverInstance(fileManager, enforceForeignKeys = true)
+            createDriverInstance(fileManager, enforceForeignKeys = true, singleConnection = false)
                 .also { driver = it }
         }
 
-    private fun getDatabaseUrl(fileManager: FileManager) = "jdbc:sqlite:${fileManager.databaseFile.absolutePath}"
+    private fun getDatabaseUrl(fileManager: FileManager) ="jdbc:sqlite:${fileManager.databaseFile.absolutePath}"
 
-    private fun createDriverInstance(fileManager: FileManager, enforceForeignKeys: Boolean) =
-        JdbcSqliteDriver(
-            getDatabaseUrl(fileManager),
-            SQLiteConfig().apply {
-                enforceForeignKeys(enforceForeignKeys)
-                setJournalMode(SQLiteConfig.JournalMode.WAL)
-            }.toProperties()
-        )
+    private fun createDriverInstance(
+        fileManager: FileManager,
+        enforceForeignKeys: Boolean,
+        singleConnection: Boolean
+    ): JdbcDriver {
+        val databaseUrl = getDatabaseUrl(fileManager)
+        val config = SQLiteConfig().apply {
+            enforceForeignKeys(enforceForeignKeys)
+            setJournalMode(SQLiteConfig.JournalMode.WAL)
+        }.toProperties()
+
+        return if (singleConnection) {
+            SingleConnectionJdbcSqliteDriver(databaseUrl, config)
+        } else {
+            JdbcSqliteDriver(databaseUrl, config)
+        }
+    }
 
     @Volatile
     private var database: Database? = null
     fun getDbInstance(fileManager: FileManager): Database =
         database ?: synchronized(DbWrapper::class) {
-            val dbFile = fileManager.databaseFile
-            val driverWithUnenforcedForeignKeys = createDriverInstance(fileManager, enforceForeignKeys = false)
-            val newVersion = Database.Schema.version
-            if (!dbFile.exists()) {
-                Database.Schema.create(driverWithUnenforcedForeignKeys)
-                // Database.Schema.create doesn't actually set user_version
-                driverWithUnenforcedForeignKeys.execute(null, "PRAGMA user_version=$newVersion", 0)
-            }
+            createDriverInstance(
+                fileManager,
+                enforceForeignKeys = false,
+                singleConnection = true
+            ).use { driverNoEnforcedForeignKeys ->
+                val dbForMigration = createDatabaseInstance(driverNoEnforcedForeignKeys)
 
-            val version = driverWithUnenforcedForeignKeys.executeQuery(null, "PRAGMA user_version", 0)
-                .use { cursor ->
-                    cursor.next()
-                    cursor.getLong(0)!!.toInt()
-                }
-
-            println("user_version: $version, schema ver: $newVersion")
-            if (version < newVersion) {
-                val dbForMigration = createDatabaseInstance(driverWithUnenforcedForeignKeys)
-                try {
-                    dbForMigration.transaction {
-                        Database.Schema.migrate(driverWithUnenforcedForeignKeys, version, newVersion)
-                        driverWithUnenforcedForeignKeys.execute(null, "PRAGMA user_version=$newVersion", 0)
-                    }
-                } finally {
-                    driverWithUnenforcedForeignKeys.use { driver ->
-                        driver.getConnection().let { conn ->
-                            conn.close()
-                            driver.closeConnection(conn)
+                val newVersion = Database.Schema.version
+                if (!fileManager.databaseFile.exists()) {
+                    try {
+                        dbForMigration.transaction {
+                            Database.Schema.create(driverNoEnforcedForeignKeys)
+                            // Database.Schema.create doesn't actually set user_version
+                            driverNoEnforcedForeignKeys.execute(null, "PRAGMA user_version=$newVersion", 0)
                         }
+                    } catch (e: Throwable) {
+                        if (fileManager.databaseFile.exists() && fileManager.databaseFile.canWrite()) {
+                            try {
+                                fileManager.databaseFile.delete()
+                            } catch (_: Exception) {
+                            }
+                        }
+                        throw e
                     }
                 }
-            } else if (version > newVersion) {
-                error("db is version $version and schema version is $newVersion")
-            }
+                val version = driverNoEnforcedForeignKeys.executeQuery(null, "PRAGMA user_version", 0)
+                    .use { cursor ->
+                        cursor.next()
+                        cursor.getLong(0)!!.toInt()
+                    }
+                println("database versions: user_version: $version, schema ver: $newVersion")
+                if (version < newVersion) {
+                    println("running database migrations to new version $newVersion")
+                    dbForMigration.transaction {
+                        Database.Schema.migrate(driverNoEnforcedForeignKeys, version, newVersion)
+                        driverNoEnforcedForeignKeys.execute(null, "PRAGMA user_version=$newVersion", 0)
+                    }
+                } else if (version > newVersion) {
+                    error("db ${fileManager.databaseFile} has version $version but current schema version is $newVersion")
+                }
 
-            val driver = getDriverInstance(fileManager)
-                .apply {
+                driverNoEnforcedForeignKeys.apply {
                     execute(null, "ANALYZE", 0)
                     execute(null, "VACUUM", 0)
+                    execute(null, "PRAGMA wal_checkpoint(TRUNCATE)", 0)
                 }
+            }
+            System.gc()
 
+            // this also initializes the driver property in this DbWrapper object
+            val driver: JdbcDriver = getDriverInstance(fileManager)
             val database = createDatabaseInstance(driver)
 
             val dbUrl = getDatabaseUrl(fileManager)
