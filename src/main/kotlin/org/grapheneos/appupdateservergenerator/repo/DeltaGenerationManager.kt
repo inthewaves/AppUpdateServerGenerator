@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.yield
 import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.db.Database
+import org.grapheneos.appupdateservergenerator.db.DbWrapper
 import org.grapheneos.appupdateservergenerator.db.DeltaInfo
 import org.grapheneos.appupdateservergenerator.db.DeltaInfoDao
 import org.grapheneos.appupdateservergenerator.files.AppDir
@@ -32,7 +33,6 @@ import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.IOException
 import java.text.DecimalFormat
-import java.util.TreeSet
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -210,6 +210,8 @@ class DeltaGenerationManager(
                                 )
                                 if (deltaInfo.isNotEmpty()) anyDeltasGenerated.set(true)
                                 deltaInfoDao.insertDeltaInfos(deltaInfo)
+                                // Delta generation might take a while, so take advantage of possible idle time.
+                                DbWrapper.executeWalCheckpointTruncate(fileManager)
                             } catch (e: Throwable) {
                                 printRequestChannel.trySend(PrintRequest.NewLines(
                                     arrayOf(

@@ -76,6 +76,15 @@ object DbWrapper {
                 .also { driver = it }
         }
 
+    /**
+     * Does a DB checkpoint. TRUNCATE mode means this will block until all readers and writers are done, do
+     * checkpoints, then truncate the log file.
+     *
+     * See [https://www.sqlite.org/c3ref/wal_checkpoint_v2.html](https://www.sqlite.org/c3ref/wal_checkpoint_v2.html)
+     */
+    fun executeWalCheckpointTruncate(fileManager: FileManager) =
+        getDriverInstance(fileManager).execute(null, "PRAGMA wal_checkpoint(TRUNCATE)", 0)
+
     private fun getDatabaseUrl(fileManager: FileManager) ="jdbc:sqlite:${fileManager.databaseFile.absolutePath}"
 
     private fun createDriverInstance(

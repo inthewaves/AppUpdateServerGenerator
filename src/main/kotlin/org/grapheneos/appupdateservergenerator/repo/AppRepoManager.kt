@@ -581,8 +581,9 @@ private class AppRepoManagerImpl(
                 }
             }
 
-            val deltaGenChannel: SendChannel<DeltaGenerationManager.GenerationRequest> =
-                deltaGenerationManager.run { launchDeltaGenerationActor() }
+            // Actors are coroutines, so this coroutine scope wait until delta generation is finished
+            val deltaGenChannel: SendChannel<DeltaGenerationManager.GenerationRequest> = deltaGenerationManager
+                .run { launchDeltaGenerationActor() }
             try {
                 var numApksInserted = 0L
                 packageApkGroups.forEach { apkInsertionGroup ->
@@ -622,11 +623,14 @@ private class AppRepoManagerImpl(
                 println()
                 println("finished inserting ${packageApkGroups.size - numAppsNotInserted} apps ($numApksInserted APKs)")
             } finally {
+                DbWrapper.executeWalCheckpointTruncate(fileManager)
                 deltaGenChannel.send(DeltaGenerationManager.GenerationRequest.StartPrinting)
                 deltaGenChannel.close()
                 groupIdCheckChannel.close()
             }
         }
+        // Delta generation is finished
+        DbWrapper.executeWalCheckpointTruncate(fileManager)
 
         if (numAppsNotInserted != packageApkGroups.size.toLong()) {
             staticFilesManager.regenerateMetadataAndIcons(signingPrivateKey, timestampForMetadata)
