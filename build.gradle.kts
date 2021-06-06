@@ -11,7 +11,6 @@ sqldelight {
     database("Database") { // This will be the name of the generated database class.
         packageName = "org.grapheneos.appupdateservergenerator.db"
         deriveSchemaFromMigrations = true
-        schemaOutputDirectory = file("src/main/sqldelight/schemas")
         verifyMigrations = true
         dialect = "sqlite:3.25"
     }
