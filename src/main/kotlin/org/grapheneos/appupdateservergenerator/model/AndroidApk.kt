@@ -51,32 +51,30 @@ data class AndroidApk private constructor(
             val iconResId = getIconResIdInBinaryAndroidManifest(ByteBuffer.wrap(manifestBytes))
                 ?: throw IOException("unable to find icon resource ID")
 
-            val icon: BinaryResourceValue = resourceTableChunk.run {
-                resolveReference(
-                    resId = iconResId,
-                    // We manage minimum density below, so we use a null configPredicate here.
-                    configPredicate = null,
-                    sequenceTransformer = { sequence ->
-                        val list = sequence.filter { it.first.value() != null }.toList()
-                        // println("$packageName $versionCode densities found: ${list.map { "${it.second.density()} with type ${it.first.value().type()}" }}")
+            val icon: BinaryResourceValue = resourceTableChunk.resolveReference(
+                resId = iconResId,
+                // We manage minimum density below, so we use a null configPredicate here.
+                configPredicate = null,
+                sequenceTransformer = { sequence ->
+                    val list = sequence.filter { it.first.value() != null }.toList()
+                    // println("$packageName $versionCode densities found: ${list.map { "${it.second.density()} with type ${it.first.value().type()}" }}")
 
-                        // First, if this is a reference, find the 0 DPI version.
-                        // Else, try to find an icon is just over the minimum density.
-                        // Else, try to take the greatest possible icon.
-                        val entry =
-                            if (list.firstOrNull()?.first?.value()?.type() == BinaryResourceValue.Type.REFERENCE) {
-                                list.find { it.second.density() == 0 }
-                            } else {
-                                null
-                            } ?: list.asSequence()
-                                .filter { it.second.density() >= minimumDensity.approximateDpi }
-                                .minByOrNull { it.second.density() }
-                            ?: list.maxByOrNull { it.second.density() }
+                    // First, if this is a reference, find the 0 DPI version.
+                    // Else, try to find an icon is just over the minimum density.
+                    // Else, try to take the greatest possible icon.
+                    val entry =
+                        if (list.firstOrNull()?.first?.value()?.type() == BinaryResourceValue.Type.REFERENCE) {
+                            list.find { it.second.density() == 0 }
+                        } else {
+                            null
+                        } ?: list.asSequence()
+                            .filter { it.second.density() >= minimumDensity.approximateDpi }
+                            .minByOrNull { it.second.density() }
+                        ?: list.maxByOrNull { it.second.density() }
 
-                        return@resolveReference entry?.first?.value()
-                    }
-                )
-            } ?: throw IOException("unable to resolve resource ID for ${packageName.pkg}, $versionCode")
+                    return@resolveReference entry?.first?.value()
+                }
+            ) ?: throw IOException("unable to resolve resource ID for ${packageName.pkg}, $versionCode")
             if (icon.type() != BinaryResourceValue.Type.STRING) {
                 throw IOException("icon resource ID isn't a string")
             }
