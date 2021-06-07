@@ -1,11 +1,13 @@
 package org.grapheneos.appupdateservergenerator.model
 
 import com.android.apksig.ApkVerifier
+import com.android.apksig.apk.ApkFormatException
 import com.android.apksig.internal.util.AndroidSdkVersion
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult.V3AndBelow
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult.V4
 import java.io.File
 import java.io.IOException
+import java.security.NoSuchAlgorithmException
 
 /**
  * An interface meant to enforce type safety on APK signature verification results. Use [ApkVerifyResult.verifyApk] to
@@ -81,6 +83,11 @@ sealed interface ApkVerifyResult {
          * attempt with a APK Signing Scheme v4 signature (`.apk.idsig`), and [V3AndBelow], which represents all other
          * APK Signing Schemes.
          *
+         * @throws IOException if an I/O error is encountered while reading the APK
+         * @throws ApkFormatException if the APK is malformed
+         * @throws NoSuchAlgorithmException if the APK's signatures cannot be verified because a required
+         *  cryptographic algorithm implementation is missing
+         * @throws IllegalStateException if this verifier's configuration is missing required information.
          * @see [V4]
          * @see [V3AndBelow]
          */

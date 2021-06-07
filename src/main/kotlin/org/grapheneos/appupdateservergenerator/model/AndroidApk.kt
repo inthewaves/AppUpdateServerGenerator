@@ -4,12 +4,12 @@ import com.android.apksig.ApkSigner
 import com.android.apksig.apk.ApkFormatException
 import com.android.apksig.apk.ApkUtils
 import com.android.apksig.internal.apk.AndroidBinXmlParser
-import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceConfiguration
 import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceFile
 import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceIdentifier
 import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceValue
 import com.google.devrel.gmscore.tools.apk.arsc.ResourceTableChunk
-import com.google.devrel.gmscore.tools.apk.arsc.TypeChunk
+import org.grapheneos.appupdateservergenerator.apkparsing.resolveReference
+import org.grapheneos.appupdateservergenerator.apkparsing.resolveString
 import org.grapheneos.appupdateservergenerator.util.implies
 import java.io.File
 import java.io.IOException
@@ -54,23 +54,23 @@ data class AndroidApk private constructor(
                 // We manage minimum density below, so we use a null configPredicate here.
                 configPredicate = null,
                 sequenceTransformer = { sequence ->
-                    val list = sequence.filter { it.first.value() != null }.toList()
+                    val list = sequence.filter { it.chunkEntry.value() != null }.toList()
                     // println("$packageName $versionCode densities found: ${list.map { "${it.second.density()} with type ${it.first.value().type()}" }}")
 
                     // First, if this is a reference, find the 0 DPI version.
                     // Else, try to find an icon is just over the minimum density.
                     // Else, try to take the greatest possible icon.
                     val entry =
-                        if (list.firstOrNull()?.first?.value()?.type() == BinaryResourceValue.Type.REFERENCE) {
-                            list.find { it.second.density() == 0 }
+                        if (list.firstOrNull()?.chunkEntry?.value()?.type() == BinaryResourceValue.Type.REFERENCE) {
+                            list.find { it.config.density() == 0 }
                         } else {
                             null
                         } ?: list.asSequence()
-                            .filter { it.second.density() >= minimumDensity.approximateDpi }
-                            .minByOrNull { it.second.density() }
-                        ?: list.maxByOrNull { it.second.density() }
+                            .filter { it.config.density() >= minimumDensity.approximateDpi }
+                            .minByOrNull { it.config.density() }
+                        ?: list.maxByOrNull { it.config.density() }
 
-                    return@resolveReference entry?.first?.value()
+                    return@resolveReference entry?.chunkEntry?.value()
                 }
             ) ?: throw IOException("unable to resolve resource ID for ${packageName.pkg}, $versionCode")
             if (icon.type() != BinaryResourceValue.Type.STRING) {
@@ -173,32 +173,6 @@ data class AndroidApk private constructor(
         /** Android resource ID of the `android:icon` attribute in AndroidManifest.xml. */
         private const val ICON_ATTR_ID = 0x01010002
 
-        /**
-         * These defaults are from
-         * https://android.googlesource.com/platform/frameworks/base/+/e2ddd9d277876ee33e8526a792d0bc9538de6dfc/tools/aapt2/dump/DumpManifest.cpp#213
-         */
-        object ConfigurationDefaults {
-            private const val DEFAULT_ORIENTATION = 0x01 // portrait
-            private val defaultDensity = Density.MEDIUM // mdpi
-            /** https://android.googlesource.com/platform/frameworks/base/+/e2ddd9d277876ee33e8526a792d0bc9538de6dfc/tools/aapt2/dump/DumpManifest.cpp#94 */
-            private const val DEFAULT_SDK_VERSION = 10000
-            private const val DEFAULT_SCREEN_WIDTH_DP = 320
-            private const val DEFAULT_SCREEN_HEIGHT_DP = 480
-            private const val DEFAULT_SMALLEST_SCREEN_WIDTH_DP = 320
-            /**
-             * Screen size: value indicating the screen is at least
-             * approximately 320x470 dp units, corresponding to the
-             * <a href="/guide/topics/resources/providing-resources.html#ScreenSizeQualifier">normal</a>
-             * resource qualifier.
-             *
-             * https://cs.android.com/android/platform/superproject/+/master:frameworks/native/include/android/configuration.h;drc=master;bpv=1;bpt=1;l=239?gsn=ACONFIGURATION_SCREENSIZE_NORMAL&gs=kythe%3A%2F%2Fandroid.googlesource.com%2Fplatform%2Fsuperproject%3Flang%3Dc%252B%252B%3Fpath%3Dframeworks%2Fnative%2Finclude%2Fandroid%2Fconfiguration.h%23AaawhOgA9PHrHUOa4AL-MdeI5aa_e54IIPKhTDtvF3w
-             */
-            private const val DEFAULT_SCREEN_LAYOUT = 0x02
-        }
-
-        /** See https://android.googlesource.com/platform/frameworks/base/+/e2ddd9d277876ee33e8526a792d0bc9538de6dfc/tools/aapt2/dump/DumpManifest.cpp#213 */
-        private const val MAX_REFERENCE_RESOLVE_ITERATIONS = 40
-
         val ascendingVersionCodeComparator = compareBy<AndroidApk> { it.versionCode }
         val descendingVersionCodeComparator = compareByDescending<AndroidApk> { it.versionCode }
 
@@ -225,7 +199,7 @@ data class AndroidApk private constructor(
                     .chunks
                     .firstOrNull()
                     ?.let { it as? ResourceTableChunk }
-                    ?: throw IOException("can't find ResourceTableChunk")
+                    ?: throw IOException("can't find ResourceTableChunk in resources.arsc for $apkFile")
             }
             builder.resourceTableChunk = resourceTableChunk
 
@@ -272,60 +246,6 @@ data class AndroidApk private constructor(
         }
 
         /**
-         * Retrieves the resource assigned to the specified resource id if one exists.
-         *
-         * https://android.googlesource.com/platform/frameworks/base/+/e2ddd9d277876ee33e8526a792d0bc9538de6dfc/tools/aapt2/dump/DumpManifest.cpp#213
-         */
-        private fun ResourceTableChunk.findValuesByIdAsSequence(
-            resId: BinaryResourceIdentifier,
-            configPredicate: ((BinaryResourceConfiguration) -> Boolean)?
-        ): Sequence<Pair<TypeChunk.Entry, BinaryResourceConfiguration>>? = packages.find { it.id == resId.packageId() }
-            ?.getTypeChunks(resId.typeId())
-            ?.asSequence()
-            // maybe we should also copy in BestConfigValue from aapt2?
-            // https://android.googlesource.com/platform/frameworks/base/+/e2ddd9d277876ee33e8526a792d0bc9538de6dfc/tools/aapt2/dump/DumpManifest.cpp#213
-            // https://android.googlesource.com/platform/frameworks/base/+/e2ddd9d277876ee33e8526a792d0bc9538de6dfc/libs/androidfw/ResourceTypes.cpp#2780
-            // https://android.googlesource.com/platform/frameworks/base/+/e2ddd9d277876ee33e8526a792d0bc9538de6dfc/libs/androidfw/ResourceTypes.cpp#2517
-            ?.filter { it.containsResource(resId) && (configPredicate?.invoke(it.configuration) ?: true) }
-            ?.map { chunk -> chunk.entries[resId.entryId()]?.let { it to chunk.configuration } }
-            ?.filterNotNull()
-
-        /**
-         * Attempts to resolve the reference to a non-reference value. The configuration used to resolve references
-         * will be a DummyConfig (see [ConfigurationDefaults])
-         *
-         * Reference: https://android.googlesource.com/platform/frameworks/base/+/e2ddd9d277876ee33e8526a792d0bc9538de6dfc/tools/aapt2/dump/DumpManifest.cpp#213
-         */
-        private fun ResourceTableChunk.resolveReference(
-            resId: BinaryResourceIdentifier,
-            configPredicate: ((BinaryResourceConfiguration) -> Boolean)?,
-            sequenceTransformer: (Sequence<Pair<TypeChunk.Entry, BinaryResourceConfiguration>>) -> BinaryResourceValue?
-        ): BinaryResourceValue? {
-            var currentResId = resId
-            for (i in 0 until MAX_REFERENCE_RESOLVE_ITERATIONS) {
-                val value: BinaryResourceValue? = findValuesByIdAsSequence(currentResId, configPredicate)
-                    ?.run(sequenceTransformer)
-                if (value?.type() == BinaryResourceValue.Type.REFERENCE) {
-                    currentResId = BinaryResourceIdentifier.create(value.data())
-                } else {
-                    return value
-                }
-            }
-            return null
-        }
-
-        private fun ResourceTableChunk.resolveString(resId: BinaryResourceIdentifier): String? {
-            val valueToUse: BinaryResourceValue = resolveReference(
-                resId = resId,
-                configPredicate = { it.isDefault },
-                sequenceTransformer = { it.first().first.value() }
-            ) ?: return null
-
-            if (valueToUse.type() != BinaryResourceValue.Type.STRING) return null
-            return stringPool.getString(valueToUse.data())
-        }
-
-        /**
          * Finds the element with the given [elementName] at the expected [depth] in the given AndroidManifest.xml from
          * the [binaryAndroidManifest], and then if the element is found, invokes the [elementHandler] with parser as
          * the receiver. Otherwise, null is returned.
@@ -367,7 +287,7 @@ data class AndroidApk private constructor(
          * @throws ApkFormatException
          * @throws IOException
          */
-        private fun AndroidBinXmlParser.getOrResolveSttributeStringValue(
+        private fun AndroidBinXmlParser.getOrResolveAttributeStringValue(
             attributeIndex: Int,
             resourceTable: ResourceTableChunk
         ): String? = when (val type = getAttributeValueType(attributeIndex)) {
@@ -404,7 +324,7 @@ data class AndroidApk private constructor(
             ) {
                 for (i in 0 until attributeCount) {
                     if (getAttributeNameResourceId(i) == VERSION_NAME_ATTR) {
-                        return getOrResolveSttributeStringValue(i, resourceTable)
+                        return getOrResolveAttributeStringValue(i, resourceTable)
                     }
                 }
                 return null
@@ -436,7 +356,7 @@ data class AndroidApk private constructor(
             ) {
                 for (i in 0 until attributeCount) {
                     if (getAttributeNameResourceId(i) == LABEL_ATTR_ID) {
-                         return getOrResolveSttributeStringValue(i, resourceTable)
+                         return getOrResolveAttributeStringValue(i, resourceTable)
                     }
                 }
                 return null
