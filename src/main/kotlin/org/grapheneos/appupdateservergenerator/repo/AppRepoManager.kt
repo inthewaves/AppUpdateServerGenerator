@@ -708,7 +708,7 @@ private class AppRepoManagerImpl(
         }
 
         val icon = try {
-            maxVersionApk.getIcon(Density.MEDIUM)
+            maxVersionApk.getIcon(Density.HIGH)
         } catch (e: IOException) {
             println("warning: unable to extract icon for ${maxVersionApk.packageName}, ${maxVersionApk.versionCode}: " +
                     "${e.message}")
