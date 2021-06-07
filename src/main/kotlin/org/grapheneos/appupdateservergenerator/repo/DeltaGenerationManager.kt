@@ -19,7 +19,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.yield
-import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.db.Database
 import org.grapheneos.appupdateservergenerator.db.DbWrapper
 import org.grapheneos.appupdateservergenerator.db.DeltaInfo
@@ -40,8 +39,7 @@ import kotlin.system.measureTimeMillis
 
 class DeltaGenerationManager(
     private val fileManager: FileManager,
-    database: Database,
-    private val aaptInvoker: AAPT2Invoker
+    database: Database
 ) {
     companion object {
         private const val DEFAULT_MAX_PREVIOUS_VERSION_DELTAS = 5
@@ -202,7 +200,7 @@ class DeltaGenerationManager(
                         val appDir = fileManager.getDirForApp(request.pkg)
                         launch {
                             try {
-                                val apks = PackageApkGroup.fromDirDescending(appDir, aaptInvoker)
+                                val apks = PackageApkGroup.fromDirDescending(appDir)
                                 val deltaInfo: List<DeltaInfo> = regenerateDeltas(
                                     apks,
                                     originalFreeSpace = originalFreeSpace,

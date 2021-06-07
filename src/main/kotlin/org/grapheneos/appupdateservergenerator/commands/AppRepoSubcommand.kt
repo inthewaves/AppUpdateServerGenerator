@@ -6,7 +6,6 @@ import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.file
 import com.github.ajalt.clikt.parameters.types.int
-import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.repo.AppRepoManager
@@ -56,7 +55,6 @@ abstract class AppRepoSubcommand(
         defaultForHelp = "Defaults to numCpus + 2 (${Runtime.getRuntime().availableProcessors() + 2})"
     )
 
-    protected val aaptInvoker = AAPT2Invoker()
     protected val openSSLInvoker = OpenSSLInvoker()
 
     protected val fileManager by lazy {
@@ -70,7 +68,6 @@ abstract class AppRepoSubcommand(
     protected val appRepoManager by lazy {
         AppRepoManager(
             fileManager = fileManager,
-            aaptInvoker = aaptInvoker,
             openSSLInvoker = openSSLInvoker,
             numJobs = numJobs
         )
@@ -100,9 +97,6 @@ abstract class AppRepoSubcommand(
     }
 
     override fun run() {
-        if (!aaptInvoker.isExecutablePresent()) {
-            printErrorAndExit("unable to locate aapt2 at ${aaptInvoker.executablePath}; please add it to your PATH variable")
-        }
         if (!openSSLInvoker.isExecutablePresent()) {
             printErrorAndExit("unable to locate openssl at ${openSSLInvoker.executablePath}")
         }

@@ -19,11 +19,8 @@ Then, use `appservergen` as the binary.
 
 #### Requirements
 * This tool is tested on and developed for Linux only.
-* `openssl` and `aapt2` need to be in included your `PATH` variable.
-  * `openssl` should be packaged in most Linux distributions
-  * `aapt2` is a tool in the Android SDK Build Tools package. The SDK can be
-    typically installed using Android Studio, but instructions on getting those tools standalone can
-    be found at https://developer.android.com/studio/command-line (`sdkmanager`).
+* `openssl` needs to be in included your `PATH` variable; it should be packaged in a typical Linux
+  distribution.
 * You need an RSA or EC key in PKCS8 format to sign the metadata. The key needs to be decrypted.
   There are test keys in the repo (`testkey_ec.pk8`, `testkey_rsa.pk8`), but these should not be
   used in production.

@@ -3,7 +3,6 @@ package org.grapheneos.appupdateservergenerator.model
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import java.io.File
 import java.io.IOException
@@ -94,21 +93,16 @@ sealed class PackageApkGroup private constructor(
          * Constructs a [PackageApkGroup.AscendingOrder] list from a given list of [apkFilePaths].
          * This will group every APK by package.
          */
-        suspend fun createListFromFilesAscending(
-            apkFilePaths: Iterable<File>,
-            aaptInvoker: AAPT2Invoker,
-        ): List<AscendingOrder> {
+        suspend fun createListFromFilesAscending(apkFilePaths: Iterable<File>): List<AscendingOrder> {
             @Suppress("UNCHECKED_CAST")
             return createListFromFiles(
                 apkFilePaths = apkFilePaths,
-                aaptInvoker = aaptInvoker,
                 ascendingOrder = true
             ) as List<AscendingOrder>
         }
 
         private suspend fun createListFromFiles(
             apkFilePaths: Iterable<File>,
-            aaptInvoker: AAPT2Invoker,
             ascendingOrder: Boolean
         ): List<PackageApkGroup> = coroutineScope {
             val comparator = if (ascendingOrder) {
@@ -124,7 +118,7 @@ sealed class PackageApkGroup private constructor(
                     }
 
                     async {
-                        AndroidApk.buildFromApkAndVerifySignature(apkFile, aaptInvoker)
+                        AndroidApk.buildFromApkAndVerifySignature(apkFile)
                     }
                 }
                 .awaitAll()
@@ -143,16 +137,11 @@ sealed class PackageApkGroup private constructor(
         }
 
         /**
-         * Constructs a [PackageApkGroup.AscendingOrder] list from a given list of [apkFilePaths].
-         * This will group every APK by package.
+         * Constructs a [PackageApkGroup.AscendingOrder] list from a given [appDir].
          */
-        suspend fun fromDirDescending(
-            appDir: AppDir,
-            aaptInvoker: AAPT2Invoker
-        ): DescendingOrder {
+        suspend fun fromDirDescending(appDir: AppDir): DescendingOrder {
             return fromDir(
                 appDir,
-                aaptInvoker,
                 ascendingOrder = false
             ) as DescendingOrder
         }
@@ -165,7 +154,6 @@ sealed class PackageApkGroup private constructor(
          */
         suspend fun fromDir(
             appDir: AppDir,
-            aaptInvoker: AAPT2Invoker,
             ascendingOrder: Boolean
         ): PackageApkGroup = coroutineScope {
             val comparator = if (ascendingOrder) {
@@ -175,7 +163,7 @@ sealed class PackageApkGroup private constructor(
             }
 
             val set = appDir.listApkFilesUnsorted()
-                .map { async { AndroidApk.buildFromApkAndVerifySignature(it, aaptInvoker) } }
+                .map { async { AndroidApk.buildFromApkAndVerifySignature(it) } }
                 .mapTo(TreeSet(comparator)) { it.await() }
 
             val packageName = if (set.isEmpty()) appDir.packageName else set.first().packageName

@@ -1,8 +1,6 @@
 package org.grapheneos.appupdateservergenerator.apkparsing
 
-import org.grapheneos.appupdateservergenerator.model.AndroidApk
-import org.grapheneos.appupdateservergenerator.model.PackageName
-import org.grapheneos.appupdateservergenerator.model.VersionCode
+import org.grapheneos.appupdateservergenerator.model.Density
 import org.grapheneos.appupdateservergenerator.util.Invoker
 import org.grapheneos.appupdateservergenerator.util.readTextFromErrorStream
 import java.io.File
@@ -14,6 +12,7 @@ import java.util.zip.ZipFile
 /**
  * Wrapper class for the aapt2 tool.
  */
+@Deprecated("not needed anymore")
 class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath = aaptPath) {
     /**
      * Reads the [apkFile] and returns a [Pair] of the version name and the label for the APK using the info extracted
@@ -21,6 +20,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
      *
      * @throws IOException if the APK file can't be processed or parsed by aapt2 / there is missing information
      */
+    @Deprecated("use AndroidApk.getIcon instead")
     fun getVersionNameAndLabel(apkFile: File): Pair<String, String> {
         val badgingProcess: Process = ProcessBuilder(
             executablePath.toString(), "dump", "badging", apkFile.absolutePath,
@@ -95,6 +95,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
      * @return the application icon bytes, or null if unable to find a suitable icon.
      * @throws IOException if an I/O error (or [ZipException]) occurs.
      */
+    @Deprecated("use AndroidApk.getIcon instead")
     fun getApplicationIconFromApk(apkFile: File, minimumDensity: Density): ByteArray? {
         val badgingProcess: Process = ProcessBuilder(
             executablePath.toString(), "dump", "badging", apkFile.absolutePath,
@@ -150,7 +151,7 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
                     // Search for a suitable png of the right density. It should have the same name.
                     zipFile.entries().asSequence()
                         .filter { !it.isDirectory && it.name.endsWith("$iconName.png") }
-                        .map { it.name to Density.fromPathToDensity(it.name) }
+                        .map { it.name to Density.fromPath(it.name) }
                         .filter { it.second >= minimumDensity }
                         .minByOrNull { it.second }
                         ?.first
@@ -164,67 +165,6 @@ class AAPT2Invoker(aaptPath: Path = Path.of("aapt2")) : Invoker(executablePath =
             }
         }
         return null
-    }
-
-    /**
-     * Represents the screen pixel density in dpi. The [approximateDpi] values are from [1] and [2].
-     *
-     * [1] https://android.googlesource.com/platform/frameworks/native/+/7e563f090ba19c36b9879e14388a0e377f1523b5/include/android/configuration.h#92
-     * [2] https://developer.android.com/guide/topics/resources/providing-resources#DensityQualifier
-     */
-    enum class Density(val qualifierValue: String, val approximateDpi: Int) {
-        DEFAULT("*", 0),
-
-        /** Low-density screens; approximately 120dpi.*/
-        LOW("ldpi", 120),
-        /** Medium-density (on traditional HVGA) screens; approximately 160dpi.*/
-        MEDIUM("mdpi",160),
-        /**
-         * Screens somewhere between mdpi and hdpi; approximately 213dpi. This isn't considered a "primary" density
-         * group. It is mostly intended for televisions and most apps shouldn't need it—providing mdpi and hdpi
-         * resources is sufficient for most apps and the system scales them as appropriate.
-         */
-        TV("tvdpi", 213),
-        /** High-density screens; approximately 240dpi.*/
-        HIGH("hdpi", 240),
-        /** Extra-high-density screens; approximately 320dpi.*/
-        XHIGH("xhdpi", 320),
-        /** Extra-extra-high-density screens; approximately 480dpi.*/
-        XXHIGH("xxhdpi", 480),
-        /**
-         * Extra-extra-extra-high-density uses (launcher icon only, see the note in Supporting Multiple Screens);
-         * approximately 640dpi.
-         *
-         * https://developer.android.com/guide/practices/screens_support#xxxhdpi-note
-         */
-        XXXHIGH("xxxhdpi", 640),
-
-        /**
-         * This qualifier matches all screen densities and takes precedence over other qualifiers. This is useful for
-         * vector drawables.
-         */
-        ANY("anydpi", 0xfffe);
-
-        override fun toString(): String {
-            return "Density(qualifierValue='$qualifierValue', approximateDpi=$approximateDpi)"
-        }
-
-        companion object {
-            private val regex = Regex("-(l|m|tv|x{0,3}h|any)dpi")
-
-            /**
-             * Parses a path and returns a [Density], or [Density.DEFAULT] if it doesn't correspond to any instance.
-             * Examples of paths: res/drawable-mdpi-v4/notification_bg_normal.9.png corresponds to [Density.MEDIUM].
-             */
-            fun fromPathToDensity(path: String): Density =
-                regex.find(path)
-                    ?.groupValues?.get(1)
-                    ?.let { dpiPrefix ->
-                        val qualifierValue = dpiPrefix + "dpi"
-                        values().find { it.qualifierValue == qualifierValue }
-                    }
-                    ?: DEFAULT
-        }
     }
 
     companion object {

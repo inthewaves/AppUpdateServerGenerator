@@ -17,7 +17,6 @@ import kotlinx.coroutines.withContext
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppRepoIndex
 import org.grapheneos.appupdateservergenerator.api.BulkAppMetadata
-import org.grapheneos.appupdateservergenerator.apkparsing.AAPT2Invoker
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PEMPublicKey
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
@@ -33,6 +32,7 @@ import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.files.TempFile
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.Base64String
+import org.grapheneos.appupdateservergenerator.model.Density
 import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
@@ -139,10 +139,9 @@ interface AppRepoManager {
 
 fun AppRepoManager(
     fileManager: FileManager,
-    aaptInvoker: AAPT2Invoker,
     openSSLInvoker: OpenSSLInvoker,
     numJobs: Int
-): AppRepoManager = AppRepoManagerImpl(fileManager, aaptInvoker, openSSLInvoker, numJobs)
+): AppRepoManager = AppRepoManagerImpl(fileManager, openSSLInvoker, numJobs)
 
 /**
  * The implementation of [AppRepoManager].
@@ -151,7 +150,6 @@ fun AppRepoManager(
 @ObsoleteCoroutinesApi
 private class AppRepoManagerImpl(
     private val fileManager: FileManager,
-    private val aaptInvoker: AAPT2Invoker,
     private val openSSLInvoker: OpenSSLInvoker,
     numJobs: Int
 ): AppRepoManager {
@@ -168,7 +166,7 @@ private class AppRepoManagerImpl(
     private val groupDao = GroupDao(database)
 
     private val staticFilesManager = MetadataFileManager(database, appDao, fileManager, openSSLInvoker)
-    private val deltaGenerationManager = DeltaGenerationManager(fileManager, database, aaptInvoker)
+    private val deltaGenerationManager = DeltaGenerationManager(fileManager, database)
 
     /**
      * @see AppRepoManager.validateRepo
@@ -286,7 +284,7 @@ private class AppRepoManagerImpl(
             )
         }
 
-        val latestApk = AndroidApk.buildFromApkAndVerifySignature(apks.last(), aaptInvoker)
+        val latestApk = AndroidApk.buildFromApkAndVerifySignature(apks.last())
         if (metadata.latestRelease().versionCode != latestApk.versionCode) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: latest APK versionCode in manifest mismatches with filename"
@@ -302,21 +300,21 @@ private class AppRepoManagerImpl(
             )
         }
         val iconFile = fileManager.getAppIconFile(latestApk.packageName)
-            val icon = aaptInvoker.getApplicationIconFromApk(
-                latestApk.apkFile,
-                AAPT2Invoker.Density.MEDIUM
-            )
-            if (icon != null) {
-                val iconFileBytes = iconFile.readBytes()
-                if (!iconFileBytes.contentEquals(icon)) {
-                    throw AppRepoException.InvalidRepoState(
-                        "$pkg: icon from $latestApk doesn't match current icon in repo $iconFile"
-                    )
-                }
-            } else if (iconFile.exists()) {
-                println("warning: $pkg has icon $iconFile but extraction of icon failed")
+        val icon = try {
+            latestApk.getIcon(Density.MEDIUM)
+        } catch (e: IOException) {
+            null
+        }
+        if (icon != null) {
+            val iconFileBytes = iconFile.readBytes()
+            if (!iconFileBytes.contentEquals(icon)) {
+                throw AppRepoException.InvalidRepoState(
+                    "$pkg: icon from $latestApk doesn't match current icon in repo $iconFile"
+                )
             }
-
+        } else if (iconFile.exists()) {
+            println("warning: $pkg has icon $iconFile but extraction of icon failed")
+        }
 
         val versionsToDeltaMap: Map<Pair<VersionCode, VersionCode>, File> = appDir.listDeltaFilesUnsortedMappedToVersion()
         val baseDeltaVersionsFromDirFiles: List<VersionCode> = versionsToDeltaMap
@@ -390,7 +388,7 @@ private class AppRepoManagerImpl(
         val parsedApks: SortedSet<AndroidApk> = coroutineScope {
             apks.map { apkFile ->
                 async {
-                    val parsedApk = AndroidApk.buildFromApkAndVerifySignature(apkFile, aaptInvoker)
+                    val parsedApk = AndroidApk.buildFromApkAndVerifySignature(apkFile)
                     if (parsedApk.packageName != metadata.packageName) {
                         throw AppRepoException.InvalidRepoState(
                             "$pkg: mismatch between metadata package and package from manifest ($apkFile)"
@@ -521,11 +519,7 @@ private class AppRepoManagerImpl(
         // APKs together.
         val packageApkGroups: List<PackageApkGroup.AscendingOrder>
         val timeTaken = measureTimeMillis {
-            packageApkGroups =
-                PackageApkGroup.createListFromFilesAscending(
-                    apkFilePaths = apkFilePaths,
-                    aaptInvoker = aaptInvoker
-                )
+            packageApkGroups = PackageApkGroup.createListFromFilesAscending(apkFilePaths)
         }
         println("took $timeTaken ms to parse APKs")
         println("found the following packages: ${packageApkGroups.map { it.packageName }}")
@@ -703,7 +697,7 @@ private class AppRepoManagerImpl(
                     "(versionCode ${latestRelease.versionCode.code})")
         }
 
-        val sortedPreviousApks = PackageApkGroup.fromDir(appDir, aaptInvoker, ascendingOrder = true)
+        val sortedPreviousApks = PackageApkGroup.fromDir(appDir, ascendingOrder = true)
         validateApkSigningCertChain(apksToInsert.sortedApks union sortedPreviousApks.sortedApks)
 
         val releaseNotesForMostRecentVersion: String? = if (promptForReleaseNotes) {
@@ -713,12 +707,12 @@ private class AppRepoManagerImpl(
             null
         }
 
-        val icon = aaptInvoker.getApplicationIconFromApk(
-            apkFile = maxVersionApk.apkFile,
-            minimumDensity = AAPT2Invoker.Density.MEDIUM
-        )
-        if (icon == null) {
-            println("warning: unable to extract icon for ${maxVersionApk.packageName}, ${maxVersionApk.versionCode}")
+        val icon = try {
+            maxVersionApk.getIcon(Density.MEDIUM)
+        } catch (e: IOException) {
+            println("warning: unable to extract icon for ${maxVersionApk.packageName}, ${maxVersionApk.versionCode}: " +
+                    "${e.message}")
+            null
         }
 
         // This will handle copying the APKs.
