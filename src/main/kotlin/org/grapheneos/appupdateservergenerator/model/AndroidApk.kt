@@ -10,8 +10,6 @@ import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceIdentifier
 import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceValue
 import com.google.devrel.gmscore.tools.apk.arsc.ResourceTableChunk
 import com.google.devrel.gmscore.tools.apk.arsc.TypeChunk
-import org.grapheneos.appupdateservergenerator.db.AppRelease
-import org.grapheneos.appupdateservergenerator.util.digest
 import org.grapheneos.appupdateservergenerator.util.implies
 import java.io.File
 import java.io.IOException
@@ -88,19 +86,6 @@ data class AndroidApk private constructor(
             return apkZipFile.getInputStream(iconEntry).use { it.readBytes() }
         }
     }
-
-    fun toAppRelease(releaseTimestamp: UnixTimestamp, releaseNotes: String?) = AppRelease(
-        packageName = packageName,
-        versionName = versionName,
-        versionCode = versionCode,
-        minSdkVersion = minSdkVersion,
-        releaseTimestamp = releaseTimestamp,
-        apkSha256 = apkFile.digest("SHA-256").encodeToBase64String(),
-        v4SigSha256 = (verifyResult as? ApkVerifyResult.V4)?.v4SignatureFile
-            ?.digest("SHA-256")
-            ?.encodeToBase64String(),
-        releaseNotes = releaseNotes
-    )
 
     class Builder constructor(val apkFile: File) {
         var label: String? = null

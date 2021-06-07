@@ -16,6 +16,8 @@ import org.grapheneos.appupdateservergenerator.db.App
 import org.grapheneos.appupdateservergenerator.db.AppRelease
 import org.grapheneos.appupdateservergenerator.db.DeltaInfo
 import org.grapheneos.appupdateservergenerator.files.FileManager
+import org.grapheneos.appupdateservergenerator.model.AndroidApk
+import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.PackageName
@@ -155,6 +157,19 @@ fun AppRelease.toSerializableModel(deltaInfo: Set<AppMetadata.DeltaInfo>) = AppM
     v4SigSha256 = v4SigSha256,
     deltaInfo = deltaInfo.ifEmpty { null },
     releaseNotes = releaseNotes?.takeIf { it.isNotBlank() }?.let(MarkdownProcessor::markdownToCompressedHtml)
+)
+
+fun AndroidApk.toAppRelease(releaseTimestamp: UnixTimestamp, releaseNotes: String?) = AppRelease(
+    packageName = packageName,
+    versionName = versionName,
+    versionCode = versionCode,
+    minSdkVersion = minSdkVersion,
+    releaseTimestamp = releaseTimestamp,
+    apkSha256 = apkFile.digest("SHA-256").encodeToBase64String(),
+    v4SigSha256 = (verifyResult as? ApkVerifyResult.V4)?.v4SignatureFile
+        ?.digest("SHA-256")
+        ?.encodeToBase64String(),
+    releaseNotes = releaseNotes
 )
 
 fun DeltaInfo.toSerializableModel() = AppMetadata.DeltaInfo(baseVersion, sha256Checksum)

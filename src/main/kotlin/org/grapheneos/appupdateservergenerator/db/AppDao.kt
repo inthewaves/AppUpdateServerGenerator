@@ -1,6 +1,7 @@
 package org.grapheneos.appupdateservergenerator.db
 
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
+import org.grapheneos.appupdateservergenerator.api.toAppRelease
 import org.grapheneos.appupdateservergenerator.api.toSerializableModel
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
