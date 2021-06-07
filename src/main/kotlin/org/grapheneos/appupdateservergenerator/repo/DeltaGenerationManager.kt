@@ -34,7 +34,9 @@ import java.io.IOException
 import java.text.DecimalFormat
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.min
 import kotlin.system.measureTimeMillis
 
 class DeltaGenerationManager(
@@ -86,6 +88,27 @@ class DeltaGenerationManager(
             var numberOfDeltasGenerated = 0L
             val packageToDeltasLeftMap = sortedMapOf<PackageName, Int>()
 
+            val progressAnimationDot = "."
+            val progressAnimationMaxDots = 4
+            val progressAnimationMaxDotSize = progressAnimationDot.length * progressAnimationMaxDots
+
+            val terminalWidth = AtomicInteger(100)
+            // we don't support windows, but why not check it
+            val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+            if (!isWindows) {
+                launch {
+                    while (isActive) {
+                        delay(2000L)
+                        ProcessBuilder("bash", "-c", "tput cols 2> /dev/tty").start().apply {
+                            val colWidth = inputStream.use { it.readBytes() }.decodeToString().trim().toIntOrNull()
+                            waitFor(1, TimeUnit.SECONDS)
+                            colWidth ?: return@apply
+                            terminalWidth.set(colWidth)
+                        }
+                    }
+                }
+            }
+
             fun printSameLine(stringToPrint: String, carriageReturn: Boolean) {
                 val extraSpaceNeeded = lastProgressMessage.length - stringToPrint.length
                 val lineToPrint = buildString {
@@ -102,15 +125,22 @@ class DeltaGenerationManager(
                 lastProgressMessage = stringToPrint
             }
             fun createProgressLine() = if (totalNumberOfDeltasToGenerate > 0) {
-                val percentage = DecimalFormat.getPercentInstance().format(
-                    numberOfDeltasGenerated / totalNumberOfDeltasToGenerate.toDouble()
-                )
-                "generated delta $numberOfDeltasGenerated of $totalNumberOfDeltasToGenerate ($percentage)" +
-                        (if (packageToDeltasLeftMap.keys.isNotEmpty()) {
-                            " --- packages left: ${packageToDeltasLeftMap.keys}"
-                        } else {
-                            ""
-                        })
+                val terminalWidthNow = terminalWidth.get()
+                buildString(capacity = terminalWidthNow) {
+                    val percentage = DecimalFormat.getPercentInstance().format(
+                        numberOfDeltasGenerated / totalNumberOfDeltasToGenerate.toDouble()
+                    )
+                    append("generated delta $numberOfDeltasGenerated of $totalNumberOfDeltasToGenerate ($percentage)")
+                    if (packageToDeltasLeftMap.keys.isNotEmpty()) {
+                        append(" --- ${packageToDeltasLeftMap.size} packages left")
+                        val distanceFromWidth: Int = terminalWidthNow - (length + 1 + progressAnimationMaxDotSize * 3)
+                        if (distanceFromWidth > 0) {
+                            val packages = packageToDeltasLeftMap.keys.joinToString()
+                            append(": ")
+                            append(packages.substring(0, min(packages.length, distanceFromWidth)))
+                        }
+                    }
+                }
             } else {
                 ""
             }
@@ -135,17 +165,14 @@ class DeltaGenerationManager(
             }
 
             launch {
-                val dotToUse = "."
-                val maxDots = 4
-                val maxDotSize = dotToUse.length * maxDots
-
                 var numDots = 0
                 while (isActive) {
                     asyncPrintMutex.withLock {
                         if (numberOfDeltasGenerated == totalNumberOfDeltasToGenerate) return@withLock
-                        if (numDots > maxDots) numDots = 1
+                        if (numDots > progressAnimationMaxDots) numDots = 1
                         printSameLine(
-                            createProgressLine() + " " + dotToUse.repeat(numDots).padEnd(maxDotSize),
+                            createProgressLine() + " "
+                                    + progressAnimationDot.repeat(numDots).padEnd(progressAnimationMaxDotSize),
                             carriageReturn = true,
                         )
                         numDots++
