@@ -2,12 +2,9 @@ package org.grapheneos.appupdateservergenerator.db
 
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.toSerializableModel
-import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
-import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
-import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
@@ -90,9 +87,7 @@ class AppDao(private val database: Database) {
         icon: ByteArray?,
         releaseNotesForMostRecentVersion: String?,
         updateTimestamp: UnixTimestamp,
-        signingKey: PKCS8PrivateKeyFile,
-        fileManager: FileManager,
-        openSSLInvoker: OpenSSLInvoker
+        fileManager: FileManager
     ) {
         if (apksToInsert.size <= 0) return
 
@@ -102,14 +97,12 @@ class AppDao(private val database: Database) {
             }
         }
 
-        val iconSignature: Base64String? = icon?.let { openSSLInvoker.signBytes(signingKey, it) }
         database.transaction {
             val mostRecentApk = apksToInsert.highestVersionApk!!
             database.appQueries.upsertWithoutGroup(
                 packageName = mostRecentApk.packageName,
                 label = mostRecentApk.label,
                 icon = icon,
-                iconSignature = iconSignature,
                 lastUpdateTimestamp = updateTimestamp
             )
             apksToInsert.sortedApks.forEach { apkToInsert ->

@@ -22,7 +22,6 @@ CREATE TABLE App (
     groupId TEXT AS GroupId COLLATE NOCASE REFERENCES AppGroup(id) ON UPDATE CASCADE ON DELETE SET NULL,
     label TEXT NOT NULL,
     icon BLOB,
-    iconSignature TEXT AS Base64String,
     lastUpdateTimestamp INTEGER AS UnixTimestamp NOT NULL
 );
 CREATE INDEX Index_App_packageName_groupId_label ON App(packageName, groupId, label);
