@@ -1,5 +1,8 @@
 package org.grapheneos.appupdateservergenerator.util
 
+import java.io.IOException
+import java.security.NoSuchAlgorithmException
+
 /**
  * Creates a [ByteArray] with `this` [Int] as a 32-bit  Little Endian integer.
  */
@@ -18,3 +21,12 @@ fun ByteArray.readInt32Le(offset: Int = 0): Int {
     int = int or ((get(offset + 2).toInt() and 0xFF) shl 16)
     return int or ((get(offset + 3).toInt() and 0xFF) shl 24)
 }
+
+/**
+ * Generates a digest of the [ByteArray] using the specified [digestAlgorithm].
+ *
+ * @throws IOException if an I/O error occurs.
+ * @throws NoSuchAlgorithmException if no Provider supports a MessageDigestSpi implementation for the specified
+ * algorithm
+ */
+fun ByteArray.digest(digestAlgorithm: String): ByteArray = inputStream().digest(digestAlgorithm)

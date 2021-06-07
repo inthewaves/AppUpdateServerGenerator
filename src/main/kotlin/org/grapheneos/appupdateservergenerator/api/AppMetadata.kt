@@ -21,6 +21,8 @@ import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
+import org.grapheneos.appupdateservergenerator.model.encodeToBase64String
+import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.FileFilter
 import java.io.IOException
 import java.util.SortedSet
@@ -34,6 +36,7 @@ data class AppMetadata(
     val packageName: PackageName,
     val groupId: GroupId? = null,
     val label: String,
+    val iconSha256: Base64String?,
     val lastUpdateTimestamp: UnixTimestamp,
     val releases: Set<ReleaseInfo>
 ) {
@@ -138,6 +141,7 @@ fun App.toSerializableModel(releases: Set<AppMetadata.ReleaseInfo>) = AppMetadat
     packageName = packageName,
     groupId = groupId,
     label = label,
+    iconSha256 = icon?.digest("SHA-256")?.encodeToBase64String(),
     lastUpdateTimestamp = lastUpdateTimestamp,
     releases = releases
 )

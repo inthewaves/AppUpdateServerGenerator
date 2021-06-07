@@ -4,7 +4,6 @@ import org.grapheneos.appupdateservergenerator.files.TempFile
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 
@@ -13,16 +12,7 @@ import java.security.NoSuchAlgorithmException
  *
  * @throws IOException if an I/O error occurs.
  */
-fun File.digest(messageDigest: MessageDigest): ByteArray {
-    DigestInputStream(inputStream().buffered(DEFAULT_BUFFER_SIZE), messageDigest).use { inputStream ->
-        val unusedBuffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        var bytes = inputStream.read(unusedBuffer)
-        while (bytes >= 0) {
-            bytes = inputStream.read(unusedBuffer)
-        }
-        return messageDigest.digest()
-    }
-}
+fun File.digest(messageDigest: MessageDigest): ByteArray = inputStream().use { it.digest(messageDigest) }
 
 /**
  * Generates a digest of the file using the specified [digestAlgorithm].
@@ -31,7 +21,7 @@ fun File.digest(messageDigest: MessageDigest): ByteArray {
  * @throws NoSuchAlgorithmException if no Provider supports a MessageDigestSpi implementation for the specified
  * algorithm
  */
-fun File.digest(digestAlgorithm: String): ByteArray = digest(MessageDigest.getInstance(digestAlgorithm))
+fun File.digest(digestAlgorithm: String): ByteArray = inputStream().use { it.digest(digestAlgorithm) }
 
 /**
  * Prepends the [string] to this file. The implementation creates a temporary file, appends the [string] to the temp
