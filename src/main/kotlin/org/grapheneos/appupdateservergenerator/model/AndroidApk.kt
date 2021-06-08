@@ -11,6 +11,7 @@ import com.google.devrel.gmscore.tools.apk.arsc.ResourceTableChunk
 import org.grapheneos.appupdateservergenerator.apkparsing.BinaryResourceConfigBuilder
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveReference
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveString
+import org.grapheneos.appupdateservergenerator.model.AndroidApk.Companion.buildFromApkAndVerifySignature
 import org.grapheneos.appupdateservergenerator.util.implies
 import java.io.File
 import java.io.IOException
@@ -19,7 +20,7 @@ import java.util.zip.ZipFile
 
 /**
  * Encapsulates data from the [apkFile] that was taken from the [apkFile]'s manifest and signing
- * certificate info.
+ * certificate info. Use [buildFromApkAndVerifySignature] to build an instance.
  */
 data class AndroidApk private constructor(
     val apkFile: File,

@@ -165,7 +165,7 @@ private class AppRepoManagerImpl(
     private val appDao = AppDao(database)
     private val groupDao = GroupDao(database)
 
-    private val staticFilesManager = MetadataFileManager(database, appDao, fileManager, openSSLInvoker)
+    private val staticFilesManager = StaticFileManager(database, appDao, fileManager, openSSLInvoker)
     private val deltaGenerationManager = DeltaGenerationManager(fileManager, database)
 
     /**

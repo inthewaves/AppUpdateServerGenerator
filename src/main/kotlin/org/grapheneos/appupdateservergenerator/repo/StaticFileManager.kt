@@ -5,6 +5,7 @@ import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.channels.onFailure
 import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppRepoIndex
 import org.grapheneos.appupdateservergenerator.api.BulkAppMetadata
@@ -18,9 +19,9 @@ import org.grapheneos.appupdateservergenerator.util.executeAsSequence
 import java.io.IOException
 
 /**
- * Manages deletion and generation + signing of metadata files.
+ * Manages deletion and generation + signing of metadata files and icons.
  */
-class MetadataFileManager(
+class StaticFileManager(
     private val database: Database,
     private val appDao: AppDao,
     private val fileManager: FileManager,
@@ -74,10 +75,14 @@ class MetadataFileManager(
                     openSSLInvoker,
                     privateKeyFile
                 ) { repoIndexChannel ->
-                    for (appMetadata in channel) {
-                        appMetadata.writeToDiskAndSign(privateKeyFile, openSSLInvoker, fileManager)
-                        bulkAppChannel.send(appMetadata)
-                        repoIndexChannel.send(appMetadata)
+                    coroutineScope {
+                        for (appMetadata in channel) {
+                            launch {
+                                appMetadata.writeToDiskAndSign(privateKeyFile, openSSLInvoker, fileManager)
+                                bulkAppChannel.send(appMetadata)
+                                repoIndexChannel.send(appMetadata)
+                            }
+                        }
                     }
                 }
                 println("regenerated the app repo index at ${fileManager.appIndex}")
