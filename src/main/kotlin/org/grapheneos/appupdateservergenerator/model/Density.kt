@@ -37,7 +37,10 @@ enum class Density(val qualifierValue: String, val approximateDpi: Int) {
      * This qualifier matches all screen densities and takes precedence over other qualifiers. This is useful for
      * vector drawables.
      */
-    ANY("anydpi", 0xfffe);
+    ANY("anydpi", 0xfffe),
+
+    /** No density specified */
+    NONE("nodpi", 0xffff);
 
     override fun toString(): String {
         return "Density(qualifierValue='$qualifierValue', approximateDpi=$approximateDpi)"

@@ -8,6 +8,7 @@ import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceFile
 import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceIdentifier
 import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceValue
 import com.google.devrel.gmscore.tools.apk.arsc.ResourceTableChunk
+import org.grapheneos.appupdateservergenerator.apkparsing.BinaryResourceConfigBuilder
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveReference
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveString
 import org.grapheneos.appupdateservergenerator.util.implies
@@ -50,29 +51,13 @@ data class AndroidApk private constructor(
                 ?: throw IOException("unable to find icon resource ID")
 
             val icon: BinaryResourceValue = resourceTableChunk.resolveReference(
-                resId = iconResId,
-                // We manage minimum density below, so we use a null configPredicate here.
-                configPredicate = null,
-                sequenceTransformer = { sequence ->
-                    val list = sequence.filter { it.chunkEntry.value() != null }.toList()
-                    // println("$packageName $versionCode densities found: ${list.map { "${it.second.density()} with type ${it.first.value().type()}" }}")
+                iconResId,
+                config = BinaryResourceConfigBuilder
+                    .createDummyConfig()
+                    .copy(density = minimumDensity.approximateDpi)
+                    .toBinaryResConfig()
+            ) ?: throw IOException("unable to find icon resource ID")
 
-                    // First, if this is a reference, find the 0 DPI version.
-                    // Else, try to find an icon is just over the minimum density.
-                    // Else, try to take the greatest possible icon.
-                    val entry =
-                        if (list.firstOrNull()?.chunkEntry?.value()?.type() == BinaryResourceValue.Type.REFERENCE) {
-                            list.find { it.config.density() == 0 }
-                        } else {
-                            null
-                        } ?: list.asSequence()
-                            .filter { it.config.density() >= minimumDensity.approximateDpi }
-                            .minByOrNull { it.config.density() }
-                        ?: list.maxByOrNull { it.config.density() }
-
-                    return@resolveReference entry?.chunkEntry?.value()
-                }
-            ) ?: throw IOException("unable to resolve resource ID for ${packageName.pkg}, $versionCode")
             if (icon.type() != BinaryResourceValue.Type.STRING) {
                 throw IOException("icon resource ID isn't a string")
             }

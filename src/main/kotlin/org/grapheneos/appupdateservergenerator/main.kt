@@ -15,7 +15,6 @@ import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
     Security.addProvider(BouncyCastleProvider())
-
     // if (!DefaultDeflateCompatibilityWindow().isCompatible) {
     //     System.err.println("Warning: zlib not compatible on this system")
     // }
