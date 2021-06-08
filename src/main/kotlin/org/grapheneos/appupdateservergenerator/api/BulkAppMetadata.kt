@@ -7,18 +7,38 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import org.grapheneos.appupdateservergenerator.api.BulkAppMetadata.Companion.regenerateFromChannel
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
+import org.grapheneos.appupdateservergenerator.repo.StaticFileManager
 import java.io.IOException
 import java.util.SortedSet
 
 /**
  * Represents a file where every (non-signature and timestamp) line is a JSON string of [AppMetadata]
  * for every app in the repo. Intended to be used for fresh installs or force refreshes to not require
- * the app the make tons of network requests, as it is more efficient to do everything in one network
+ * the app to make tons of network requests, as it is more efficient to do everything in one network
  * request.
+ *
+ * Format of the plaintext file:
+ *
+ *  - line 1: a header containing a signature of the below contents (see
+ *    [SignatureHeaderInputStream.createSignatureHeaderWithLineFeed])
+ *  - line 2: the [lastUpdateTimestamp], i.e., the last time the bulk metadata file was last updated and all app
+ *    metadata was regenerated
+ *  - line 3+: JSON [AppMetadata] for each app in the repo.
+ *
+ * When clients read from [BulkAppMetadata], they must
+ *
+ * 1. Verify that the [lastUpdateTimestamp] matches the timestamp of the central [AppRepoIndex]
+ * 2. Verify that the [AppMetadata.repoIndexTimestamp] property in all of the parsed JSON files matches the
+ *    [lastUpdateTimestamp] of the bulk app metadata file / repo index. (Doing this will implicitly verify the
+ *    [AppRepoIndex]'s timestamp)
+ *
+ * Implementation note: An instance of this class is not created for writing the index. Regeneration is done in a
+ * streaming fashion via [StaticFileManager.regenerateMetadataAndIcons], which uses [regenerateFromChannel].
  */
 data class BulkAppMetadata private constructor(
     val lastUpdateTimestamp: UnixTimestamp,
@@ -42,7 +62,7 @@ data class BulkAppMetadata private constructor(
     }
 
     companion object {
-        suspend fun writeFromChannel(
+        suspend fun regenerateFromChannel(
             updateTimestamp: UnixTimestamp,
             fileManager: FileManager,
             openSSLInvoker: OpenSSLInvoker,

@@ -30,30 +30,47 @@ import java.io.IOException
 import java.util.SortedSet
 
 /**
- * The metadata for an app that will be parsed by the app.
+ * The metadata for an app that will be parsed by the app. This corresponds to an app and is derived from the
+ * database model class [App]. Use the [App.toSerializableModel] extension function to create an instance of this
+ * class.
  */
 @Serializable
 data class AppMetadata(
     @SerialName("package")
     val packageName: PackageName,
+    /**
+     * The timestamp of the repository index corresponding to the time the repo had an update. This timestamp can be
+     * a later time than [lastUpdateTimestamp]. This should be the same as the timestamp in the repository index and
+     * bulk metadata.
+     *
+     * Clients **must** verify this against the repository index timestamp.
+     */
+    val repoIndexTimestamp: UnixTimestamp,
+    /** TODO: Replace with libraries, which parses the `uses-library` and `uses-static-library` tags from the manifest */
     val groupId: GroupId? = null,
     val label: String,
     val iconSha256: Base64String?,
+    /** The last time this app has been updated. */
     val lastUpdateTimestamp: UnixTimestamp,
     val releases: Set<ReleaseInfo>
 ) {
+    /**
+     * Represents a specific release of the app. This corresponds to an APK of the app and is derived from the database
+     * model class [AppRelease]. Use the extension function [AppRelease.toSerializableModel] to create an instance
+     * of this class.
+     */
     @Serializable
     data class ReleaseInfo(
         val versionCode: VersionCode,
         val versionName: String,
         val minSdkVersion: Int,
         val releaseTimestamp: UnixTimestamp,
-        /** A checksum for the APK. */
+        /** The base64-encoded sha256 checksum for the APK. */
         val apkSha256: Base64String,
         /**
-         * A sha256 checksum of the APK Signature Scheme v4 signature.
+         * The base64-encoded sha256 checksum of the APK Signature Scheme v4 signature.
          * If this is null, the APK wasn't signed using the v4 scheme; otherwise, clients should expect to find the
-         * .apk.idsig file.
+         * .apk.idsig file next to the APK.
          */
         val v4SigSha256: Base64String? = null,
         /** Set containing previous releases that have a delta available for this version. */
@@ -66,11 +83,18 @@ data class AppMetadata(
         val releaseNotes: String? = null
     ) : Comparable<ReleaseInfo> {
         override fun compareTo(other: ReleaseInfo): Int = versionCode.compareTo(other.versionCode)
-    }
 
-    @Serializable
-    data class DeltaInfo(val baseVersionCode: VersionCode, val sha256: Base64String) : Comparable<DeltaInfo> {
-        override fun compareTo(other: DeltaInfo) = baseVersionCode.compareTo(other.baseVersionCode)
+        /**
+         * Represents a delta file for an older release of an app that targets the latest version of the app. This
+         * corresponds to the database model [org.grapheneos.appupdateservergenerator.db.DeltaInfo].
+         *
+         * @property baseVersionCode The base version code.
+         * @property sha256 The sha256 checksum of the delta file, encoded in base64.
+         */
+        @Serializable
+        data class DeltaInfo(val baseVersionCode: VersionCode, val sha256: Base64String) : Comparable<DeltaInfo> {
+            override fun compareTo(other: DeltaInfo) = baseVersionCode.compareTo(other.baseVersionCode)
+        }
     }
 
     fun latestRelease(): ReleaseInfo = if (releases is SortedSet<ReleaseInfo> && releases.comparator() == null) {
@@ -139,8 +163,12 @@ data class AppMetadata(
     }
 }
 
-fun App.toSerializableModel(releases: Set<AppMetadata.ReleaseInfo>) = AppMetadata(
+fun App.toSerializableModel(
+    repositoryIndexTimestamp: UnixTimestamp,
+    releases: Set<AppMetadata.ReleaseInfo>
+) = AppMetadata(
     packageName = packageName,
+    repoIndexTimestamp = repositoryIndexTimestamp,
     groupId = groupId,
     label = label,
     iconSha256 = icon?.digest("SHA-256")?.encodeToBase64String(),
@@ -148,7 +176,7 @@ fun App.toSerializableModel(releases: Set<AppMetadata.ReleaseInfo>) = AppMetadat
     releases = releases
 )
 
-fun AppRelease.toSerializableModel(deltaInfo: Set<AppMetadata.DeltaInfo>) = AppMetadata.ReleaseInfo(
+fun AppRelease.toSerializableModel(deltaInfo: Set<AppMetadata.ReleaseInfo.DeltaInfo>) = AppMetadata.ReleaseInfo(
     versionCode = versionCode,
     versionName = versionName,
     minSdkVersion = minSdkVersion,
@@ -172,4 +200,4 @@ fun AndroidApk.toAppRelease(releaseTimestamp: UnixTimestamp, releaseNotes: Strin
     releaseNotes = releaseNotes
 )
 
-fun DeltaInfo.toSerializableModel() = AppMetadata.DeltaInfo(baseVersion, sha256Checksum)
+fun DeltaInfo.toSerializableModel() = AppMetadata.ReleaseInfo.DeltaInfo(baseVersion, sha256Checksum)

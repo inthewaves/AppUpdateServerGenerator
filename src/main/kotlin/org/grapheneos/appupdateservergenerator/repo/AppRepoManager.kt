@@ -118,7 +118,7 @@ interface AppRepoManager {
 
     fun doesPackageExist(pkg: PackageName): Boolean
 
-    fun getMetadataForPackage(pkg: PackageName): AppMetadata?
+    fun getLatestRelease(pkg: PackageName): AppRelease?
 
     /**
      * Edits the release notes for the given [pkg] and then regenerates all metadata, singing it using the
@@ -133,8 +133,6 @@ interface AppRepoManager {
         delete: Boolean,
         signingPrivateKey: PKCS8PrivateKeyFile
     )
-
-    suspend fun resignMetadataForPackage(pkg: PackageName, signingPrivateKey: PKCS8PrivateKeyFile)
 }
 
 fun AppRepoManager(
@@ -259,10 +257,10 @@ private class AppRepoManagerImpl(
         val metadataFile = fileManager.getLatestAppMetadata(metadata.packageName)
         openSSLInvoker.verifyFileWithSignatureHeader(metadataFile, publicKey)
         val pkg = metadata.packageName
-        if (metadata.lastUpdateTimestamp > existingIndex.timestamp) {
+        if (metadata.lastUpdateTimestamp > existingIndex.repoUpdateTimestamp) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: metadata timestamp (${metadata.lastUpdateTimestamp}) " +
-                        "> index timestamp (${existingIndex.timestamp})"
+                        "> index timestamp (${existingIndex.repoUpdateTimestamp})"
             )
         }
         val apks = appDir.listApkFilesUnsorted().sortedBy { it.nameWithoutExtension.toInt() }
@@ -329,7 +327,7 @@ private class AppRepoManagerImpl(
                 baseVersion
             }
             .sorted()
-        val baseDeltaVersionsToFileMapFromMetadata: Map<VersionCode, AppMetadata.DeltaInfo> =
+        val baseDeltaVersionsToFileMapFromMetadata: Map<VersionCode, AppMetadata.ReleaseInfo.DeltaInfo> =
             latestRelease.deltaInfo?.associateBy { it.baseVersionCode } ?: emptyMap()
 
         if (baseDeltaVersionsToFileMapFromMetadata.keys.sorted() != baseDeltaVersionsFromDirFiles) {
@@ -657,7 +655,7 @@ private class AppRepoManagerImpl(
         }
     }
 
-    override fun getMetadataForPackage(pkg: PackageName): AppMetadata? = appDao.getSerializableAppMetadata(pkg)
+    override fun getLatestRelease(pkg: PackageName): AppRelease? = appDao.getLatestRelease(pkg)
 
     /**
      * Inserts one or more APKs for a single package into the repository. This involves copying the APK files.
@@ -821,14 +819,6 @@ private class AppRepoManagerImpl(
         appDao.updateReleaseNotes(pkg, appToReleasePair.second.versionCode, newReleaseNotes, newTimestamp)
 
         staticFilesManager.regenerateMetadataAndIcons(signingPrivateKey, newTimestamp)
-    }
-
-    override suspend fun resignMetadataForPackage(pkg: PackageName, signingPrivateKey: PKCS8PrivateKeyFile) {
-        validatePublicKeyInRepo(signingPrivateKey)
-
-        getMetadataForPackage(pkg)
-            ?.writeToDiskAndSign(signingPrivateKey, openSSLInvoker, fileManager)
-            ?: throw AppRepoException.EditFailed("$pkg doesn't exist in repo")
     }
 
     private suspend fun promptUserForReleaseNotes(

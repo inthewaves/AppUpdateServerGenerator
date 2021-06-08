@@ -63,13 +63,13 @@ class StaticFileManager(
         }
 
         val metadataChannel = actor<AppMetadata>(capacity = Channel.UNLIMITED) {
-            BulkAppMetadata.writeFromChannel(
+            BulkAppMetadata.regenerateFromChannel(
                 updateTimestamp,
                 fileManager,
                 openSSLInvoker,
                 privateKeyFile
             ) { bulkAppChannel ->
-                AppRepoIndex.writeFromChannel(
+                AppRepoIndex.regenerateIndexFromChannel(
                     updateTimestamp,
                     fileManager,
                     openSSLInvoker,
@@ -94,14 +94,16 @@ class StaticFileManager(
             database.transaction {
                 database.appQueries.selectAll().executeAsSequence { apps ->
                     apps.forEach { app ->
-                        val metadata = appDao.getSerializableAppMetadata(app)
+                        val metadata = appDao.createSerializableAppMetadata(app, updateTimestamp)
 
                         metadataChannel
                             .trySendBlocking(metadata)
                             .onFailure { throw IOException("failed to write ${app.packageName} into bulk metadata") }
 
                         if (app.icon != null) {
-                            fileManager.getAppIconFile(app.packageName).outputStream().buffered()
+                            fileManager.getAppIconFile(app.packageName)
+                                .outputStream()
+                                .buffered()
                                 .use { it.write(app.icon) }
                         }
                     }

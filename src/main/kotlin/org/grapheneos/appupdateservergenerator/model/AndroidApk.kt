@@ -37,6 +37,8 @@ data class AndroidApk private constructor(
      * platform loosens security checks for such APKs. For example, arbitrary unauthorized code
      * may be executed in the context of such an app by anybody with ADB shell access.
      *
+     * Debuggable APKs should never be inserted into the app repo.
+     *
      * @see ApkSigner.Builder.setDebuggableApkPermitted
      */
     val debuggable: Boolean,

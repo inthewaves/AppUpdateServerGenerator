@@ -20,34 +20,7 @@ import java.io.IOException
 class EditCommand private constructor(): CliktCommand(name = "edit", help = "Commands to edit the repository directly.") {
     companion object {
         fun createWithSubcommands() = EditCommand()
-            .subcommands(ResignMetadataCommand(), ReleaseNotesCommand())
-    }
-
-    class ResignMetadataCommand : AppRepoSubcommand(
-        name = "resign",
-        help = """Parses a package's metadata and then signs it again.
-        """.trimIndent()
-    ) {
-        private val privateSigningKeyFile: File by option(names = arrayOf("--signing-key", "-k"))
-            .file(mustExist = true, canBeDir = false, mustBeReadable = true)
-            .required()
-        private val packageToEdit: PackageName by argument(
-            name = "package",
-            help = "The package to edit",
-        ).convert { PackageName(it) }
-
-        override fun runAfterInvokerChecks() = runBlocking {
-            val signingPrivateKey: PKCS8PrivateKeyFile = try {
-                openSSLInvoker.getKeyWithType(privateSigningKeyFile)
-            } catch (e: IOException) {
-                printErrorAndExit("failed to parse key type from provided key file", e)
-            }
-
-            appRepoManager.resignMetadataForPackage(
-                pkg = packageToEdit,
-                signingPrivateKey = signingPrivateKey
-            )
-        }
+            .subcommands(ReleaseNotesCommand())
     }
 
     class ReleaseNotesCommand : AppRepoSubcommand(
@@ -82,16 +55,16 @@ class EditCommand private constructor(): CliktCommand(name = "edit", help = "Com
                 printErrorAndExit("failed to parse key type from provided key file", e)
             }
 
-            val metadata = try {
-                appRepoManager.getMetadataForPackage(packageToEdit)
+            val latestRelease = try {
+                appRepoManager.getLatestRelease(packageToEdit)
                     ?: throw IOException("unable to find package $packageToEdit")
             } catch (e: IOException) {
                 printErrorAndExit(e.message, e)
             }
 
             if (delete) {
-                if (metadata.latestRelease().releaseNotes == null) {
-                    println("not deleting: ${metadata.packageName} already has no release notes")
+                if (latestRelease.releaseNotes == null) {
+                    println("not deleting: $packageToEdit already has no release notes")
                 } else {
                     println("deleting release notes for $packageToEdit")
                     appRepoManager.editReleaseNotesForPackage(

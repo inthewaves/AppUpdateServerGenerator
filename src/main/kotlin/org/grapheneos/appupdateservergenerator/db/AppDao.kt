@@ -44,18 +44,13 @@ class AppDao(private val database: Database) {
     fun getAppsInGroupButExcludingApps(groupId: GroupId, groupsToExclude: Collection<PackageName>) =
         database.appQueries.appsInGroupAndNotInSet(groupId, groupsToExclude).executeAsList()
 
-    fun getSerializableAppMetadata(packageName: PackageName): AppMetadata? =
-        database.transactionWithResult {
-            getApp(packageName)?.let { getSerializableAppMetadata(it) }
-        }
-
-    fun getSerializableAppMetadata(app: App): AppMetadata =
+    fun createSerializableAppMetadata(app: App, repoIndexTimestamp: UnixTimestamp): AppMetadata =
         database.transactionWithResult {
             val allReleases: TreeSet<AppMetadata.ReleaseInfo> =
                 database.appReleaseQueries.selectAllByApp(app.packageName)
                     .executeAsSequence { releasesSequence ->
                         releasesSequence.mapTo(TreeSet()) { release ->
-                            val deltaInfo: TreeSet<AppMetadata.DeltaInfo> = database.deltaInfoQueries
+                            val deltaInfo: TreeSet<AppMetadata.ReleaseInfo.DeltaInfo> = database.deltaInfoQueries
                                 .selectAllForTargetVersion(release.packageName, release.versionCode)
                                 .executeAsSequence { deltaInfos ->
                                     deltaInfos.mapTo(TreeSet()) { it.toSerializableModel() }
@@ -65,7 +60,7 @@ class AppDao(private val database: Database) {
                         }
                     }
 
-            return@transactionWithResult app.toSerializableModel(allReleases)
+            return@transactionWithResult app.toSerializableModel(repoIndexTimestamp, allReleases)
         }
 
     fun doesAppExist(packageName: PackageName): Boolean {

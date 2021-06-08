@@ -4,6 +4,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.coroutineScope
+import org.grapheneos.appupdateservergenerator.api.AppRepoIndex.Companion.createLine
+import org.grapheneos.appupdateservergenerator.api.AppRepoIndex.Companion.regenerateIndexFromChannel
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.crypto.SignatureHeaderInputStream
@@ -11,6 +13,7 @@ import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
+import org.grapheneos.appupdateservergenerator.repo.StaticFileManager
 import java.io.IOException
 import java.util.SortedMap
 import java.util.TreeMap
@@ -18,18 +21,28 @@ import java.util.TreeMap
 /**
  * The index of all the apps in the repo.
  *
- * Format:
- * - line 1: a header containing a signature of the below contents (see
+ * Format of the plaintext file (as specified by the [createLine] function):
+ *
+ *  - line 1: a header containing a signature of the below contents (see
  *   [SignatureHeaderInputStream.createSignatureHeaderWithLineFeed])
- * - line 2: a timestamp of when the index was last updated (i.e., the last time the `add` command was run)
- * - line 3+: a line for each app in the repo of the form
+ *  - line 2: the [repoUpdateTimestamp], i.e., the last time the index was last updated and all app metadata was
+ *    regenerated
+ *  - line 3+: a line for each app in the repo of the form
  *     ```
  *     packageName latestVersionCode lastUpdateTimestamp
  *     ```
- *     where lastUpdateTimestamp is the last time the app's metadata was last updated or the latest release date.
+ *
+ *    where lastUpdateTimestamp is the last time the app's metadata was last updated or the latest release date.
+ *
+ * When clients check for updates, they should store the `latestVersionCode` and `lastUpdateTimestamp` and use that to
+ * validate the [AppMetadata] that they download for apps that have been updated in order to prevent the client from
+ * installing an older version of an app.
+ *
+ * Implementation note: An instance of this class is not created for writing the index. Index updates are done in a
+ * streaming fashion via [StaticFileManager.regenerateMetadataAndIcons], which uses [regenerateIndexFromChannel].
  */
 data class AppRepoIndex private constructor(
-    val timestamp: UnixTimestamp,
+    val repoUpdateTimestamp: UnixTimestamp,
     val packageToVersionMap: SortedMap<PackageName, Pair<VersionCode, UnixTimestamp>>
 ) {
     /**
@@ -40,7 +53,7 @@ data class AppRepoIndex private constructor(
     fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
         val latestAppVersionIndex = fileManager.appIndex
         latestAppVersionIndex.bufferedWriter().use { writer ->
-            writer.appendLine(timestamp.seconds.toString())
+            writer.appendLine(repoUpdateTimestamp.seconds.toString())
             packageToVersionMap.forEach { (packageName, versionCodeTimestampPair) ->
                 val (versionCode, timestamp) = versionCodeTimestampPair
                 writer.appendLine(createLine(packageName, versionCode, timestamp))
@@ -62,7 +75,12 @@ data class AppRepoIndex private constructor(
             lastUpdateTimestamp: UnixTimestamp
         ) = "${packageName.pkg} ${versionCode.code} ${lastUpdateTimestamp.seconds}"
 
-        suspend fun writeFromChannel(
+        /**
+         * Regenerates the app repo index by using the [AppMetadata] being fed through the [writerBlock]'s [SendChannel].
+         * The caller should makes sure that the [AppMetadata] sent through the channel contains all the apps in the
+         * repository.
+         */
+        suspend fun regenerateIndexFromChannel(
             updateTimestamp: UnixTimestamp,
             fileManager: FileManager,
             openSSLInvoker: OpenSSLInvoker,
@@ -87,11 +105,12 @@ data class AppRepoIndex private constructor(
             try {
                 writerBlock(outerChannel)
             } finally {
+                // idempotent operation
                 outerChannel.close()
             }
         }
 
-        private fun createFromLine(line: String): Pair<PackageName, Pair<VersionCode, UnixTimestamp>>? {
+        private fun parseLine(line: String): Pair<PackageName, Pair<VersionCode, UnixTimestamp>>? {
             val split = line.split(' ')
             return if (split.size == 3) {
                 PackageName(split[0]) to (VersionCode(split[1].toLong()) to UnixTimestamp(split[2].toLong()))
@@ -110,7 +129,7 @@ data class AppRepoIndex private constructor(
                         if (index == 0) {
                             timestamp = UnixTimestamp(line.toLong())
                         } else {
-                            val (packageName, versionCodeAndTimestamp) = createFromLine(line)
+                            val (packageName, versionCodeAndTimestamp) = parseLine(line)
                                 ?: throw IOException("failed to parse line $line")
                             sortedMap[packageName] = versionCodeAndTimestamp
                         }
