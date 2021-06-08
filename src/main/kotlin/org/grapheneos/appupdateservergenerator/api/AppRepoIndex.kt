@@ -16,7 +16,6 @@ import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.repo.StaticFileManager
 import java.io.IOException
 import java.util.SortedMap
-import java.util.TreeMap
 
 /**
  * The index of all the apps in the repo.
@@ -45,23 +44,6 @@ data class AppRepoIndex private constructor(
     val repoUpdateTimestamp: UnixTimestamp,
     val packageToVersionMap: SortedMap<PackageName, Pair<VersionCode, UnixTimestamp>>
 ) {
-    /**
-     * Writes this [AppRepoIndex] to the disk and then signs the file using the [privateKey] and [openSSLInvoker].
-     *
-     * @throws IOException if an I/O error occurs.
-     */
-    fun writeToDiskAndSign(privateKey: PKCS8PrivateKeyFile, openSSLInvoker: OpenSSLInvoker, fileManager: FileManager) {
-        val latestAppVersionIndex = fileManager.appIndex
-        latestAppVersionIndex.bufferedWriter().use { writer ->
-            writer.appendLine(repoUpdateTimestamp.seconds.toString())
-            packageToVersionMap.forEach { (packageName, versionCodeTimestampPair) ->
-                val (versionCode, timestamp) = versionCodeTimestampPair
-                writer.appendLine(createLine(packageName, versionCode, timestamp))
-            }
-        }
-        openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, latestAppVersionIndex)
-    }
-
     companion object {
         /**
          * Format for the metadata file lines for each app.
@@ -136,21 +118,6 @@ data class AppRepoIndex private constructor(
                     }
             }
             return timestamp?.let { AppRepoIndex(it, sortedMap) } ?: throw IOException("missing timestamp")
-        }
-
-        /**
-         * Creates a new [AppRepoIndex] instance from the repo files on disk.
-         *
-         * @throws IOException if an I/O error occurs.
-         */
-        suspend fun constructFromRepoFilesOnDisk(
-            fileManager: FileManager,
-            timestamp: UnixTimestamp
-        ): AppRepoIndex = coroutineScope {
-            // sort by keys
-            val map = AppMetadata.getAllAppMetadataFromDisk(fileManager)
-                .associateTo(TreeMap()) { it.packageName to (it.latestRelease().versionCode to it.lastUpdateTimestamp) }
-            AppRepoIndex(timestamp, map)
         }
     }
 }

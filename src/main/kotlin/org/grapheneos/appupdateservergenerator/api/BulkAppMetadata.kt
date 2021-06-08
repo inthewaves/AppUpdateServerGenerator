@@ -44,23 +44,6 @@ data class BulkAppMetadata private constructor(
     val lastUpdateTimestamp: UnixTimestamp,
     val allAppMetadata: SortedSet<AppMetadata>
 ) {
-    /**
-     * @throws IOException if an I/O error occurs or the metadata is of an invalid format
-     */
-    fun writeToDiskAndSign(
-        fileManager: FileManager,
-        openSSLInvoker: OpenSSLInvoker,
-        privateKey: PKCS8PrivateKeyFile
-    ) {
-        writeToDiskFromSequenceAndSign(
-            allAppMetadata.asSequence(),
-            lastUpdateTimestamp,
-            fileManager,
-            openSSLInvoker,
-            privateKey
-        )
-    }
-
     companion object {
         suspend fun regenerateFromChannel(
             updateTimestamp: UnixTimestamp,
@@ -87,21 +70,6 @@ data class BulkAppMetadata private constructor(
             }
         }
 
-        fun writeToDiskFromSequenceAndSign(
-            appMetadata: Sequence<AppMetadata>,
-            updateTimestamp: UnixTimestamp,
-            fileManager: FileManager,
-            openSSLInvoker: OpenSSLInvoker,
-            privateKey: PKCS8PrivateKeyFile
-        ) {
-            val bulkAppMetadataFle = fileManager.bulkAppMetadata
-            bulkAppMetadataFle.bufferedWriter().use { writer ->
-                writer.appendLine(updateTimestamp.seconds.toString())
-                appMetadata.forEach { writer.appendLine(it.writeToString()) }
-            }
-            openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, bulkAppMetadataFle)
-        }
-
         fun readFromExistingFile(fileManager: FileManager): BulkAppMetadata {
             val sortedSet: SortedSet<AppMetadata> = sortedSetOf(AppMetadata.packageComparator)
             var timestamp: UnixTimestamp? = null
@@ -123,10 +91,5 @@ data class BulkAppMetadata private constructor(
             }
             return timestamp?.let { BulkAppMetadata(it, sortedSet) } ?: throw IOException("missing timestamp")
         }
-
-        suspend fun createFromDisk(
-            fileManager: FileManager,
-            timestamp: UnixTimestamp
-        ) = BulkAppMetadata(timestamp, AppMetadata.getAllAppMetadataFromDisk(fileManager))
     }
 }
