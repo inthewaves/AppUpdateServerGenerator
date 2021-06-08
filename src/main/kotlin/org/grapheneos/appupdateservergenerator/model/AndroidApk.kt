@@ -46,17 +46,45 @@ data class AndroidApk private constructor(
             val manifestBytes = apkZipFile.getInputStream(apkZipFile.getEntry("AndroidManifest.xml")).use {
                 it.readBytes()
             }
-
-            val iconResId = getIconResIdInBinaryAndroidManifest(ByteBuffer.wrap(manifestBytes))
-                ?: throw IOException("unable to find icon resource ID")
+            val iconResId = try {
+                getIconResIdInBinaryAndroidManifest(ByteBuffer.wrap(manifestBytes))
+            } catch (e: ApkFormatException) {
+                throw IOException("unable to find icon resource ID", e)
+            } ?: throw IOException("unable to find icon resource ID")
 
             val icon: BinaryResourceValue = resourceTableChunk.resolveReference(
                 iconResId,
                 config = BinaryResourceConfigBuilder
                     .createDummyConfig()
                     .copy(density = minimumDensity.approximateDpi)
-                    .toBinaryResConfig()
+                    .toBinaryResConfig(),
+                // Specifically eliminate vector drawables. Maybe just filter out anydpi?
+                extraConfigFilter = { _, value ->
+                    if (value.type() == BinaryResourceValue.Type.REFERENCE) {
+                        // Let references pass through to be resolved again.
+                        return@resolveReference true
+                    }
+                    if (value.type() != BinaryResourceValue.Type.STRING) return@resolveReference false
+                    val path = stringPool.getString(value.data())
+                    // Note: This also checks if the reference actually points to a file in the APK we can extract.
+                    val entry = apkZipFile.getEntry(path) ?: return@resolveReference false
+                    val iconBytes = apkZipFile.getInputStream(entry).use { it.readBytes() }
+                    // Attempt to parse the icon as a binary XML. Alternatively, add a dependency on
+                    // com.android.tools.apkparser:apkanalyzer if not already there, and then use
+                    // BinaryXmlParser.decodeXml(null, iconBytes) to get the XML output. Maybe that can be used
+                    // in the future to convert adaptive icons / vector drawables to SVGs
+                    try {
+                        BinaryResourceFile(iconBytes)
+                    } catch (e: Throwable) {
+                        // An error means this is likely not a vector drawable / adaptive icon.
+                        return@resolveReference true
+                    }
+                    // No errors means it parsed correctly as a binary XML. All signs point towards this being a
+                    // vector drawable / adaptive icon. We don't support those at this time.
+                    return@resolveReference false
+                }
             ) ?: throw IOException("unable to find icon resource ID")
+            System.gc()
 
             if (icon.type() != BinaryResourceValue.Type.STRING) {
                 throw IOException("icon resource ID isn't a string")

@@ -23,7 +23,11 @@ class FileManager constructor(
         const val APP_REPO_INDEX_FILENAME = "latest-index.txt"
         const val BULK_METADATA_FILENAME = "latest-bulk-metadata.txt"
         const val APP_METADATA_FILENAME = "latest.txt"
-        const val APP_ICON_FILENAME = "ic_launcher.png"
+        /**
+         * The name of the icon file for clients to download when they don't have an app installed.
+         * Note: App icons can be PNG, JPEG, GIF, WebP. XML (vector drawables) are not supported.
+         */
+        const val APP_ICON_FILENAME = "ic_launcher"
 
         private const val REPO_ROOT_DIRNAME = "app_repo_data"
         private const val STANDALONE_APP_DATA_DIRNAME = "apps"

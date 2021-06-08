@@ -38,6 +38,9 @@ dependencies {
     implementation("com.github.ajalt.clikt:clikt:3.2.0")
 
     val apkParserVersion = "30.1.0-alpha01"
+    /*
+    Uncomment this if we want to parse binary XML from APK files
+
     implementation("com.android.tools.apkparser:apkanalyzer:$apkParserVersion") {
         exclude("com.android.tools.lint")
         exclude("com.google.protobuf")
@@ -51,6 +54,7 @@ dependencies {
         exclude("org.bouncycastle")
         exclude("xerces")
     }
+     */
     implementation("com.android.tools.apkparser:binary-resources:$apkParserVersion")
     implementation("com.squareup.sqldelight:sqlite-driver:1.5.0")
     // transitive dependency of com.squareup.sqldelight:sqlite-driver anyway, included for config options
