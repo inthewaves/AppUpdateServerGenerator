@@ -27,18 +27,6 @@ fun ByteArray.readInt32Le(offset: Int = 0): Int {
 }
 
 /**
- * Reads a 16-bit integer stored in Little Endian order from `this` [ByteArray], using the given [offset] if provided
- * (defaults to the start of the byte array). 4 bytes will be read from `this` array.
- *
- * @throws IndexOutOfBoundsException if the integer range `offset..(offset + 1)` is not a subset of the
- * [ByteArray.indices]
- */
-fun ByteArray.readInt16Le(offset: Int = 0): Int {
-    val int = (get(offset + 0).toInt() and 0xFF) shl 0
-    return int or ((get(offset + 1).toInt() and 0xFF) shl 8)
-}
-
-/**
  * Generates a digest of the [ByteArray] using the specified [digestAlgorithm].
  *
  * @throws IOException if an I/O error occurs.

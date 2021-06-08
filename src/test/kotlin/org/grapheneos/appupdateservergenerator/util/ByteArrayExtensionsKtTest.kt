@@ -31,19 +31,4 @@ internal class ByteArrayExtensionsKtTest {
         val actualValue = byteArrayOf(0x78, 0x56, 0x34, 0x12).readInt32Le()
         assertEquals(expectedValue, actualValue)
     }
-
-    @Test
-    fun testReadInt16LE() {
-        val expectedValue = 0x00005678
-        val actualValue = byteArrayOf(0x78, 0x56).readInt16Le()
-        assertEquals(expectedValue, actualValue)
-    }
-
-    @Test
-    fun testReadInt16LEAndJoinValues() {
-        val expectedValue = 0x12345678
-        val leastSignificantBytes = byteArrayOf(0x78, 0x56).readInt16Le()
-        val mostSignificantBytes = byteArrayOf(0x34, 0x12).readInt16Le()
-        assertEquals(expectedValue, (mostSignificantBytes shl 16) or leastSignificantBytes)
-    }
 }

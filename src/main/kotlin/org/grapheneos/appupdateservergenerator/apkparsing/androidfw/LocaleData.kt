@@ -1,7 +1,6 @@
 package org.grapheneos.appupdateservergenerator.apkparsing.androidfw
 
 import org.grapheneos.appupdateservergenerator.util.byteArrayOfChars
-import org.grapheneos.appupdateservergenerator.util.readInt16Le
 
 /**
  * Transliterated from
@@ -38,11 +37,11 @@ object LocaleData {
 
     /**
      * https://cs.android.com/android/platform/superproject/+/master:frameworks/base/libs/androidfw/LocaleData.cpp;drc=master;l=31
+     * Locale is stored as [bigendian](https://android.googlesource.com/platform/frameworks/base/+/1ebfd58606de1bb504063cf8a6de58bdcf1efeaa/libs/androidfw/include/androidfw/ResourceTypes.h#981)
      */
     fun packLocale(language: ByteArray, region: ByteArray): UInt {
-        val lang = language.readInt16Le().toUInt()
-        val reg = region.readInt16Le().toUInt()
-        return (lang shl 16) or reg
+        return ((language[0].toUInt() and 0xFFU) shl 24) or ((language[1].toUInt() and 0xFFU) shl 16) or
+                ((region[0].toUInt() and 0xFFU) shl 8) or (region[1].toUInt() and 0xFFU)
     }
 
     val US_SPANISH = 0x65735553U; // es-US
@@ -83,7 +82,7 @@ object LocaleData {
         }
 
         val requestAncestors = UIntArray(LocaleDataTables.MAX_PARENT_DEPTH + 1)
-        val leftRightIndex = LongPointer(0L)
+        val leftRightIndex = CPointer<Int>(0)
         val leftAndRight = uintArrayOf(left, right)
         val ancestorCount = findAncestors(
             requestAncestors,
@@ -93,10 +92,10 @@ object LocaleData {
             leftAndRight,
             leftAndRight.size
         )
-        if (leftRightIndex.value == 0L) { // We saw left earlier
+        if (leftRightIndex.value == 0) { // We saw left earlier
             return 1
         }
-        if (leftRightIndex.value == 1L) { // We saw right earlier
+        if (leftRightIndex.value == 1) { // We saw right earlier
             return -1
         }
 
@@ -151,7 +150,7 @@ object LocaleData {
      * https://cs.android.com/android/platform/superproject/+/master:frameworks/base/libs/androidfw/LocaleData.cpp;drc=master;l=97
      */
     fun findDistance(supported: UInt, script: ByteArray, requestAncestors: UIntArray, requestAncestorsCount: Int): Int {
-        val requestAncestorsIndex = LongPointer(0L)
+        val requestAncestorsIndex = CPointer<Int>(0)
         val supportedAncestorCount = findAncestors(
             null,
             requestAncestorsIndex,
@@ -165,7 +164,7 @@ object LocaleData {
         // of 'supported' to the lowest common ancestor (number of ancestors
         // written for 'supported' minus 1) plus the distance of 'request' to the
         // lowest common ancestor (the index of the ancestor in request_ancestors).
-        return supportedAncestorCount + requestAncestorsIndex.value.toInt() - 1
+        return supportedAncestorCount + requestAncestorsIndex.value - 1
     }
 
     val ENGLISH_STOP_LIST = uintArrayOf(
@@ -176,12 +175,10 @@ object LocaleData {
     val LATIN_CHARS = byteArrayOfChars('L', 'a', 't', 'n')
     fun localeDataIsCloseToUsEnglish(region: ByteArray): Boolean {
         val locale: UInt = packLocale(ENGLISH_CHARS, region)
-        val stopListIndex = LongPointer(0)
+        val stopListIndex = CPointer<Int>(0)
         findAncestors(null, stopListIndex, locale, LATIN_CHARS, ENGLISH_STOP_LIST, 2)
-        return stopListIndex.value == 0L
+        return stopListIndex.value == 0
     }
-
-    data class LongPointer(var value: Long)
 
     // Find the ancestors of a locale, and fill 'out' with it (assumes out has enough
     // space). If any of the members of stop_list was seen, write it in the
@@ -196,10 +193,11 @@ object LocaleData {
     // (If 'out' is nullptr, we do everything the same way but we simply don't write
     // any results in 'out'.)
     fun findAncestors(
-        out: UIntArray?, stopListIndex: LongPointer,
+        out: UIntArray?, stopListIndex: CPointer<Int>,
         packedLocale: UInt, script: ByteArray,
         stopList: UIntArray, stopSetLength: Int
     ): Int {
+        // TL note: Array indices are Ints, not size_t / long longs, hence stopListIndex is a point to an Int.
         var ancestor: UInt = packedLocale
         var count: Int = 0
         do {
@@ -207,7 +205,7 @@ object LocaleData {
             count++
             for (i in 0 until stopSetLength) {
                 if (stopList[i] == ancestor) {
-                    stopListIndex.value = i.toLong()
+                    stopListIndex.value = i
                     return count
                 }
             }
@@ -228,7 +226,7 @@ object LocaleData {
      */
     fun findParent(packedLocale: UInt, script: ByteArray): UInt {
         if (hasRegion(packedLocale)) {
-            for (i in 0..LocaleDataTables.SCRIPT_PARENTS.size) {
+            for (i in 0 until LocaleDataTables.SCRIPT_PARENTS.size) {
                 if (script.contentEquals(LocaleDataTables.SCRIPT_PARENTS[i].script)) {
                     val map = LocaleDataTables.SCRIPT_PARENTS[i].map
                     val lookupResult = map[packedLocale]

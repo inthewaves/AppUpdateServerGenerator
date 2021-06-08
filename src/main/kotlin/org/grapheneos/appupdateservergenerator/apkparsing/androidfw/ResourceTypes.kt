@@ -24,10 +24,10 @@ private const val LOCALE_MIN_SIZE = 48
 private const val SCREEN_CONFIG_EXTENSION_MIN_SIZE = 52
 
 // Codes for specially handled languages and regions
-val kEnglish: ByteArray by lazy { byteArrayOfChars('e', 'n') } // packed version of "en"
-val kUnitedStates: ByteArray by lazy { byteArrayOfChars('U', 'S') }   // packed version of "US"
-val kFilipino: ByteArray by lazy { byteArrayOfInts(0xAD, 0x05) }  // packed version of "fil": '\xAD', '\x05'
-val kTagalog: ByteArray by lazy { byteArrayOfChars('t', 'l') } // packed version of "tl"
+private val kEnglish: ByteArray by lazy { byteArrayOfChars('e', 'n') } // packed version of "en"
+private val kUnitedStates: ByteArray by lazy { byteArrayOfChars('U', 'S') }   // packed version of "US"
+private val kFilipino: ByteArray by lazy { byteArrayOfInts(0xAD, 0x05) }  // packed version of "fil": '\xAD', '\x05'
+private val kTagalog: ByteArray by lazy { byteArrayOfChars('t', 'l') } // packed version of "tl"
 
 
 // screenLayout bits for screen size class.
@@ -139,7 +139,7 @@ fun BinaryResourceConfiguration.match(settings: BinaryResourceConfiguration): Bo
         if (settings.localeScript()[0] == 0.toByte()) {
             countriesMustMatch = true
         } else {
-            if (localeScript()[0] == 0.toByte()) { // note: there's no localeScriptWasComputed property here
+            if (localeScript()[0] == 0.toByte()) { // TL note: TODO: add localeScriptWasComputed property check here
                 LocaleData.localeDataComputeScript(computedScript, language(), region())
                 if (computedScript[0] == 0.toByte()) { // we could not compute the script
                     countriesMustMatch = true
@@ -194,7 +194,8 @@ fun BinaryResourceConfiguration.match(settings: BinaryResourceConfiguration): Bo
         if (screenLayoutRound() != 0 && screenLayoutRound() != settings.screenLayoutRound()) {
             return false
         }
-        // Note: The current implementation of BinaryResourceConfiguration does't support HDR and wide color gamut
+        // TL note: The current implementation of BinaryResourceConfiguration doesn't support HDR and wide color gamut,
+        // as it is explicitly treated as padding by the implementation
     }
 
     if (screenHeightDp() != 0 || screenWidthDp() != 0) {
@@ -366,6 +367,7 @@ fun BinaryResourceConfiguration.isBetterThan(
         }
 
         /*
+        TODO: add colorMode
         if (colorMode || o.colorMode) {
             if (((colorMode^o.colorMode) & MASK_WIDE_COLOR_GAMUT) != 0 &&
                     (requested->colorMode & MASK_WIDE_COLOR_GAMUT)) {
@@ -439,7 +441,6 @@ fun BinaryResourceConfiguration.isBetterThan(
                     // requested value lower than both l and h, give l
                     return !bImBigger
                 }
-                // saying that scaling down is 2x better than up
                 // saying that scaling down is 2x better than up
                 return if ((2 * l - requestedDensity) * h > requestedDensity * requestedDensity) {
                     !bImBigger
