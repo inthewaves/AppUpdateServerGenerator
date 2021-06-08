@@ -275,7 +275,8 @@ app_repo_data
 
 ## TODO
 * The Android app
-* Figure out a way to convert Vector drawables in APK resources to PNGs or SVGs.
+* Figure out a way to convert Vector drawables in APK resources to PNGs or SVGs. Maybe
+  https://github.com/neworld/vd2svg?
 * More unit tests
 * System for pruning older versions of apps
 * Maybe a configuration file to configure things such as maximum number of deltas to generate which
