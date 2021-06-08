@@ -162,33 +162,33 @@ fun BinaryResourceConfiguration.match(settings: BinaryResourceConfiguration): Bo
         }
     }
 
-    //if (size() >= SCREEN_CONFIG_MIN_SIZE) {
-    if (screenLayoutDirection() != 0 && screenLayoutDirection() != settings.screenLayoutDirection()) {
-        return false
-    }
+    if (screenConfig() != 0U) {
+        if (screenLayoutDirection() != 0 && screenLayoutDirection() != settings.screenLayoutDirection()) {
+            return false
+        }
 
-    // Any screen sizes for larger screens than the setting do not
-    // match.
-    if (screenLayoutSize() != 0 && screenLayoutSize() > settings.screenLayoutSize()) {
-        return false
-    }
+        // Any screen sizes for larger screens than the setting do not
+        // match.
+        if (screenLayoutSize() != 0 && screenLayoutSize() > settings.screenLayoutSize()) {
+            return false
+        }
 
-    if (screenLayoutLong() != 0 && screenLayoutLong() != settings.screenLayoutLong() ) {
-        return false
-    }
+        if (screenLayoutLong() != 0 && screenLayoutLong() != settings.screenLayoutLong()) {
+            return false
+        }
 
-    if (uiModeType() != 0 && uiModeType() != settings.uiModeType()) {
-        return false
-    }
+        if (uiModeType() != 0 && uiModeType() != settings.uiModeType()) {
+            return false
+        }
 
-    if (uiModeNight() != 0 && uiModeNight() != settings.uiModeNight()) {
-        return false
-    }
+        if (uiModeNight() != 0 && uiModeNight() != settings.uiModeNight()) {
+            return false
+        }
 
-    if (smallestScreenWidthDp() != 0 && smallestScreenWidthDp() > settings.smallestScreenWidthDp()) {
-        return false
+        if (smallestScreenWidthDp() != 0 && smallestScreenWidthDp() > settings.smallestScreenWidthDp()) {
+            return false
+        }
     }
-    //}
 
     if (screenLayout2() != 0) {
         if (screenLayoutRound() != 0 && screenLayoutRound() != settings.screenLayoutRound()) {
@@ -258,7 +258,10 @@ fun BinaryResourceConfiguration.match(settings: BinaryResourceConfiguration): Bo
 /**
  * https://cs.android.com/android/platform/superproject/+/master:frameworks/base/libs/androidfw/ResourceTypes.cpp;drc=master;l=2517
  */
-fun BinaryResourceConfiguration.isBetterThan(o: BinaryResourceConfiguration, requested: BinaryResourceConfiguration?): Boolean {
+fun BinaryResourceConfiguration.isBetterThan(
+    o: BinaryResourceConfiguration,
+    requested: BinaryResourceConfiguration?
+): Boolean {
     if (requested != null) {
         if ((imsi() or o.imsi()) != 0u) { // if (imsi || o.imsi)
             if ((mcc() != o.mcc()) && requested.mcc() != 0) {
@@ -760,6 +763,15 @@ fun BinaryResourceConfiguration.imsi(): UInt = ((mcc().toUInt() and 0xFFFFU) shl
 fun BinaryResourceConfiguration.screenSizeDp(): UInt =
     ((screenWidthDp().toUInt() and 0xFFFFU) shl 16) or (screenHeightDp().toUInt() and 0xFFFFU)
 
+/**
+ * Corresponds to the uint32_t `screenConfig` variable in
+ * [libandroidfw](https://android.googlesource.com/platform/frameworks/base/+/c6c226327debf1f3fcbd71e2bbee792118364ee5/libs/androidfw/include/androidfw/ResourceTypes.h#1147)
+ */
+fun BinaryResourceConfiguration.screenConfig(): UInt =
+    ((screenLayout().toUInt() and 0xFFU) shl 24) or
+            ((uiMode().toUInt() and 0xFFU) shl 16) or
+            (smallestScreenWidthDp().toUInt() and 0xFFFFU)
+
 fun BinaryResourceConfiguration.screenType(): UInt =
     ((orientation().toUInt() and 0xFFU) shl 24) or
             ((touchscreen().toUInt() and 0xFFU) shl 16) or
@@ -771,7 +783,10 @@ fun BinaryResourceConfiguration.screenSize(): UInt =
 fun BinaryResourceConfiguration.version(): UInt =
     ((sdkVersion().toUInt() and 0xFFFFU) shl 16) or (minorVersion().toUInt() and 0xFFFFU)
 
-fun BinaryResourceConfiguration.isLocaleBetterThan(o: BinaryResourceConfiguration, requested: BinaryResourceConfiguration): Boolean {
+fun BinaryResourceConfiguration.isLocaleBetterThan(
+    o: BinaryResourceConfiguration,
+    requested: BinaryResourceConfiguration
+): Boolean {
     if (requested.locale() == 0u) {
         // The request doesn't have a locale, so no resource is better
         // than the other.
