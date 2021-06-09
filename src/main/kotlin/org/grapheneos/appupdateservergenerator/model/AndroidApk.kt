@@ -747,17 +747,12 @@ data class AndroidApk private constructor(
                                             }
                                         }
                                         VERSION_ATTR_ID -> {
-                                            val version = when (val type = getAttributeValueType(i)) {
-                                                AndroidBinXmlParser.VALUE_TYPE_INT -> getAttributeIntValue(i)
-                                                AndroidBinXmlParser.VALUE_TYPE_STRING ->
+                                            val version: Int =
+                                                if (getAttributeValueType(i) == AndroidBinXmlParser.VALUE_TYPE_STRING) {
                                                     XmlUtils.convertValueToInt(getAttributeStringValue(i), -1)
-                                                else -> {
-                                                    throw ApkFormatException(
-                                                        "Bad uses-static-library declaration: version attribute isn't " +
-                                                                "numeric but is of type $type"
-                                                    )
+                                                } else {
+                                                    getAttributeIntValue(i)
                                                 }
-                                            }
                                             // Since the app cannot run without a static lib - fail if malformed
                                             // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#2688
                                             if (version < 0) {
@@ -879,7 +874,7 @@ data class AndroidApk private constructor(
                                             }
                                         }
                                         REQUIRED_ATTR_ID -> {
-                                            when (val type = getAttributeValueType(i)) {
+                                            when (getAttributeValueType(i)) {
                                                 AndroidBinXmlParser.VALUE_TYPE_BOOLEAN,
                                                 AndroidBinXmlParser.VALUE_TYPE_STRING,
                                                 AndroidBinXmlParser.VALUE_TYPE_INT -> {
@@ -908,6 +903,7 @@ data class AndroidApk private constructor(
                                 for (i in 0 until attributeCount) {
                                     when (val attrId = getAttributeNameResourceId(i)) {
                                         PACKAGE_TYPE_ATTR_ID -> {
+                                            // References are not allowed.
                                             if (getAttributeValueType(i) != AndroidBinXmlParser.VALUE_TYPE_STRING) {
                                                 throw ApkFormatException(
                                                     "Bad uses-package declaration: packageType attribute isn't " +
@@ -936,19 +932,12 @@ data class AndroidApk private constructor(
                                             }
                                         }
                                         VERSION_ATTR_ID, VERSION_MAJOR_ATTR_ID ->  {
-                                            val parsedVersion: Int = when (val type = getAttributeValueType(i)) {
-                                                AndroidBinXmlParser.VALUE_TYPE_INT -> getAttributeIntValue(i)
-                                                AndroidBinXmlParser.VALUE_TYPE_STRING ->
+                                            val parsedVersion: Int =
+                                                if (getAttributeValueType(i) == AndroidBinXmlParser.VALUE_TYPE_STRING) {
                                                     XmlUtils.convertValueToInt(getAttributeStringValue(i), -1)
-                                                else -> {
-                                                    val attrName =
-                                                        if (attrId == VERSION_ATTR_ID) "version" else "versionMajor"
-                                                    throw ApkFormatException(
-                                                        "Bad uses-package declaration: $attrName attribute " +
-                                                                "isn't integer but is instead of type $type"
-                                                    )
+                                                } else {
+                                                    getAttributeIntValue(i)
                                                 }
-                                            }
                                             // PackageParser doesn't enforce this, but we should anyway
                                             // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#3874
                                             if (parsedVersion < 0) {
