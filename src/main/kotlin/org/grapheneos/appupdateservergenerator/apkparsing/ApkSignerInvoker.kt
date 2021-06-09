@@ -37,7 +37,7 @@ class ApkSignerInvoker(apkSignerPath: Path = Path.of("apksigner")) : Invoker(exe
         certProcess.inputStream.bufferedReader().use { reader ->
             reader.forEachLine { line ->
                 certificateSha256Regex.matchEntire(line)?.let { matchResult ->
-                    certificates.add(HexString(matchResult.groupValues[1]))
+                    certificates.add(HexString.fromHex(matchResult.groupValues[1]))
                 }
             }
         }

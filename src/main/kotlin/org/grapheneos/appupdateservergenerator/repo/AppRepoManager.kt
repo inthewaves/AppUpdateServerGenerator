@@ -8,6 +8,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.actor
+import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -34,11 +35,13 @@ import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.Density
 import org.grapheneos.appupdateservergenerator.model.GroupId
+import org.grapheneos.appupdateservergenerator.model.HexString
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.model.encodeToBase64String
+import org.grapheneos.appupdateservergenerator.model.encodeToHexString
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
 import org.grapheneos.appupdateservergenerator.util.Either
 import org.grapheneos.appupdateservergenerator.util.asEitherLeft
@@ -498,6 +501,17 @@ private class AppRepoManagerImpl(
         }
     }
 
+    sealed interface VerificationMessage {
+        @JvmInline
+        value class Error(val message: String) : VerificationMessage
+        @JvmInline
+        value class Warning(val message: String) : VerificationMessage
+    }
+
+    suspend fun Channel<VerificationMessage>.sendError(message: String) = send(VerificationMessage.Error(message))
+
+    suspend fun Channel<VerificationMessage>.sendWarning(message: String) = send(VerificationMessage.Warning(message))
+
     /**
      * Inserts APKs from the provided [apkFilePaths]. The APKs will be first validated (ensure that they
      * verify with apksigner and that the contents of their manifests can be parsed).
@@ -515,27 +529,14 @@ private class AppRepoManagerImpl(
         println("parsing ${apkFilePaths.size} APKs")
         // If there are multiple versions of the same package passed into the command line, we insert all of those
         // APKs together.
-        val packageApkGroups: List<PackageApkGroup.AscendingOrder>
+        val packageApkGroupsToInsert: List<PackageApkGroup.AscendingOrder>
         val timeTaken = measureTimeMillis {
-            packageApkGroups = PackageApkGroup.createListFromFilesAscending(apkFilePaths)
+            packageApkGroupsToInsert = PackageApkGroup.createListFromFilesAscending(apkFilePaths)
         }
         println("took $timeTaken ms to parse APKs")
-        println("found the following packages: ${packageApkGroups.map { it.packageName }}")
+        println("found the following packages: ${packageApkGroupsToInsert.map { it.packageName }}")
 
-        coroutineScope {
-            packageApkGroups.forEach { apkGroup ->
-                launch {
-                    apkGroup.sortedApks.forEach { apk ->
-                        if (apk.debuggable) {
-                            throw AppRepoException.InsertFailed(
-                                "${apk.apkFile} is marked as debuggable, which is not allowed for security reasons. " +
-                                        "The Android platform loosens security checks for such APKs."
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        validateInputApks(packageApkGroupsToInsert)
 
         val timestampForMetadata = UnixTimestamp.now()
 
@@ -578,7 +579,7 @@ private class AppRepoManagerImpl(
                 deltaGenerationManager.run { launchDeltaGenerationActor() }
             try {
                 var numApksInserted = 0L
-                packageApkGroups.forEach { apkInsertionGroup ->
+                packageApkGroupsToInsert.forEach { apkInsertionGroup ->
                     val nowInsertingString = "Now inserting ${apkInsertionGroup.highestVersionApk!!.label} " +
                             "(${apkInsertionGroup.packageName})"
                     val versionCodeString = "Version codes: ${apkInsertionGroup.sortedApks.map { it.versionCode.code }}"
@@ -612,7 +613,7 @@ private class AppRepoManagerImpl(
                 }
 
                 println()
-                println("finished inserting ${packageApkGroups.size - numAppsNotInserted} apps ($numApksInserted APKs)")
+                println("finished inserting ${packageApkGroupsToInsert.size - numAppsNotInserted} apps ($numApksInserted APKs)")
             } finally {
                 DbWrapper.executeWalCheckpointTruncate(fileManager)
                 deltaGenChannel.send(DeltaGenerationManager.GenerationRequest.StartPrinting)
@@ -623,11 +624,210 @@ private class AppRepoManagerImpl(
         // Delta generation is finished
         DbWrapper.executeWalCheckpointTruncate(fileManager)
 
-        if (numAppsNotInserted != packageApkGroups.size.toLong()) {
+        if (numAppsNotInserted != packageApkGroupsToInsert.size.toLong()) {
             staticFilesManager.regenerateMetadataAndIcons(signingPrivateKey, timestampForMetadata)
         } else {
             println("not regenerating metadata and icons, because nothing was changed")
         }
+    }
+
+    private suspend fun validateInputApks(packageApkGroupsToInsert: List<PackageApkGroup.AscendingOrder>) {
+        val errorsAndWarnings = Channel<VerificationMessage>(capacity = Channel.UNLIMITED)
+
+        /**
+         * Finds an [AndroidApk] in the app repo. If [versionCode] is null, it will try to find any APK
+         * for the given [pkg]; otherwise, it will try to find an APK for a specific version and returns null if
+         * it can't find an APK with the version.
+         */
+        suspend fun findApkInRepo(pkg: PackageName, versionCode: VersionCode?): AndroidApk? {
+            val apksInRepo: PackageApkGroup =
+                try {
+                    PackageApkGroup.fromDirDescending(fileManager.getDirForApp(pkg))
+                } catch (e: IllegalArgumentException) {
+                    return null
+                } catch (e: IOException) {
+                    // might be thrown if the app doesn't exist in the repo
+                    return null
+                }
+
+            return if (versionCode != null) {
+                apksInRepo.sortedApks.find { it.versionCode == versionCode }
+            } else {
+                apksInRepo.highestVersionApk
+            }
+        }
+
+        /**
+         * Finds an [AndroidApk] in the command-line arguments. If [versionCode] is null, it will try to find any
+         * APK for the given [pkg]; otherwise, it will try to find an APK for a specific version and returns null if
+         * it can't find an APK with the version.
+         */
+        fun findApkInGivenPackagesToInsert(pkg: PackageName, versionCode: VersionCode?): AndroidApk? {
+            return packageApkGroupsToInsert.find { it.packageName == pkg }
+                ?.let { apkGroup ->
+                    if (versionCode != null) {
+                        apkGroup.sortedApks.find { it.versionCode == versionCode }
+                    } else {
+                        apkGroup.highestVersionApk
+                    }
+                }
+        }
+
+        coroutineScope {
+            packageApkGroupsToInsert.forEach { apkGroup ->
+                launch {
+                    apkGroup.sortedApks.forEach { apk ->
+                        if (apk.debuggable) {
+                            errorsAndWarnings.sendError(
+                                "${apk.apkFile} is marked as debuggable, which is not allowed for security reasons. " +
+                                        "The Android platform loosens security checks for such APKs."
+                            )
+                        }
+
+                        // Verify that the static libraries are present in the repo, because static libraries are
+                        // strictly required for an app to run.
+                        apk.usesStaticLibraries.forEach useStaticLibraries@{ staticLibrary ->
+                            println(
+                                "verifying ${apk.packageName} (versionCode ${apk.versionCode.code})'s " +
+                                        "dependency on $staticLibrary'"
+                            )
+                            val staticLibraryApk: AndroidApk =
+                                findApkInRepo(staticLibrary.name, staticLibrary.version)
+                                    ?: findApkInGivenPackagesToInsert(staticLibrary.name, staticLibrary.version)
+                                    ?: errorsAndWarnings.send(
+                                        VerificationMessage.Error(
+                                            "trying to insert ${apk.packageName} ${apk.versionCode}, " +
+                                                    "and it depends on $staticLibrary; however, " +
+                                                    "the static library cannot be found in either " +
+                                                    "the supplied APKs or in the existing repo files"
+                                        )
+                                    ).let {
+                                        return@useStaticLibraries
+                                    }
+
+                            val certDigestFromStaticLibApk: Set<HexString> = staticLibraryApk.verifyResult.result
+                                .signerCertificates
+                                .asSequence()
+                                .map { it.encoded.digest("SHA-256").encodeToHexString() }
+                                .toSet()
+
+                            if (certDigestFromStaticLibApk != staticLibrary.certDigests.toHashSet()) {
+                                errorsAndWarnings.sendError(
+                                    "trying to insert ${apk.packageName} ${apk.versionCode}, " +
+                                            "and it depends on $staticLibrary; however, " +
+                                            "the static library has certificate digests ${staticLibrary.certDigests} " +
+                                            "but the located static library in the app / parameters has certificate " +
+                                            "digests $certDigestFromStaticLibApk"
+                                )
+                            }
+                        }
+
+                        // Verify that the uses-library tag is satisfied.
+                        apk.usesLibraries.forEach { library ->
+                            if (library.required) {
+                                println(
+                                    "verifying ${apk.packageName} (versionCode ${apk.versionCode.code})'s " +
+                                            "hard dependency on $library'"
+                                )
+                            } else {
+                                println(
+                                    "verifying ${apk.packageName} (versionCode ${apk.versionCode.code})'s " +
+                                            "soft dependency on $library'"
+                                )
+                            }
+
+                            val libraryApk: AndroidApk? = findApkInRepo(library.name, null)
+                                ?: findApkInGivenPackagesToInsert(library.name, null)
+                            if (libraryApk == null) {
+                                if (library.required) {
+                                    errorsAndWarnings.sendError(
+                                        "trying to insert ${apk.packageName} ${apk.versionCode}, " +
+                                                "and it depends on $library; however, " +
+                                                "the library cannot be found in either " +
+                                                "the supplied APKs or in the existing repo files"
+                                    )
+                                } else {
+                                    errorsAndWarnings.sendWarning(
+                                        "${apk.packageName} (versionCode ${apk.versionCode.code}) has a " +
+                                                "uses-library dependency on $library, but was unable to find the library" +
+                                                "in either the repository or in the given packages for insertion"
+                                    )
+                                }
+                            }
+                        }
+
+                        apk.usesPackages.forEach usesPackagesCheck@{ packageDep ->
+                            println(
+                                "verifying ${apk.packageName} (versionCode ${apk.versionCode.code})'s " +
+                                        "uses-package dependency on $packageDep'"
+                            )
+
+                            val apksFromRepo: SortedSet<AndroidApk>? = try {
+                                PackageApkGroup.fromDirDescending(fileManager.getDirForApp(packageDep.name)).sortedApks
+                            } catch (e: IllegalArgumentException) {
+                                null
+                            } catch (e: IOException) {
+                                // might be thrown if the app doesn't exist in the repo
+                                null
+                            }
+                            val apksFromArguments: SortedSet<AndroidApk>? = packageApkGroupsToInsert
+                                .find { it.packageName == packageDep.name }
+                                ?.sortedApks
+
+                            var sequence = emptySequence<AndroidApk>()
+                            if (apksFromRepo != null) {
+                                sequence += apksFromRepo.asSequence()
+                            }
+                            if (apksFromArguments != null) {
+                                sequence += apksFromArguments.asSequence()
+                            }
+                            val packageDepCertsSet: Set<HexString>? = packageDep.certDigests?.toSet()
+                            val areThereAnyApksThatSatisfyPackageDependency: Boolean =
+                                sequence
+                                    .map { apk ->
+                                        val version = apk.versionCode
+                                        val certDigests = apk.verifyResult.result.signerCertificates
+                                            .asSequence()
+                                            .map { it.encoded.digest("SHA256").encodeToHexString() }
+                                            .toSet()
+                                        version to certDigests
+                                    }
+                                    .filter { (versionFromApk, certsFromApk) ->
+                                        // Only filter for optional qualifiers that are present.
+                                        if (packageDep.minimumVersion != null) {
+                                            if (versionFromApk < packageDep.minimumVersion) return@filter false
+                                        }
+                                        if (packageDepCertsSet != null) {
+                                            if (packageDepCertsSet != certsFromApk) return@filter false
+                                        }
+                                        true
+                                    }
+                                    .any()
+
+                            if (!areThereAnyApksThatSatisfyPackageDependency) {
+                                errorsAndWarnings.sendWarning(
+                                    "${apk.packageName} (versionCode ${apk.versionCode.code}) has a " +
+                                            "uses-package dependency on $packageDep, but was unable to find a suitable" +
+                                            "package in either the repository or in the given packages for insertion"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        errorsAndWarnings.close()
+        val warnings = mutableListOf<VerificationMessage.Warning>()
+        val errors = mutableListOf<VerificationMessage.Error>()
+        errorsAndWarnings.consumeEach {
+            if (it is VerificationMessage.Warning) warnings.add(it) else errors.add(it as VerificationMessage.Error)
+        }
+        warnings.forEach { println("warning: ${it.message}") }
+        errors.forEach { println("error: ${it.message}") }
+        if (errors.isNotEmpty()) {
+            throw AppRepoException.InsertFailed("errors encountered when inserting")
+        }
+        errorsAndWarnings.cancel()
     }
 
     /**

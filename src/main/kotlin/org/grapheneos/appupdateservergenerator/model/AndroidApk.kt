@@ -48,12 +48,13 @@ data class AndroidApk private constructor(
      */
     val debuggable: Boolean,
     /**
-     * `uses-libraries` specifies a shared library that this package requires to be linked against.
+     * `uses-library` specifies a shared library that this package requires to be linked against.
      * Specifying this flag tells the system to include this library's code in your class loader.
      *
      * This appears as a child tag of the AndroidManifest `application` tag.
      *
-     * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2182)
+     * - [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2182)
+     * - [Android Developers documentation on uses-library](https://developer.android.com/guide/topics/manifest/uses-library-element)
      *
      * @see Library
      */
@@ -137,7 +138,8 @@ data class AndroidApk private constructor(
             // emitted by the certtool making it easy for developers to copy/paste.
             // https://android.googlesource.com/platform/frameworks/base/+/1c0577193b6060ecea4d516a732db12d1b99e297/core/java/android/content/pm/parsing/ParsingPackageUtils.java#2133
             val certSha256Digest = try {
-                HexString(digest.replace(":", "").lowercase())
+                // Note: This handles lowercasing for us.
+                HexString.fromHex(digest.replace(":", ""))
             } catch (e: IllegalArgumentException) {
                 throw ApkFormatException("Bad uses-static-library declaration: bad certDigest $digest", e)
             }
@@ -203,9 +205,18 @@ data class AndroidApk private constructor(
      */
     @Serializable
     data class PackageDependency(
+        /**
+         * Required type of association with the package, for example "android.package.ad_service"
+         * if it provides an advertising service.  This should use the standard scoped naming
+         * convention as used for other things such as package names, based on the Java naming
+         * convention.
+         */
         val packageType: String,
+        /** Required name of the package being used */
         val name: PackageName,
-        val version: VersionCode?,
+        /** Optional minimum version of the package that satisfies the dependency. */
+        val minimumVersion: VersionCode?,
+        /** Optional SHA-256 digest(s) of the package signing certificate(s). */
         val certDigests: List<HexString>?
     ) {
         data class Builder(
@@ -374,7 +385,7 @@ data class AndroidApk private constructor(
          * @throws IOException if an I/O error occurs, or the APK can't be parsed or the APK failed to verify
          */
         fun buildFromApkAndVerifySignature(apkFile: File): AndroidApk {
-            val builder = Builder(apkFile,)
+            val builder = Builder(apkFile)
 
             val resourceTableChunk: ResourceTableChunk
             val androidManifestBytes: ByteBuffer
