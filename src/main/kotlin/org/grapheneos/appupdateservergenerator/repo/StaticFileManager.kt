@@ -92,7 +92,7 @@ class StaticFileManager(
             database.transaction {
                 database.appQueries.selectAll().executeAsSequence { apps ->
                     apps.forEach { app ->
-                        val metadata = appDao.createSerializableAppMetadata(app, updateTimestamp)
+                        val metadata = appDao.createSerializableAppMetadata(app, updateTimestamp, fileManager)
 
                         metadataChannel
                             .trySendBlocking(metadata)

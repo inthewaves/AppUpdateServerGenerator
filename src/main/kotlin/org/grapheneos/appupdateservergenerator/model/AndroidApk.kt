@@ -90,8 +90,9 @@ data class AndroidApk private constructor(
 ) {
 
     /**
-     * `uses-libraries` specifies a shared library that thispackage requires to be linked against.  Specifying this flag tells the
-     * system to include this library's code in your class loader.
+     * `uses-libraries` specifies a shared library that thi spackage requires to be linked against.
+     * Specifying this flag tells the Android system to include this library's code in the app's
+     * class loader.
      *
      * This appears as a child tag of the AndroidManifest `application` tag.
      *
@@ -200,6 +201,7 @@ data class AndroidApk private constructor(
      *
      * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2238)
      */
+    @Serializable
     data class PackageDependency(
         val packageType: String,
         val name: PackageName,

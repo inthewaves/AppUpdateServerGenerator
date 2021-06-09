@@ -1,8 +1,9 @@
 package org.grapheneos.appupdateservergenerator.db
 
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
-import org.grapheneos.appupdateservergenerator.api.toAppRelease
+import org.grapheneos.appupdateservergenerator.api.toAppReleaseDbModel
 import org.grapheneos.appupdateservergenerator.api.toSerializableModel
+import org.grapheneos.appupdateservergenerator.api.toSerializableModelAndVerify
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
@@ -44,24 +45,27 @@ class AppDao(private val database: Database) {
     fun getAppsInGroupButExcludingApps(groupId: GroupId, groupsToExclude: Collection<PackageName>) =
         database.appQueries.appsInGroupAndNotInSet(groupId, groupsToExclude).executeAsList()
 
-    fun createSerializableAppMetadata(app: App, repoIndexTimestamp: UnixTimestamp): AppMetadata =
-        database.transactionWithResult {
-            val allReleases: TreeSet<AppMetadata.ReleaseInfo> =
-                database.appReleaseQueries.selectAllByApp(app.packageName)
-                    .executeAsSequence { releasesSequence ->
-                        releasesSequence.mapTo(TreeSet()) { release ->
-                            val deltaInfo: TreeSet<AppMetadata.ReleaseInfo.DeltaInfo> = database.deltaInfoQueries
-                                .selectAllForTargetVersion(release.packageName, release.versionCode)
-                                .executeAsSequence { deltaInfos ->
-                                    deltaInfos.mapTo(TreeSet()) { it.toSerializableModel() }
-                                }
+    fun createSerializableAppMetadata(
+        app: App,
+        repoIndexTimestamp: UnixTimestamp,
+        fileManager: FileManager
+    ): AppMetadata = database.transactionWithResult {
+        val allReleases: TreeSet<AppMetadata.ReleaseInfo> =
+            database.appReleaseQueries.selectAllByApp(app.packageName)
+                .executeAsSequence { releasesSequence ->
+                    releasesSequence.mapTo(TreeSet()) { release ->
+                        val deltaInfo: TreeSet<AppMetadata.ReleaseInfo.DeltaInfo> = database.deltaInfoQueries
+                            .selectAllForTargetVersion(release.packageName, release.versionCode)
+                            .executeAsSequence { deltaInfos ->
+                                deltaInfos.mapTo(TreeSet()) { it.toSerializableModel() }
+                            }
 
-                            return@mapTo release.toSerializableModel(deltaInfo)
-                        }
+                        return@mapTo release.toSerializableModelAndVerify(deltaInfo, fileManager)
                     }
+                }
 
-            return@transactionWithResult app.toSerializableModel(repoIndexTimestamp, allReleases)
-        }
+        return@transactionWithResult app.toSerializableModel(repoIndexTimestamp, allReleases)
+    }
 
     fun doesAppExist(packageName: PackageName): Boolean {
         return database.appQueries.doesAppExist(packageName).executeAsOne() == 1L
@@ -113,7 +117,7 @@ class AppDao(private val database: Database) {
                 }
 
                 database.appReleaseQueries.insert(
-                    apkToInsert.toAppRelease(
+                    apkToInsert.toAppReleaseDbModel(
                         releaseTimestamp = updateTimestamp,
                         releaseNotes = if (apkToInsert.versionCode == mostRecentApk.versionCode) {
                             releaseNotesForMostRecentVersion

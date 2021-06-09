@@ -56,7 +56,7 @@ data class AppMetadata(
 ) {
     /**
      * Represents a specific release of the app. This corresponds to an APK of the app and is derived from the database
-     * model class [AppRelease]. Use the extension function [AppRelease.toSerializableModel] to create an instance
+     * model class [AppRelease]. Use the extension function [AppRelease.toSerializableModelAndVerify] to create an instance
      * of this class.
      */
     @Serializable
@@ -73,6 +73,45 @@ data class AppMetadata(
          * .apk.idsig file next to the APK.
          */
         val v4SigSha256: Base64String? = null,
+        /**
+         * `uses-libraries` specifies a shared library that this package requires to be linked against.
+         * Specifying this flag tells the system to include this library's code in your class loader.
+         *
+         * This appears as a child tag of the AndroidManifest `application` tag.
+         *
+         * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2182)
+         *
+         * @see AndroidApk.Library
+         */
+        val usesLibraries: List<AndroidApk.Library>? = null,
+        /**
+         * Specifies a shared **static** library that this package requires to be statically
+         * linked against. Specifying this tag tells the system to include this library's code
+         * in your class loader. Depending on a static shared library is equivalent to statically
+         * linking with the library at build time while it offers apps to share code defined in such
+         * libraries. Hence, static libraries are strictly required.
+         *
+         * On devices running O MR1 or higher, if the library is signed with multiple
+         * signing certificates you must to specify the SHA-256 hashes of the additional
+         * certificates via adding `additional-certificate` tags.
+         *
+         * This appears as a child tag of the AndroidManifest `application` tag.
+         *
+         * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2209)
+         *
+         * @see AndroidApk.StaticLibrary
+         */
+        val usesStaticLibraries: List<AndroidApk.StaticLibrary>? = null,
+        /**
+         * Specifies some kind of dependency on another package. It does not have any impact
+         * on the app's execution on the device, but provides information about dependencies
+         * it has on other packages that need to be satisfied for it to run correctly. That is,
+         * this is primarily for installers to know what other apps need to be installed along
+         * with this one.
+         *
+         * @see AndroidApk.PackageDependency
+         */
+        val usesPackages: List<AndroidApk.PackageDependency>? = null,
         /** Set containing previous releases that have a delta available for this version. */
         val deltaInfo: Set<DeltaInfo>? = null,
         /**
@@ -176,18 +215,45 @@ fun App.toSerializableModel(
     releases = releases
 )
 
-fun AppRelease.toSerializableModel(deltaInfo: Set<AppMetadata.ReleaseInfo.DeltaInfo>) = AppMetadata.ReleaseInfo(
-    versionCode = versionCode,
-    versionName = versionName,
-    minSdkVersion = minSdkVersion,
-    releaseTimestamp = releaseTimestamp,
-    apkSha256 = apkSha256,
-    v4SigSha256 = v4SigSha256,
-    deltaInfo = deltaInfo.ifEmpty { null },
-    releaseNotes = releaseNotes?.takeIf { it.isNotBlank() }?.let(MarkdownProcessor::markdownToCompressedHtml)
-)
+/**
+ * Verifies this [AppRelease] database model that the APK details match and then creates a serializable [AppRelease]
+ * instance. A warning will be printed if the [org.grapheneos.appupdateservergenerator.db.AppRelease] details in the
+ * database doesn't match the details from the APK on disk. This also handles parsing of Markdown release notes into
+ * HTMl and then compressing the HTML via the [MarkdownProcessor].
+ *
+ * TODO: Evaluate whether we should cut down on redundant data stored in the database if we can just derive it from
+ *  the APK on disk again.
+ */
+fun AppRelease.toSerializableModelAndVerify(
+    deltaInfo: Set<AppMetadata.ReleaseInfo.DeltaInfo>,
+    fileManager: FileManager
+): AppMetadata.ReleaseInfo {
+    // This implicitly verifies the APK details on disk.
+    val apk = AndroidApk.buildFromApkAndVerifySignature(fileManager.getVersionedApk(packageName, versionCode))
+    val appReleaseFromApk = apk.toAppReleaseDbModel(releaseTimestamp, releaseNotes)
+    if (this != appReleaseFromApk) {
+        println(
+            "warning: app release info in the database for $versionCode doesn't match the one " +
+                    "generated from ${apk.apkFile} for $packageName"
+        )
+    }
 
-fun AndroidApk.toAppRelease(releaseTimestamp: UnixTimestamp, releaseNotes: String?) = AppRelease(
+    return AppMetadata.ReleaseInfo(
+        versionCode = versionCode,
+        versionName = versionName,
+        minSdkVersion = minSdkVersion,
+        releaseTimestamp = releaseTimestamp,
+        apkSha256 = apkSha256,
+        v4SigSha256 = v4SigSha256,
+        usesLibraries = apk.usesLibraries.ifEmpty { null },
+        usesStaticLibraries = apk.usesStaticLibraries.ifEmpty { null },
+        usesPackages = apk.usesPackages.ifEmpty { null },
+        deltaInfo = deltaInfo.ifEmpty { null },
+        releaseNotes = releaseNotes?.takeIf { it.isNotBlank() }?.let(MarkdownProcessor::markdownToCompressedHtml)
+    )
+}
+
+fun AndroidApk.toAppReleaseDbModel(releaseTimestamp: UnixTimestamp, releaseNotes: String?) = AppRelease(
     packageName = packageName,
     versionName = versionName,
     versionCode = versionCode,
