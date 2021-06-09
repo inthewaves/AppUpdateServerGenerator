@@ -85,6 +85,28 @@ data class AppMetadata(
          */
         val usesLibraries: List<AndroidApk.Library>? = null,
         /**
+         * Specifies a vendor-provided shared native library that the application must be linked against. This element tells
+         * the system to make the native library accessible for the package.
+         *
+         * NDK libraries are by default accessible and therefore don't require the <uses-native-library> tag.
+         *
+         * Non-NDK native shared libraries that are provided by silicon vendors or device manufacturers are not accessible
+         * by default if the app is targeting Android 12 or higher. The libraries are accessible only when they are
+         * explicitly requested using the `<uses-native-library>` tag.
+         *
+         * If the app is targeting Android 11 or lower, the `<uses-native-library>` tag is not required. In that case, any
+         * native shared library is accessible regardless of whether it is an NDK library.
+         *
+         * This element also affects the installation of the application on a particular device: If this element is present
+         * and its `android:required` attribute is set to true, the PackageManager framework won't let the user install the
+         * application unless the library is present on the user's device.
+         *
+         * [Android Developers documentation](https://developer.android.com/guide/topics/manifest/uses-native-library-element)
+         *
+         * @see AndroidApk.NativeLibrary
+         */
+        val usesNativeLibraries: List<AndroidApk.NativeLibrary>? = null,
+        /**
          * Specifies a shared **static** library that this package requires to be statically
          * linked against. Specifying this tag tells the system to include this library's code
          * in your class loader. Depending on a static shared library is equivalent to statically
@@ -246,6 +268,7 @@ fun AppRelease.toSerializableModelAndVerify(
         apkSha256 = apkSha256,
         v4SigSha256 = v4SigSha256,
         usesLibraries = apk.usesLibraries.ifEmpty { null },
+        usesNativeLibraries = apk.usesNativeLibraries.ifEmpty { null },
         usesStaticLibraries = apk.usesStaticLibraries.ifEmpty { null },
         usesPackages = apk.usesPackages.ifEmpty { null },
         deltaInfo = deltaInfo.ifEmpty { null },

@@ -15,6 +15,7 @@ import org.grapheneos.appupdateservergenerator.apkparsing.resolveReference
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveString
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.Companion.buildFromApkAndVerifySignature
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.Library
+import org.grapheneos.appupdateservergenerator.model.AndroidApk.NativeLibrary
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.PackageDependency
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.StaticLibrary
 import org.grapheneos.appupdateservergenerator.util.implies
@@ -60,6 +61,10 @@ data class AndroidApk private constructor(
      */
     val usesLibraries: List<Library>,
     /**
+     * @see NativeLibrary
+     */
+    val usesNativeLibraries: List<NativeLibrary>,
+    /**
      * Specifies a shared **static** library that this package requires to be statically
      * linked against. Specifying this tag tells the system to include this library's code
      * in your class loader. Depending on a static shared library is equivalent to statically
@@ -104,23 +109,82 @@ data class AndroidApk private constructor(
         /** Required name of the library you use. */
         val name: PackageName,
         /**
-         * Specify whether this library is required for the application.
-         * The default is true, meaning the application requires the
-         * library, and does not want to be installed on devices that
-         * don't support it.  If you set this to false, then this will
-         * allow the application to be installed even if the library
-         * doesn't exist, and you will need to check for its presence
-         * dynamically at runtime.
+         * Boolean value that indicates whether the application requires the library specified by android:name:
+         *
+         *  - `true`: The application does not function without this library. The system will not allow the application
+         *    on a device that does not have the library.
+         *  - `false`: The application can use the library if present, but is designed to function without it if necessary.
+         *    The system will allow the application to be installed, even if the library is not present. If you use
+         *    `false`, you are responsible for checking at runtime that the library is available.
+         *
+         *    To check for a library, you can use reflection to determine if a particular class is available.
+         *
+         * The default is `true`.
          */
-        val required: Boolean
+        val required: Boolean = true
     ) {
         data class Builder(
             var name: String? = null,
-            var required: Boolean? = null
+            var required: Boolean = true // default is true
         ) {
             fun buildIfPossible(): Library? {
-                return if (name != null && required != null) {
-                    Library(PackageName(name!!), required!!)
+                return if (name != null) {
+                    Library(PackageName(name!!), required)
+                } else {
+                    null
+                }
+            }
+        }
+    }
+
+    /**
+     * Specifies a vendor-provided shared native library that the application must be linked against. This element tells
+     * the system to make the native library accessible for the package.
+     *
+     * NDK libraries are by default accessible and therefore don't require the <uses-native-library> tag.
+     *
+     * Non-NDK native shared libraries that are provided by silicon vendors or device manufacturers are not accessible
+     * by default if the app is targeting Android 12 or higher. The libraries are accessible only when they are
+     * explicitly requested using the `<uses-native-library>` tag.
+     *
+     * If the app is targeting Android 11 or lower, the `<uses-native-library>` tag is not required. In that case, any
+     * native shared library is accessible regardless of whether it is an NDK library.
+     *
+     * This element also affects the installation of the application on a particular device: If this element is present
+     * and its `android:required` attribute is set to true, the PackageManager framework won't let the user install the
+     * application unless the library is present on the user's device.
+     *
+     * This appears as a child tag of the AndroidManifest `application` tag.
+     *
+     * [Android Developers documentation](https://developer.android.com/guide/topics/manifest/uses-native-library-element)
+     */
+    @Serializable
+    data class NativeLibrary(
+        /**
+         * The name of the library file. See
+         * [Adding additional native libraries](https://source.android.com/devices/tech/config/namespaces_libraries#adding-additional-native-libraries)
+         * */
+        val name: String,
+        /**
+         * Boolean value that indicates whether the application requires the library specified by `android:name`:
+         *
+         * - `true`: The application does not function without this library. The system will not allow the application
+         * on a device that does not have the library.
+         * - `false`: The application can use the library if present, but is designed to function without it if
+         * necessary. The system will allow the application to be installed, even if the library is not present. If you
+         * use "false", you are responsible for gracefully handling the absence of the library.
+         *
+         * The default is `true`.
+         */
+        val required: Boolean = true
+    ) {
+        data class Builder(
+            var name: String? = null,
+            var required: Boolean = true // defaults to true
+        ) {
+            fun buildIfPossible(): NativeLibrary? {
+                return if (name != null) {
+                    NativeLibrary(name!!, required)
                 } else {
                     null
                 }
@@ -315,6 +379,7 @@ data class AndroidApk private constructor(
         var minSdkVersion: Int? = null,
         var debuggable: Boolean? = null,
         var usesLibraries: List<Library>? = null,
+        var usesNativeLibraries: List<NativeLibrary>? = null,
         var usesStaticLibraries: List<StaticLibrary>? = null,
         var usesPackages: List<PackageDependency>? = null,
         var verifyResult: ApkVerifyResult? = null,
@@ -323,12 +388,13 @@ data class AndroidApk private constructor(
             get() = label != null &&
                     resourceTableChunk != null &&
                     packageName != null &&
-                    usesLibraries != null &&
-                    usesStaticLibraries != null &&
                     versionCode != null &&
                     versionName != null &&
                     minSdkVersion != null &&
                     debuggable != null &&
+                    usesLibraries != null &&
+                    usesNativeLibraries != null &&
+                    usesStaticLibraries != null &&
                     usesPackages != null &&
                     verifyResult != null
 
@@ -344,6 +410,7 @@ data class AndroidApk private constructor(
                     minSdkVersion = minSdkVersion!!,
                     debuggable = debuggable!!,
                     usesLibraries = usesLibraries!!,
+                    usesNativeLibraries = usesNativeLibraries!!,
                     usesStaticLibraries = usesStaticLibraries!!,
                     usesPackages = usesPackages!!,
                     verifyResult = verifyResult!!
@@ -433,11 +500,11 @@ data class AndroidApk private constructor(
                 builder.debuggable = ApkUtils.getDebuggableFromBinaryAndroidManifest(androidManifestBytes)
                 androidManifestBytes.rewind()
 
-                val (staticLibraries, libraries, packageDependencies) =
-                    getLibrariesAndDependenciesInBinaryAndroidManifest(androidManifestBytes)
-                builder.usesStaticLibraries = staticLibraries
-                builder.usesLibraries = libraries
-                builder.usesPackages = packageDependencies
+                val dependencies = getLibrariesAndDependenciesInBinaryAndroidManifest(androidManifestBytes)
+                builder.usesStaticLibraries = dependencies.staticLibs
+                builder.usesLibraries = dependencies.libs
+                builder.usesPackages = dependencies.packageDeps
+                builder.usesNativeLibraries = dependencies.nativeLibs
             } catch (e: ApkFormatException) {
                 throw IOException("failed to parse APK details: ${e.message}", e)
             } catch (e: NullPointerException) {
@@ -616,13 +683,21 @@ data class AndroidApk private constructor(
             )
         }
 
+        private data class Dependencies(
+            val staticLibs: List<StaticLibrary>,
+            val libs: List<Library>,
+            val packageDeps: List<PackageDependency>,
+            val nativeLibs: List<NativeLibrary>,
+        )
+
         private fun getLibrariesAndDependenciesInBinaryAndroidManifest(
             androidManifestContents: ByteBuffer,
-        ): Triple<List<StaticLibrary>, List<Library>, List<PackageDependency>> {
+        ): Dependencies {
             try {
                 val staticLibraries = mutableListOf<StaticLibrary>()
                 val libraries = mutableListOf<Library>()
                 val packageDependencies = mutableListOf<PackageDependency>()
+                val nativeLibraries = mutableListOf<NativeLibrary>()
 
                 parseForElement(
                     androidManifestContents,
@@ -632,6 +707,7 @@ data class AndroidApk private constructor(
                 ) {
                     parseForInnerElements(
                         "uses-static-library",
+                        "uses-native-library",
                         "uses-library",
                         "uses-package",
                         targetDepth = 3,
@@ -727,6 +803,55 @@ data class AndroidApk private constructor(
                                     "Bad uses-static-library declaration: missing attributes. $staticLibraryBuilder"
                                 )
                                 staticLibraries.add(staticLib)
+                            }
+                            "uses-native-library" -> {
+                                val nativeLibBuilder = NativeLibrary.Builder()
+                                for (i in 0 until attributeCount) {
+                                    when (getAttributeNameResourceId(i)) {
+                                        NAME_ATTR_ID -> {
+                                            when (val type = getAttributeValueType(i)) {
+                                                AndroidBinXmlParser.VALUE_TYPE_STRING -> {
+                                                    nativeLibBuilder.name = getAttributeStringValue(i)
+                                                }
+                                                AndroidBinXmlParser.VALUE_TYPE_REFERENCE -> {
+                                                    // Note: don't allow this value to be a reference to a resource that may change.
+                                                    // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#2678
+                                                    throw ApkFormatException(
+                                                        "Bad uses-native-library declaration name: " +
+                                                                "references for package name are not allowed"
+                                                    )
+                                                }
+                                                else -> {
+                                                    throw ApkFormatException(
+                                                        "Bad uses-native-library declaration: package name isn't a string" +
+                                                                "but is of type $type"
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        REQUIRED_ATTR_ID -> {
+                                            when (val type = getAttributeValueType(i)) {
+                                                AndroidBinXmlParser.VALUE_TYPE_BOOLEAN,
+                                                AndroidBinXmlParser.VALUE_TYPE_STRING,
+                                                AndroidBinXmlParser.VALUE_TYPE_INT -> {
+                                                    val value = getAttributeStringValue(i);
+                                                    nativeLibBuilder.required = "true" == value ||
+                                                            "TRUE" == value ||
+                                                            "1" == value
+                                                }
+                                                else -> {
+                                                    throw ApkFormatException(
+                                                        "Bad uses-native-library declaration: bad required attribute"
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                val nativeLib = nativeLibBuilder.buildIfPossible() ?: throw ApkFormatException(
+                                    "Bad uses-native-library declaration: missing attributes. $nativeLibBuilder"
+                                )
+                                nativeLibraries.add(nativeLib)
                             }
                             "uses-library" -> {
                                 val libraryBuilder = Library.Builder()
@@ -875,7 +1000,7 @@ data class AndroidApk private constructor(
                     }
                 }
 
-                return Triple(staticLibraries.toList(), libraries.toList(), packageDependencies.toList())
+                return Dependencies(staticLibraries, libraries, packageDependencies, nativeLibraries)
             } catch (e: AndroidBinXmlParser.XmlParserException) {
                 throw ApkFormatException(
                     "Unable to get label from APK: malformed binary resource: " +
