@@ -36,14 +36,24 @@ import kotlinx.serialization.Serializable
 @JvmInline
 value class VersionCode(val code: Long) : Comparable<VersionCode> {
     init {
-        require(code > 0)
-        if (code > 2100000000L) {
-            // just FYI: https://developer.android.com/studio/publish/versioning#appversioning
-            println("warning: version code $code exceeds max version code for Google Play")
-        }
+        require(code > 0) { "version codes are supposed to be nonnegative, but got $code" }
     }
-    val legacyVersionCode: Int get() = (code and 0xffffffff).toInt()
+    val versionCodeMinor: Int get() = (code and 0xffffffff).toInt()
     val versionCodeMajor: Int get() = (code ushr 32).toInt()
 
+    /**
+     * just FYI: https://developer.android.com/studio/publish/versioning#appversioning
+     */
+    val isGooglePlayCompatible: Boolean get() = code <= 2100000000L
+
     override fun compareTo(other: VersionCode): Int = code.compareTo(other.code)
+
+    companion object {
+        /**
+         * https://android.googlesource.com/platform/frameworks/base/+/1c0577193b6060ecea4d516a732db12d1b99e297/core/java/android/content/pm/PackageInfo.java#87
+         */
+        fun fromMajorMinor(major: Int, minor: Int) =
+            VersionCode((major.toLong() shl 32) or (minor.toLong() and 0xffffffffL))
+        fun fromMinor(minor: Int) = VersionCode(minor.toLong() and 0xffffffffL)
+    }
 }

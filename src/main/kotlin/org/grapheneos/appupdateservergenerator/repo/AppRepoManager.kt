@@ -573,9 +573,9 @@ private class AppRepoManagerImpl(
                 }
             }
 
-            // Actors are coroutines, so this coroutine scope wait until delta generation is finished
-            val deltaGenChannel: SendChannel<DeltaGenerationManager.GenerationRequest> = deltaGenerationManager
-                .run { launchDeltaGenerationActor() }
+            // Actors are coroutines, so this coroutine scope waits until delta generation is finished
+            val deltaGenChannel: SendChannel<DeltaGenerationManager.GenerationRequest> =
+                deltaGenerationManager.run { launchDeltaGenerationActor() }
             try {
                 var numApksInserted = 0L
                 packageApkGroups.forEach { apkInsertionGroup ->
@@ -600,8 +600,8 @@ private class AppRepoManagerImpl(
                         )
 
                         deltaGenChannel.send(DeltaGenerationManager.GenerationRequest.ForPackage(
-                            apkInsertionGroup.packageName)
-                        )
+                            apkInsertionGroup.packageName
+                        ))
                         groupIdCheckChannel.send(apkInsertionGroup)
                         numApksInserted += apkInsertionGroup.size
                     } catch (e: AppRepoException.MoreRecentVersionInRepo) {
