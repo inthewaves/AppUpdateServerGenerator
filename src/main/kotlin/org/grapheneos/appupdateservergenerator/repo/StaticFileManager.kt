@@ -5,7 +5,6 @@ import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.channels.onFailure
 import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.AppRepoIndex
 import org.grapheneos.appupdateservergenerator.api.BulkAppMetadata
@@ -75,15 +74,14 @@ class StaticFileManager(
                     openSSLInvoker,
                     privateKeyFile
                 ) { repoIndexChannel ->
-                    coroutineScope {
-                        for (appMetadata in channel) {
-                            launch {
-                                appMetadata.writeToDiskAndSign(privateKeyFile, openSSLInvoker, fileManager)
-                                bulkAppChannel.send(appMetadata)
-                                repoIndexChannel.send(appMetadata)
-                            }
-                        }
+                    var appsWritten = 0
+                    for (appMetadata in channel) {
+                        appMetadata.writeToDiskAndSign(privateKeyFile, openSSLInvoker, fileManager)
+                        bulkAppChannel.send(appMetadata)
+                        repoIndexChannel.send(appMetadata)
+                        appsWritten++
                     }
+                    println("regenerated metadata for $appsWritten ${if (appsWritten == 1) "app" else "apps"}")
                 }
                 println("regenerated the app repo index at ${fileManager.appIndex}")
             }
