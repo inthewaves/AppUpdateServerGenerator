@@ -91,17 +91,56 @@ Note: `.apk.idsig` indicates
 [APK Signature Scheme v4](https://source.android.com/security/apksigning/v4)
 signature files which are supported by this tool.
 
-For this example, we run this command to create an example repository:
+These commands created an example repository. We add one APK at a time to simulate the time
+difference between each release.
+
 ```bash
-$ ./appservergen add -k testkey_ec.pk8 ~/TestAPKs/*.apk
+$ ./appservergen add -k testkey_ec.pk8 -s ~/TestAPKs/Auditor-24.apk
+$ ./appservergen add -k testkey_ec.pk8 -s ~/TestAPKs/Auditor-25.apk
+$ ./appservergen add -k testkey_ec.pk8 -s ~/TestAPKs/Auditor-26.apk
+$ ./appservergen add -k testkey_ec.pk8 -s ~/TestAPKs/Auditor-27.apk
+$ ./appservergen add -k testkey_ec.pk8 -s ~/TestAPKs/app-release-appA.apk
+$ ./appservergen add -k testkey_ec.pk8 -s ~/TestAPKs/app-release-appB.apk
 ```
 
-Note: The `add` command asks for optional release notes for every package. In this example, there
-are release notes added to the latest version of the Auditor app. The `add` command also takes extra
-time to generate all the deltas.
+However, we handle inserting the Trichrome packages differently. The tool verifies the APK
+dependencies specified by the APKs' manifests
+([`uses-library`](https://developer.android.com/guide/topics/manifest/uses-library-element),
+[`uses-static-library`](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2209),
+[`uses-package`](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2238));
+it will reject insertions when we don't have a dependency that's required.
+
+As static libraries are strictly required for an app to function, and the Chrome and WebView apps
+both have a static library dependency on the Trichrome shared library, we insert the three apps
+together for each Chromium version.
+
+```bash
+$ ./appservergen add -k testkey_ec.pk8 -s ~/TestAPKs/Trichrome*-90.0.4430.91.apk
+$ ./appservergen add -k testkey_ec.pk8 -s ~/TestAPKs/Trichrome*-90.0.4430.210.apk
+$ ./appservergen add -k testkey_ec.pk8 ~/TestAPKs/Trichrome*-91.0.4472.77.apk
+```
+
+Note: The `add` command can ask for release notes for every release. However, for this example, we
+use `-s` option to skip adding release notes for almost all the APKs except the latest version of
+the Trichromium packages. These are the release notes entered for each of the Trichromium packages:
+
+```markdown
+These are test release notes.
+
+### New features
+
+* This is some Markdown to show new features.
+* This is some more Markdown.
+
+## Bug fixes
+
+* These are some bug fixes.
+```
+
+The resulting repository:
 
 <!-- tree --dirsfirst --du -h app_repo_data -->
-```plain
+```
 app_repo_data
 ├── [ 648M]  apps
 │   ├── [  10M]  app.attestation.auditor
@@ -113,7 +152,7 @@ app_repo_data
 │   │   ├── [ 509K]  delta-25-to-27.gz
 │   │   ├── [ 495K]  delta-26-to-27.gz
 │   │   ├── [ 2.4K]  ic_launcher
-│   │   └── [ 1.1K]  latest.txt
+│   │   └── [ 1.4K]  latest.txt
 │   ├── [ 320M]  app.vanadium.trichromelibrary
 │   │   ├── [  94M]  443009134.apk
 │   │   ├── [  94M]  443021034.apk
@@ -121,7 +160,7 @@ app_repo_data
 │   │   ├── [  18M]  delta-443009134-to-447207734.gz
 │   │   ├── [  18M]  delta-443021034-to-447207734.gz
 │   │   ├── [ 4.4K]  ic_launcher
-│   │   └── [  991]  latest.txt
+│   │   └── [ 1.5K]  latest.txt
 │   ├── [ 226M]  app.vanadium.webview
 │   │   ├── [  63M]  443009134.apk
 │   │   ├── [  63M]  443021034.apk
@@ -129,17 +168,17 @@ app_repo_data
 │   │   ├── [  18M]  delta-443009134-to-447207734.gz
 │   │   ├── [  18M]  delta-443021034-to-447207734.gz
 │   │   ├── [ 4.0K]  ic_launcher
-│   │   └── [ 1.5K]  latest.txt
+│   │   └── [ 1.9K]  latest.txt
 │   ├── [ 7.3M]  com.example.appa
 │   │   ├── [ 7.2M]  1.apk
 │   │   ├── [  65K]  1.apk.idsig
 │   │   ├── [ 3.3K]  ic_launcher
-│   │   └── [  496]  latest.txt
+│   │   └── [  579]  latest.txt
 │   ├── [ 5.7M]  com.example.appb
 │   │   ├── [ 5.6M]  1.apk
 │   │   ├── [  53K]  1.apk.idsig
 │   │   ├── [ 3.3K]  ic_launcher
-│   │   └── [  496]  latest.txt
+│   │   └── [  579]  latest.txt
 │   ├── [  78M]  org.chromium.chrome
 │   │   ├── [  27M]  443009134.apk
 │   │   ├── [  27M]  443021034.apk
@@ -147,17 +186,19 @@ app_repo_data
 │   │   ├── [ 3.5M]  delta-443009134-to-447207733.gz
 │   │   ├── [ 3.5M]  delta-443021034-to-447207733.gz
 │   │   ├── [ 1.9K]  ic_launcher
-│   │   └── [ 1.4K]  latest.txt
-│   ├── [ 5.4K]  latest-bulk-metadata.txt
-│   └── [  349]  latest-index.txt
+│   │   └── [ 1.9K]  latest.txt
+│   ├── [ 7.4K]  latest-bulk-metadata.txt
+│   └── [  345]  latest-index.txt
 ├── [  80K]  apprepo.db
 ├── [  32K]  apprepo.db-shm
 ├── [    0]  apprepo.db-wal
 └── [  178]  public-signing-key.pem
 ```
 
-The files meant to be synced with a static file server are the files located in
-`app_repo_data/apps`. A short overview of each file:
+Note that the files meant to be synced with a static file server are the files located in
+`app_repo_data/apps`.
+
+A short overview of each file:
 
 * **public-signing-key.pem**: The public key will be used to validate the signatures in the repo for
   the `validate` command, and it will also validate the private key passed into the `insert-apk`
@@ -171,14 +212,14 @@ The files meant to be synced with a static file server are the files located in
 * **latest-index.txt**: Sample:
 
   ```plain
-  YAAAAA== MEYCIQD5lF2JKSI5x0N/ZSP1D8JOp8viJluNJyIfhhMldNX6JwIhAJCDj+D86QacSMjLKG4IFWRAVlVTZvI7NxefuXEw1MR4
-  1623215965
-  app.attestation.auditor 27 1623215965
-  org.chromium.chrome 447207733 1623215965
-  app.vanadium.trichromelibrary 447207734 1623215965
-  app.vanadium.webview 447207734 1623215965
-  com.example.appa 1 1623215965
-  com.example.appb 1 1623215965
+  XAAAAA== MEMCHz3QsYbOUkHw7rm5SeiJ2ZNrHzlEVVAafW1tRcYa+24CIHtPI1Rv2zoGqE5dF4MYVFmpY/LRAacHZvPJND0EwpiU
+  1623275890
+  app.attestation.auditor 27 1623275832
+  com.example.appa 1 1623275836
+  com.example.appb 1 1623275837
+  org.chromium.chrome 447207733 1623275890
+  app.vanadium.trichromelibrary 447207734 1623275890
+  app.vanadium.webview 447207734 1623275890
   ```
   This contains minimal information for clients to decide if they need to fetch updates to app
   metadata. The first line contains a base64-encoded signature, the second line contains the last
@@ -192,8 +233,8 @@ The files meant to be synced with a static file server are the files located in
 * **latest.txt**: Sample for `org.chromium.chrome`:
 
   ```plain
-  YAAAAA== MEQCIE6CPpbUDG4GugsAUao6P8m+M8VtyWtvFIpedCUJJlORAiBv9cN/tbBDWMPGLWD7u/LPTN6Z6VQFg3zYQiENvy+ztA==
-  {"package":"org.chromium.chrome","repoIndexTimestamp":1623215965,"label":"Vanadium","iconSha256":"4qDeoGZDik6AIva6JGCQ66jK2OrPl0VYNLI0ZRefS+8=","lastUpdateTimestamp":1623215965,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443009134,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443021034,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":447207733,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":447207734,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}],"deltaInfo":[{"baseVersionCode":443009134,"sha256":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="},{"baseVersionCode":443021034,"sha256":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="}]}]}
+  YAAAAA== MEQCIAzhoGhsutDLUnkX5evzoV5uil74QB4LgAQDklaZ2YFjAiAuWPk+Ji4UV9OeAUvTF9WuNTMtAxUeDpvLmllk10GLAw==
+  {"package":"org.chromium.chrome","repoIndexTimestamp":1623275890,"label":"Vanadium","iconSha256":"4qDeoGZDik6AIva6JGCQ66jK2OrPl0VYNLI0ZRefS+8=","lastUpdateTimestamp":1623275890,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1623275839,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443009134,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1623275841,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443021034,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":447207733,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1623275890,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":447207734,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}],"deltaInfo":[{"baseVersionCode":443009134,"sha256":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="},{"baseVersionCode":443021034,"sha256":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="}],"releaseNotes":"<body><p>These are are test release notes.</p><h3>New features</h3><ul><li>This is some Markdown to show new features.</li><li>This is some more Markdown.</li></ul><h2>Bug fixes</h2><ul><li>These are some bug fixes.</li></ul></body>"}]}
   ```
 
   The first line contains a base64-encoded signature of the JSON metadata.
@@ -203,16 +244,19 @@ The files meant to be synced with a static file server are the files located in
   ```json
   {
       "package": "org.chromium.chrome",
-      "repoIndexTimestamp": 1623215965,
+      "repoIndexTimestamp": 1623275890,
       "label": "Vanadium",
       "iconSha256": "4qDeoGZDik6AIva6JGCQ66jK2OrPl0VYNLI0ZRefS+8=",
-      "lastUpdateTimestamp": 1623215965,
+      "lastUpdateTimestamp": 1623275890,
       "releases": [
           {
               "versionCode": 443009134,
               "versionName": "90.0.4430.91",
               "minSdkVersion": 29,
-              "releaseTimestamp": 1623215965,
+              "releaseTimestamp": 1623275839,
+              "certDigests": [
+                  "c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"
+              ],
               "apkSha256": "V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=",
               "usesStaticLibraries": [
                   {
@@ -228,13 +272,18 @@ The files meant to be synced with a static file server are the files located in
               "versionCode": 443021034,
               "versionName": "90.0.4430.210",
               "minSdkVersion": 29,
-              "releaseTimestamp": 1623215965,
+              "releaseTimestamp": 1623275841,
+              "certDigests": [
+                  "c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"
+              ],
               "apkSha256": "+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=",
               "usesStaticLibraries": [
                   {
                       "name": "app.vanadium.trichromelibrary",
                       "version": 443021034,
-                      "certDigests": ["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]
+                      "certDigests": [
+                          "c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"
+                      ]
                   }
               ]
           },
@@ -242,13 +291,18 @@ The files meant to be synced with a static file server are the files located in
               "versionCode": 447207733,
               "versionName": "91.0.4472.77",
               "minSdkVersion": 29,
-              "releaseTimestamp": 1623215965,
+              "releaseTimestamp": 1623275890,
+              "certDigests": [
+                  "c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"
+              ],
               "apkSha256": "yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=",
               "usesStaticLibraries": [
                   {
                       "name": "app.vanadium.trichromelibrary",
                       "version": 447207734,
-                      "certDigests": ["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]
+                      "certDigests": [
+                          "c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"
+                      ]
                   }
               ],
               "deltaInfo": [
@@ -260,27 +314,28 @@ The files meant to be synced with a static file server are the files located in
                       "baseVersionCode": 443021034,
                       "sha256": "ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="
                   }
-              ]
+              ],
+              "releaseNotes": "<body><p>These are are test release notes.</p><h3>New features</h3><ul><li>This is some Markdown to show new features.</li><li>This is some more Markdown.</li></ul><h2>Bug fixes</h2><ul><li>These are some bug fixes.</li></ul></body>"
           }
       ]
   }
   ```
 
   This sample does not contain all possible fields. See the
-  [ApiMetadata](src/main/kotlin/org/grapheneos/appupdateservergenerator/api/AppMetadata.kt) class
+  [AppMetadata](src/main/kotlin/org/grapheneos/appupdateservergenerator/api/AppMetadata.kt) class
   for a summary of the serializable fields.
 
 * **latest-bulk-metadata.txt**: This is a file of all the metadata in the repository:
 
   ```plain
-  YAAAAA== MEUCIQDDsx+p0ROZx1XtlIjBbgo+xcm3bUVidWVqMZJt3U6eSgIgRajFzg9UmEuj4I0bEyq4Ld/zualQoa3wo5NAcaOqm+M=
-  1623215965
-  {"package":"app.attestation.auditor","repoIndexTimestamp":1623215965,"label":"Auditor","iconSha256":"NGmjNgJa9og+0Bt4Ic+rYICpy87iIC1DzbWSJtzwEYo=","lastUpdateTimestamp":1623215965,"releases":[{"versionCode":24,"versionName":"24","minSdkVersion":26,"releaseTimestamp":1623215965,"apkSha256":"HpecQ50szYqQ991bMv1pg4DyMGBzbDFpmhr+/oHH+OU="},{"versionCode":25,"versionName":"25","minSdkVersion":26,"releaseTimestamp":1623215965,"apkSha256":"ac4QPtAcnlUZ6HL8GoS7fGx/dZe+yyXPvfz6CvtrvKQ="},{"versionCode":26,"versionName":"26","minSdkVersion":26,"releaseTimestamp":1623215965,"apkSha256":"LZo/7Hr/tCoSidZGAr67iz/O1nhHBdUIkpWqrEVJh7I="},{"versionCode":27,"versionName":"27","minSdkVersion":26,"releaseTimestamp":1623215965,"apkSha256":"CNpHPoTVixSI7TRuRpiMbWA1A28ZBrMTDophzdjfZ6g=","deltaInfo":[{"baseVersionCode":24,"sha256":"Xrm5wxQOXLoaoGk7/UtfTce9JL24LppPrBcuwgfeNHM="},{"baseVersionCode":25,"sha256":"hV+pV13g/JSeMF4yYzGpxtE9o6BPYjsp5LAbbDKzNfA="},{"baseVersionCode":26,"sha256":"eX7VGj7905BR4T/kmAVkkJp74oqOlSFEbPL8sy/c7pc="}]}]}
-  {"package":"org.chromium.chrome","repoIndexTimestamp":1623215965,"label":"Vanadium","iconSha256":"4qDeoGZDik6AIva6JGCQ66jK2OrPl0VYNLI0ZRefS+8=","lastUpdateTimestamp":1623215965,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443009134,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443021034,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":447207733,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":447207734,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}],"deltaInfo":[{"baseVersionCode":443009134,"sha256":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="},{"baseVersionCode":443021034,"sha256":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="}]}]}
-  {"package":"app.vanadium.trichromelibrary","repoIndexTimestamp":1623215965,"label":"Trichrome Library","iconSha256":"VVAolTWel7q54taRRHvWPG3S0mmLq5QPCZ6nSKSEV4o=","lastUpdateTimestamp":1623215965,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"3kuRhe+gYFQ1O+L1+gM5eardAWfsB73b/1sRK+pEtL0="},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"6KJZ1d6UldqcAWHMzhpXont4XLddZi5YCUI0N1So740="},{"versionCode":447207734,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"NLpi8yQgYJAfWBj2/l3C2QMdfJncRC/t8aPA3RlE1hM=","deltaInfo":[{"baseVersionCode":443009134,"sha256":"RoZbWjLPvxENxcMWnV7LDBRulpQJjC2P4MpBdcKdjCo="},{"baseVersionCode":443021034,"sha256":"QZve0/D+qqGzIozptH+D5saUCxrdNSGjWWcmJFbb16I="}]}]}
-  {"package":"app.vanadium.webview","repoIndexTimestamp":1623215965,"label":"Vanadium System WebView","iconSha256":"NSuIf9WWMU6wUCkMXCOaRVBY0lwNISRViLuXegbjrOU=","lastUpdateTimestamp":1623215965,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"YnKVJ3RZsoS6fxRhHgrfAZGXA/F+RiYOyKjlVlIG6uo=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443009134,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"VZ2iISVUcxxvQsnemdGIFhpuNU2MGyUujUJXvuPzV2Y=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443021034,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":447207734,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"Xo1wfFSTg7Gi4Z+1didiJJX/IlDcy7gw9mS3CRCv78s=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":447207734,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}],"deltaInfo":[{"baseVersionCode":443009134,"sha256":"PKuxV8pF72nrK5M1tB/Hnra0cI7yPRdiucSlm6aHGLc="},{"baseVersionCode":443021034,"sha256":"Sq+tXujrv4Fe6o6MnIYEOTGB62amygiOhS6chgd3bC8="}]}]}
-  {"package":"com.example.appa","repoIndexTimestamp":1623215965,"label":"AppA","iconSha256":"qZhDhyqQ+/y+SyNamucIvh2xxaR34avVco71mKgsxHA=","lastUpdateTimestamp":1623215965,"releases":[{"versionCode":1,"versionName":"1.0","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"/I+iQcq4RsmVu0MLfW+uZZL2mUv5WLJeNh4qv6PomJg=","v4SigSha256":"3/PxeJvFHKDlqUgk5PMojd2A6jfHklAQ3d51GMtCLu4="}]}
-  {"package":"com.example.appb","repoIndexTimestamp":1623215965,"label":"AppB","iconSha256":"qZhDhyqQ+/y+SyNamucIvh2xxaR34avVco71mKgsxHA=","lastUpdateTimestamp":1623215965,"releases":[{"versionCode":1,"versionName":"1.0","minSdkVersion":29,"releaseTimestamp":1623215965,"apkSha256":"arYsOFv2oz15A9cHbH+ThoTQClYQrXbc7BGwj7VzB/4=","v4SigSha256":"eze3hxfWlHNXVlOKKCfCeXdqWOq8ZLuK2spCzLfSkcI="}]}
+  YAAAAA== MEUCIQDqvRJ2dmem6cCZtYmeENgQ7ceqXoXs6rCi7aDrf6uqQgIgdzpp/E62+lcqceqdXlwVopGM8A5PbHQn1/msgrQ3BUA=
+  1623275890
+  {"package":"app.attestation.auditor","repoIndexTimestamp":1623275890,"label":"Auditor","iconSha256":"NGmjNgJa9og+0Bt4Ic+rYICpy87iIC1DzbWSJtzwEYo=","lastUpdateTimestamp":1623275832,"releases":[{"versionCode":24,"versionName":"24","minSdkVersion":26,"releaseTimestamp":1623275825,"certDigests":["990e04f0864b19f14f84e0e432f7a393f297ab105a22c1e1b10b442a4a62c42c"],"apkSha256":"HpecQ50szYqQ991bMv1pg4DyMGBzbDFpmhr+/oHH+OU="},{"versionCode":25,"versionName":"25","minSdkVersion":26,"releaseTimestamp":1623275826,"certDigests":["990e04f0864b19f14f84e0e432f7a393f297ab105a22c1e1b10b442a4a62c42c"],"apkSha256":"ac4QPtAcnlUZ6HL8GoS7fGx/dZe+yyXPvfz6CvtrvKQ="},{"versionCode":26,"versionName":"26","minSdkVersion":26,"releaseTimestamp":1623275828,"certDigests":["990e04f0864b19f14f84e0e432f7a393f297ab105a22c1e1b10b442a4a62c42c"],"apkSha256":"LZo/7Hr/tCoSidZGAr67iz/O1nhHBdUIkpWqrEVJh7I="},{"versionCode":27,"versionName":"27","minSdkVersion":26,"releaseTimestamp":1623275832,"certDigests":["990e04f0864b19f14f84e0e432f7a393f297ab105a22c1e1b10b442a4a62c42c"],"apkSha256":"CNpHPoTVixSI7TRuRpiMbWA1A28ZBrMTDophzdjfZ6g=","deltaInfo":[{"baseVersionCode":24,"sha256":"Xrm5wxQOXLoaoGk7/UtfTce9JL24LppPrBcuwgfeNHM="},{"baseVersionCode":25,"sha256":"hV+pV13g/JSeMF4yYzGpxtE9o6BPYjsp5LAbbDKzNfA="},{"baseVersionCode":26,"sha256":"eX7VGj7905BR4T/kmAVkkJp74oqOlSFEbPL8sy/c7pc="}]}]}
+  {"package":"com.example.appa","repoIndexTimestamp":1623275890,"label":"AppA","iconSha256":"qZhDhyqQ+/y+SyNamucIvh2xxaR34avVco71mKgsxHA=","lastUpdateTimestamp":1623275836,"releases":[{"versionCode":1,"versionName":"1.0","minSdkVersion":29,"releaseTimestamp":1623275836,"certDigests":["cb1aa8a9c10aec9241ae5de7f417ba7528bec03727cb48fedf204e974000d011"],"apkSha256":"/I+iQcq4RsmVu0MLfW+uZZL2mUv5WLJeNh4qv6PomJg=","v4SigSha256":"3/PxeJvFHKDlqUgk5PMojd2A6jfHklAQ3d51GMtCLu4="}]}
+  {"package":"com.example.appb","repoIndexTimestamp":1623275890,"label":"AppB","iconSha256":"qZhDhyqQ+/y+SyNamucIvh2xxaR34avVco71mKgsxHA=","lastUpdateTimestamp":1623275837,"releases":[{"versionCode":1,"versionName":"1.0","minSdkVersion":29,"releaseTimestamp":1623275837,"certDigests":["cb1aa8a9c10aec9241ae5de7f417ba7528bec03727cb48fedf204e974000d011"],"apkSha256":"arYsOFv2oz15A9cHbH+ThoTQClYQrXbc7BGwj7VzB/4=","v4SigSha256":"eze3hxfWlHNXVlOKKCfCeXdqWOq8ZLuK2spCzLfSkcI="}]}
+  {"package":"org.chromium.chrome","repoIndexTimestamp":1623275890,"label":"Vanadium","iconSha256":"4qDeoGZDik6AIva6JGCQ66jK2OrPl0VYNLI0ZRefS+8=","lastUpdateTimestamp":1623275890,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1623275839,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"V+Pg4LWMltx8ee3dpYhlNN3G20OdP3BOeH19fRiWpaA=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443009134,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1623275841,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"+Ykbo9NOe6pf0TqYwlIBI5fb3nXEvZ4ItdAkwAwTahE=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443021034,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":447207733,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1623275890,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"yTIy1ogEjhmPiw7Ubzs4JggjZE9rP+yYEMFN7A4zyG0=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":447207734,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}],"deltaInfo":[{"baseVersionCode":443009134,"sha256":"jwqasvDbTdbWHsgCkbPBOFPfK2fkLwNrNysZmnur6dU="},{"baseVersionCode":443021034,"sha256":"ksDLguRgApplNcRxDySVE1LXbvU6vUZmby6+Aw1onA8="}],"releaseNotes":"<body><p>These are are test release notes.</p><h3>New features</h3><ul><li>This is some Markdown to show new features.</li><li>This is some more Markdown.</li></ul><h2>Bug fixes</h2><ul><li>These are some bug fixes.</li></ul></body>"}]}
+  {"package":"app.vanadium.trichromelibrary","repoIndexTimestamp":1623275890,"label":"Trichrome Library","iconSha256":"VVAolTWel7q54taRRHvWPG3S0mmLq5QPCZ6nSKSEV4o=","lastUpdateTimestamp":1623275890,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1623275839,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"3kuRhe+gYFQ1O+L1+gM5eardAWfsB73b/1sRK+pEtL0="},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1623275841,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"6KJZ1d6UldqcAWHMzhpXont4XLddZi5YCUI0N1So740="},{"versionCode":447207734,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1623275890,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"NLpi8yQgYJAfWBj2/l3C2QMdfJncRC/t8aPA3RlE1hM=","deltaInfo":[{"baseVersionCode":443009134,"sha256":"RoZbWjLPvxENxcMWnV7LDBRulpQJjC2P4MpBdcKdjCo="},{"baseVersionCode":443021034,"sha256":"QZve0/D+qqGzIozptH+D5saUCxrdNSGjWWcmJFbb16I="}],"releaseNotes":"<body><p>These are test release notes.</p><h3>New features</h3><ul><li>This is some Markdown to show new features.</li><li>This is some more Markdown.</li></ul><h2>Bug fixes</h2><ul><li>These are some bug fixes.</li></ul></body>"}]}
+  {"package":"app.vanadium.webview","repoIndexTimestamp":1623275890,"label":"Vanadium System WebView","iconSha256":"NSuIf9WWMU6wUCkMXCOaRVBY0lwNISRViLuXegbjrOU=","lastUpdateTimestamp":1623275890,"releases":[{"versionCode":443009134,"versionName":"90.0.4430.91","minSdkVersion":29,"releaseTimestamp":1623275839,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"YnKVJ3RZsoS6fxRhHgrfAZGXA/F+RiYOyKjlVlIG6uo=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443009134,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":443021034,"versionName":"90.0.4430.210","minSdkVersion":29,"releaseTimestamp":1623275841,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"VZ2iISVUcxxvQsnemdGIFhpuNU2MGyUujUJXvuPzV2Y=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":443021034,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}]},{"versionCode":447207734,"versionName":"91.0.4472.77","minSdkVersion":29,"releaseTimestamp":1623275890,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"],"apkSha256":"Xo1wfFSTg7Gi4Z+1didiJJX/IlDcy7gw9mS3CRCv78s=","usesStaticLibraries":[{"name":"app.vanadium.trichromelibrary","version":447207734,"certDigests":["c6adb8b83c6d4c17d292afde56fd488a51d316ff8f2c11c5410223bff8a7dbb3"]}],"deltaInfo":[{"baseVersionCode":443009134,"sha256":"PKuxV8pF72nrK5M1tB/Hnra0cI7yPRdiucSlm6aHGLc="},{"baseVersionCode":443021034,"sha256":"Sq+tXujrv4Fe6o6MnIYEOTGB62amygiOhS6chgd3bC8="}],"releaseNotes":"<body><p>These are test release notes.</p><h3>New features</h3><ul><li>This is some Markdown to show new features.</li><li>This is some more Markdown.</li></ul><h2>Bug fixes</h2><ul><li>These are some bug fixes.</li></ul></body>"}]}
   ```
 
   This is used for bulk downloads (e.g., first-time startup or force refreshes).

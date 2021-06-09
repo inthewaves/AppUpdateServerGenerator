@@ -69,7 +69,7 @@ data class AppMetadata(
          * version is compatible with a release on the server via a subset check (i.e., check if the digests of the
          * certificates of the locally installed version is a subset of the server metadata digests)
          */
-        val certsSha256: List<HexString>,
+        val certDigests: List<HexString>,
         /** The base64-encoded sha256 checksum for the APK. */
         val apkSha256: Base64String,
         /**
@@ -269,7 +269,7 @@ fun AppRelease.toSerializableModelAndVerify(
         versionName = versionName,
         minSdkVersion = minSdkVersion,
         releaseTimestamp = releaseTimestamp,
-        certsSha256 = apk.verifyResult.result.signerCertificates.map {
+        certDigests = apk.verifyResult.result.signerCertificates.map {
             it.encoded.digest("SHA-256").encodeToHexString()
         },
         apkSha256 = apkSha256,

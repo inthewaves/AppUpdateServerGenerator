@@ -70,7 +70,7 @@ class DeltaGenerationManager(
         object StartPrinting : GenerationRequest
     }
 
-    private sealed interface PrintRequest {
+    sealed interface PrintRequest {
         class NewPackage(val pkg: PackageName, val numberOfDeltas: Int) : PrintRequest
         class DeltaFinished(val pkg: PackageName, val success: Boolean) : PrintRequest
         object ProgressPrint : PrintRequest
@@ -285,7 +285,7 @@ class DeltaGenerationManager(
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS,
         printMessageChannel: SendChannel<PrintRequest>?
     ): List<DeltaInfo> = coroutineScope {
-        deltaInfoDao.deleteDeltasForApp(apks.packageName)
+        deltaInfoDao.deleteDeltasForApp(apks.packageName, printMessageChannel)
         if (apks.size <= 1) {
             return@coroutineScope emptyList<DeltaInfo>()
         }
