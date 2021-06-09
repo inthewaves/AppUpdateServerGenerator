@@ -20,10 +20,12 @@ import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.GroupId
+import org.grapheneos.appupdateservergenerator.model.HexString
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.model.encodeToBase64String
+import org.grapheneos.appupdateservergenerator.model.encodeToHexString
 import org.grapheneos.appupdateservergenerator.util.digest
 import java.io.FileFilter
 import java.io.IOException
@@ -65,6 +67,12 @@ data class AppMetadata(
         val versionName: String,
         val minSdkVersion: Int,
         val releaseTimestamp: UnixTimestamp,
+        /**
+         * Hex-encoded sha256 digests of the signing certificates. Clients can use this to determine if an installed
+         * version is compatible with a release on the server via a subset check (i.e., check if the digests of the
+         * certificates of the locally installed version is a subset of the server metadata digests)
+         */
+        val certsSha256: List<HexString>,
         /** The base64-encoded sha256 checksum for the APK. */
         val apkSha256: Base64String,
         /**
@@ -265,6 +273,9 @@ fun AppRelease.toSerializableModelAndVerify(
         versionName = versionName,
         minSdkVersion = minSdkVersion,
         releaseTimestamp = releaseTimestamp,
+        certsSha256 = apk.verifyResult.result.signerCertificates.map {
+            it.encoded.digest("SHA-256").encodeToHexString()
+        },
         apkSha256 = apkSha256,
         v4SigSha256 = v4SigSha256,
         usesLibraries = apk.usesLibraries.ifEmpty { null },
@@ -272,7 +283,7 @@ fun AppRelease.toSerializableModelAndVerify(
         usesStaticLibraries = apk.usesStaticLibraries.ifEmpty { null },
         usesPackages = apk.usesPackages.ifEmpty { null },
         deltaInfo = deltaInfo.ifEmpty { null },
-        releaseNotes = releaseNotes?.takeIf { it.isNotBlank() }?.let(MarkdownProcessor::markdownToCompressedHtml)
+        releaseNotes = releaseNotes?.ifBlank { null }?.let(MarkdownProcessor::markdownToCompressedHtml)
     )
 }
 

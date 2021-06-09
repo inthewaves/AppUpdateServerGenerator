@@ -449,6 +449,8 @@ data class AndroidApk private constructor(
          * Builds an [AndroidApk] instance from the given [apkFile]. The input [apkFile] will be stored as the property
          * [AndroidApk.apkFile]. The `apksig` library will be used on the APK to verify its signature.
          *
+         * Only APKs that pass signature verification will be created.
+         *
          * @throws IOException if an I/O error occurs, or the APK can't be parsed or the APK failed to verify
          */
         fun buildFromApkAndVerifySignature(apkFile: File): AndroidApk {
