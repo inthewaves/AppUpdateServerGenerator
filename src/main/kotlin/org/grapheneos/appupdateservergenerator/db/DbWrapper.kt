@@ -5,7 +5,6 @@ import com.squareup.sqldelight.sqlite.driver.JdbcDriver
 import com.squareup.sqldelight.sqlite.driver.JdbcSqliteDriver
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.Base64String
-import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
@@ -16,7 +15,6 @@ object DbWrapper {
     private val appAdapter: App.Adapter
     private val appReleaseAdapter: AppRelease.Adapter
     private val deltaInfoAdapter: DeltaInfo.Adapter
-    private val appGroupAdapter: AppGroup.Adapter
     init {
         val unixTimestampAdapter = object : ColumnAdapter<UnixTimestamp, Long> {
             override fun decode(databaseValue: Long): UnixTimestamp = UnixTimestamp(databaseValue)
@@ -34,15 +32,10 @@ object DbWrapper {
             override fun decode(databaseValue: String): PackageName = PackageName(databaseValue)
             override fun encode(value: PackageName): String = value.pkg
         }
-        val groupIdAdapter = object : ColumnAdapter<GroupId, String> {
-            override fun decode(databaseValue: String): GroupId = GroupId.of(databaseValue)
-            override fun encode(value: GroupId): String = value.id
-        }
 
         appAdapter = App.Adapter(
             lastUpdateTimestampAdapter = unixTimestampAdapter,
             packageNameAdapter = packageNameAdapter,
-            groupIdAdapter = groupIdAdapter
         )
         appReleaseAdapter = AppRelease.Adapter(
             versionCodeAdapter = versionCodeAdapter,
@@ -57,14 +50,12 @@ object DbWrapper {
             sha256ChecksumAdapter = base64StringAdapter,
             packageNameAdapter = packageNameAdapter
         )
-        appGroupAdapter = AppGroup.Adapter(groupIdAdapter)
     }
     private fun createDatabaseInstance(driver: JdbcDriver) = Database(
         driver = driver,
         AppAdapter = appAdapter,
         AppReleaseAdapter = appReleaseAdapter,
         DeltaInfoAdapter = deltaInfoAdapter,
-        AppGroupAdapter = appGroupAdapter
     )
 
     @Volatile

@@ -26,11 +26,10 @@ class AddCommand : AppRepoSubcommand(
         APKs for x different apps, you will be prompted x times for each app. The --skip-notes (-s) option allows for 
         bypassing release notes. Release notes can be edited or added in later with the edit command.
         
-        Warnings will be printed when there are updates in groups where some of the packages are not updated. For 
-        example, if there is a groupId "G" tagged onto packages A, B, and C, and if you insert new APKs for packages A
-        and B, then there will be warnings about missing an update for package C. These warnings occur because it is
-        expected that clients atomically update all packages in a group. See the group command for more detail about
-        groups.
+        APKs being inserted will be verified to ensure that any dependencies they may have (uses-library,
+        uses-static-library, uses-package) are satisfied. An error will be raised if trying to insert an APK, but it has
+        a hard dependency not included in either the existing repository files or in the APKs provided in a single
+        session for insertion.
     """.trimMargin()
 ) {
     private val privateSigningKeyFile: File by option(

@@ -16,9 +16,6 @@ sealed class AppRepoException : Exception {
         constructor(message: String, cause: Throwable) : super(message, cause)
         constructor(cause: Throwable) : super(cause)
     }
-    class GroupDoesntExist : AppRepoException {
-        constructor(message: String) : super(message)
-    }
     class ApkSigningCertMismatch : AppRepoException {
         constructor(message: String) : super(message)
     }

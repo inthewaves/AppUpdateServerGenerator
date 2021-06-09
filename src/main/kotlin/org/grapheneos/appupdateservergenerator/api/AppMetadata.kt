@@ -19,7 +19,6 @@ import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
 import org.grapheneos.appupdateservergenerator.model.Base64String
-import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.HexString
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
@@ -48,8 +47,6 @@ data class AppMetadata(
      * Clients **must** verify this against the repository index timestamp.
      */
     val repoIndexTimestamp: UnixTimestamp,
-    /** TODO: Replace with libraries, which parses the `uses-library` and `uses-static-library` tags from the manifest */
-    val groupId: GroupId? = null,
     val label: String,
     val iconSha256: Base64String?,
     /** The last time this app has been updated. */
@@ -238,7 +235,6 @@ fun App.toSerializableModel(
 ) = AppMetadata(
     packageName = packageName,
     repoIndexTimestamp = repositoryIndexTimestamp,
-    groupId = groupId,
     label = label,
     iconSha256 = icon?.digest("SHA-256")?.encodeToBase64String(),
     lastUpdateTimestamp = lastUpdateTimestamp,

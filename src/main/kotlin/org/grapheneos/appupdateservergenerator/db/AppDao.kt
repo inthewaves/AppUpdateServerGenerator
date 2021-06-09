@@ -7,7 +7,6 @@ import org.grapheneos.appupdateservergenerator.api.toSerializableModelAndVerify
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
-import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
@@ -37,13 +36,6 @@ class AppDao(private val database: Database) {
         .executeAsOneOrNull()
 
     fun getApp(packageName: PackageName): App? = database.appQueries.select(packageName).executeAsOneOrNull()
-
-    fun getAppLabelsInGroup(groupId: GroupId): List<PackageLabelsByGroup> = database.appQueries
-        .packageLabelsByGroup(groupId)
-        .executeAsList()
-
-    fun getAppsInGroupButExcludingApps(groupId: GroupId, groupsToExclude: Collection<PackageName>) =
-        database.appQueries.appsInGroupAndNotInSet(groupId, groupsToExclude).executeAsList()
 
     fun createSerializableAppMetadata(
         app: App,
@@ -75,12 +67,6 @@ class AppDao(private val database: Database) {
         database.appQueries.orderedPackages().executeAsSequence { sequence -> sequence.forEach(action) }
     }
 
-    fun setGroupForPackages(groupId: GroupId?, packages: Iterable<PackageName>, updateTimestamp: UnixTimestamp) {
-        database.transaction {
-            packages.forEach { database.appQueries.setGroup(groupId, updateTimestamp, it) }
-        }
-    }
-
     fun upsertApks(
         appDir: AppDir,
         apksToInsert: PackageApkGroup,
@@ -99,7 +85,7 @@ class AppDao(private val database: Database) {
 
         database.transaction {
             val mostRecentApk = apksToInsert.highestVersionApk!!
-            database.appQueries.upsertWithoutGroup(
+            database.appQueries.upsert(
                 packageName = mostRecentApk.packageName,
                 label = mostRecentApk.label,
                 icon = icon,

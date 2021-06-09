@@ -7,7 +7,6 @@ import org.grapheneos.appupdateservergenerator.commands.AddCommand
 import org.grapheneos.appupdateservergenerator.commands.ApplyDeltaCommand
 import org.grapheneos.appupdateservergenerator.commands.EditCommand
 import org.grapheneos.appupdateservergenerator.commands.GenerateDeltaCommand
-import org.grapheneos.appupdateservergenerator.commands.GroupCommand
 import org.grapheneos.appupdateservergenerator.commands.ListPackagesCommand
 import org.grapheneos.appupdateservergenerator.commands.ValidateRepoCommand
 import java.security.Security
@@ -22,7 +21,6 @@ fun main(args: Array<String>) {
         .subcommands(
             AddCommand(),
             ValidateRepoCommand(),
-            GroupCommand.createWithSubcommands(),
             EditCommand.createWithSubcommands(),
             ListPackagesCommand(),
             ApplyDeltaCommand(),

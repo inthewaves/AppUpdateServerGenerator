@@ -26,15 +26,12 @@ import org.grapheneos.appupdateservergenerator.db.AppDao
 import org.grapheneos.appupdateservergenerator.db.AppRelease
 import org.grapheneos.appupdateservergenerator.db.Database
 import org.grapheneos.appupdateservergenerator.db.DbWrapper
-import org.grapheneos.appupdateservergenerator.db.GroupDao
-import org.grapheneos.appupdateservergenerator.db.PackageLabelsByGroup
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.files.TempFile
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.Density
-import org.grapheneos.appupdateservergenerator.model.GroupId
 import org.grapheneos.appupdateservergenerator.model.HexString
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
@@ -92,32 +89,7 @@ interface AppRepoManager {
      */
     suspend fun validateRepo()
 
-    /**
-     * Sets the groupId for the packages / apps to the given [groupId].
-     *
-     * If [createNewGroupIfNotExists] is false and the group does not already exist (i.e. it's not being used), the
-     * function will return an error.
-     */
-    suspend fun setGroupForPackages(
-        groupId: GroupId,
-        packages: List<PackageName>,
-        signingPrivateKey: PKCS8PrivateKeyFile,
-        createNewGroupIfNotExists: Boolean
-    )
-
-    /**
-     * Removes the group IDs from the given [packages]
-     */
-    suspend fun removeGroupFromPackages(packages: List<PackageName>, signingPrivateKey: PKCS8PrivateKeyFile)
-
-    /**
-     * Deletes the [groupId] from the repository.
-     */
-    suspend fun deleteGroup(groupId: GroupId, signingPrivateKey: PKCS8PrivateKeyFile)
-
     suspend fun printAllPackages()
-
-    suspend fun printAllGroups()
 
     fun doesPackageExist(pkg: PackageName): Boolean
 
@@ -164,7 +136,6 @@ private class AppRepoManagerImpl(
 
     private val database: Database = DbWrapper.getDbInstance(fileManager)
     private val appDao = AppDao(database)
-    private val groupDao = GroupDao(database)
 
     private val staticFilesManager = StaticFileManager(database, appDao, fileManager, openSSLInvoker)
     private val deltaGenerationManager = DeltaGenerationManager(fileManager, database)
@@ -542,38 +513,6 @@ private class AppRepoManagerImpl(
 
         var numAppsNotInserted = 0L
         coroutineScope {
-            val groupIdCheckChannel: SendChannel<PackageApkGroup> = actor(capacity = Channel.UNLIMITED) {
-                val groupIdToInsertedPackageMap = hashMapOf<GroupId, MutableSet<AndroidApk>>()
-                for (packageApkGroup in channel) {
-                    val latestApk = packageApkGroup.highestVersionApk!!
-                    val app = appDao.getApp(packageApkGroup.packageName)!!
-                    app.groupId?.let { groupId ->
-                        val setOfPackagesForThisGroup: MutableSet<AndroidApk>? = groupIdToInsertedPackageMap[groupId]
-                        setOfPackagesForThisGroup
-                            ?.add(latestApk)
-                            ?: run { groupIdToInsertedPackageMap[groupId] = hashSetOf(latestApk) }
-                    }
-                }
-                if (groupIdToInsertedPackageMap.isEmpty()) {
-                    return@actor
-                }
-
-                println("checking groups of inserted packages")
-                groupIdToInsertedPackageMap.forEach { (groupId, insertedPackages) ->
-                    val appsInGroupNotUpdatedInThisSession = appDao.getAppsInGroupButExcludingApps(
-                        groupId,
-                        insertedPackages.map { it.packageName }
-                    )
-                    println("inserted these packages for groupId $groupId: $insertedPackages")
-                    if (appsInGroupNotUpdatedInThisSession.isNotEmpty()) {
-                        print("warning: for groupId $groupId, these packages were inserted: ")
-                        println(insertedPackages.map { "${it.label} (${it.packageName})" })
-                        print("         but these packages in the same group didn't get an update: ")
-                        println(appsInGroupNotUpdatedInThisSession.map { "${it.label} (${it.packageName})" })
-                    }
-                }
-            }
-
             // Actors are coroutines, so this coroutine scope waits until delta generation is finished
             val deltaGenChannel: SendChannel<DeltaGenerationManager.GenerationRequest> =
                 deltaGenerationManager.run { launchDeltaGenerationActor() }
@@ -603,7 +542,6 @@ private class AppRepoManagerImpl(
                         deltaGenChannel.send(DeltaGenerationManager.GenerationRequest.ForPackage(
                             apkInsertionGroup.packageName
                         ))
-                        groupIdCheckChannel.send(apkInsertionGroup)
                         numApksInserted += apkInsertionGroup.size
                     } catch (e: AppRepoException.MoreRecentVersionInRepo) {
                         println("warning: skipping insertion of ${apkInsertionGroup.packageName}:")
@@ -618,7 +556,6 @@ private class AppRepoManagerImpl(
                 DbWrapper.executeWalCheckpointTruncate(fileManager)
                 deltaGenChannel.send(DeltaGenerationManager.GenerationRequest.StartPrinting)
                 deltaGenChannel.close()
-                groupIdCheckChannel.close()
             }
         }
         // Delta generation is finished
@@ -953,27 +890,6 @@ private class AppRepoManagerImpl(
         }
     }
 
-    override suspend fun setGroupForPackages(
-        groupId: GroupId,
-        packages: List<PackageName>,
-        signingPrivateKey: PKCS8PrivateKeyFile,
-        createNewGroupIfNotExists: Boolean
-    ) {
-        setGroupForPackagesInternal(groupId, packages, signingPrivateKey, createNewGroupIfNotExists)
-    }
-
-    override suspend fun removeGroupFromPackages(packages: List<PackageName>, signingPrivateKey: PKCS8PrivateKeyFile) {
-        setGroupForPackagesInternal(groupId = null, packages, signingPrivateKey, false)
-    }
-
-    override suspend fun deleteGroup(groupId: GroupId, signingPrivateKey: PKCS8PrivateKeyFile) {
-        val timestamp = UnixTimestamp.now()
-        val packagesForThisGroup = appDao.getAppLabelsInGroup(groupId)
-        println("removed groupId $groupId from ${packagesForThisGroup.size} apps: ")
-        println(packagesForThisGroup.map { "${it.label} (${it.packageName})" })
-        staticFilesManager.regenerateMetadataAndIcons(signingPrivateKey, timestamp)
-    }
-
     override suspend fun printAllPackages() {
         print(buildString {
             appDao.forEachAppName { appendLine(it) }
@@ -1082,53 +998,4 @@ private class AppRepoManagerImpl(
                 ?.takeIf { it.isNotBlank() }
         }
     }
-
-    override suspend fun printAllGroups() {
-        println(groupDao.getGroupToAppMap())
-    }
-
-    private suspend fun setGroupForPackagesInternal(
-        groupId: GroupId?,
-        packages: List<PackageName>,
-        signingPrivateKey: PKCS8PrivateKeyFile,
-        createNewGroupIfNotExists: Boolean
-    ) {
-        validatePublicKeyInRepo(signingPrivateKey)
-
-        val distinctInputPackages = packages.distinct()
-        distinctInputPackages.forEach { pkg ->
-            if (!appDao.doesAppExist(pkg)) {
-                throw AppRepoException.EditFailed("package $pkg does not exist in the repo")
-            }
-        }
-
-        val timestampForMetadata = UnixTimestamp.now()
-        if (groupId != null && !groupDao.doesGroupExist(groupId)) {
-            val allGroups: Map<GroupId, Set<PackageLabelsByGroup>> = groupDao.getGroupToAppMap()
-            if (createNewGroupIfNotExists) {
-                println("creating new group $groupId")
-                groupDao.createGroupWithPackages(groupId, distinctInputPackages, timestampForMetadata)
-            } else {
-                val groupInfoString = if (allGroups.isEmpty()) {
-                    "There are no available groups"
-                } else {
-                    "Available groups: $allGroups"
-                }
-                throw AppRepoException.GroupDoesntExist(
-                    """groupId $groupId does not exist in the repository.
-                    $groupInfoString
-                    Use --create (-c) instead of --add (-a) to create this group with these packages
-                """.trimIndent()
-                )
-            }
-        } else {
-            appDao.setGroupForPackages(groupId, distinctInputPackages, timestampForMetadata)
-        }
-
-        staticFilesManager.regenerateMetadataAndIcons(signingPrivateKey, timestampForMetadata)
-        groupId
-            ?.let { println("packages were successfully set to the group $groupId") }
-            ?: println("successfully removed groups from the given packages")
-    }
 }
-

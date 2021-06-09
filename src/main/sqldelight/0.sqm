@@ -1,30 +1,16 @@
 import org.grapheneos.appupdateservergenerator.model.Base64String;
-import org.grapheneos.appupdateservergenerator.model.GroupId;
 import org.grapheneos.appupdateservergenerator.model.PackageName;
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp;
 import org.grapheneos.appupdateservergenerator.model.VersionCode;
 
-/** Packages can be tagged with a groupId that indicates to clients about packages that should be
-atomically installed / updated. This is useful when there are apps that have shared libraries
-such as Chromium.
-
-Note: On the serverside, groups are purely used as a tag. It is the client's responsibility to
-download all APKs in a  group that have updates and to install them atomically. For this
-reason, it's important that the updates for packages in a group are pushed to the server all
-at once. */
-CREATE TABLE AppGroup (
-    id TEXT AS GroupId COLLATE NOCASE NOT NULL PRIMARY KEY
-);
-
 /** Represents an app in the database */
 CREATE TABLE App (
     packageName TEXT AS PackageName NOT NULL PRIMARY KEY,
-    groupId TEXT AS GroupId COLLATE NOCASE REFERENCES AppGroup(id) ON UPDATE CASCADE ON DELETE SET NULL,
     label TEXT NOT NULL,
     icon BLOB,
     lastUpdateTimestamp INTEGER AS UnixTimestamp NOT NULL
 );
-CREATE INDEX Index_App_packageName_groupId_label ON App(packageName, groupId, label);
+CREATE INDEX Index_App_packageName_label ON App(packageName, label);
 
 /**
  * Represents the release for an app.

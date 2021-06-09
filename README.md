@@ -44,23 +44,6 @@ recent version of a package.
 
 See `./appservergen add --help` for more options.
 
-##### Groups
-
-Packages can be tagged with a `groupId` that indicates to clients should atomically install new
-updates for APKs in a group. This is useful when there are apps that have shared libraries such as
-Chromium.
-
-Note: On the serverside, groups are purely used as a tag. There is a warning from the CLI tool
-around groups in the add command, where you will be warned if you are only updating a proper subset
-of a group's packages and not all of them. It is the client's responsibility to download all APKs in
-a group that have updates and to install them atomically. For this reason, it's important that the
-updates for packages in a group are pushed to the server all at once.
-
-For example, for a new Chromium update, the `add` command should be run on the new APKs for WebView,
-the Trichrome Library, and the Chrome app.
-
-See `./appservergen group --help` for details.
-
 ##### Validation of repository state
 
 To validate the repository (i.e. make sure the metadata is consistent, the signatures for the
