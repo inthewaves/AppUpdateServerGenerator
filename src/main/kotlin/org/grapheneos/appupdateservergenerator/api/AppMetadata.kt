@@ -27,6 +27,7 @@ import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.model.encodeToBase64String
 import org.grapheneos.appupdateservergenerator.model.encodeToHexString
 import org.grapheneos.appupdateservergenerator.util.digest
+import org.grapheneos.appupdateservergenerator.util.isUsingNaturalOrdering
 import java.io.FileFilter
 import java.io.IOException
 import java.util.SortedSet
@@ -169,11 +170,27 @@ data class AppMetadata(
         }
     }
 
-    fun latestRelease(): ReleaseInfo = if (releases is SortedSet<ReleaseInfo> && releases.comparator() == null) {
-        releases.last()
-    } else {
-        releases.maxByOrNull { it.versionCode }!!
-    }
+    /**
+     * Returns the latest [ReleaseInfo], or null if [releases] is empty.
+     */
+    fun latestReleaseOrNull(): ReleaseInfo? =
+        if (releases.isNotEmpty()) {
+            latestRelease()
+        } else {
+            null
+        }
+
+    /**
+     * Returns the latest [ReleaseInfo] or throws there are no releases
+     *
+     * @throws NoSuchElementException if [releases] is empty
+     */
+    fun latestRelease(): ReleaseInfo =
+        if (releases is SortedSet<ReleaseInfo> && releases.isUsingNaturalOrdering) {
+            releases.last()
+        } else {
+            releases.maxByOrNull { it.versionCode }!!
+        }
 
     fun writeToString() = try {
         Json.encodeToString(this)

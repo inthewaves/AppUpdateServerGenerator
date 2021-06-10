@@ -243,21 +243,25 @@ private class AppRepoManagerImpl(
         }
 
         val latestVersionCodeFromFileName: Long = apks.last().nameWithoutExtension.toLong()
-        if (metadata.latestRelease().versionCode.code != latestVersionCodeFromFileName) {
+
+        val latestRelease = metadata.latestReleaseOrNull()
+            ?: throw AppRepoException.InvalidRepoState("no releases for ${metadata.packageName}")
+
+        if (latestRelease.versionCode.code != latestVersionCodeFromFileName) {
             throw AppRepoException.InvalidRepoState(
-                "$pkg: metadata latestVersionCode (${metadata.latestRelease().versionCode.code}) " +
+                "$pkg: metadata latestVersionCode (${latestRelease.versionCode.code}) " +
                         "> apk version from file name (${apks.last()})"
             )
         }
-        if (metadata.latestRelease().versionCode != metadata.latestRelease().versionCode) {
+        if (latestRelease.versionCode != latestRelease.versionCode) {
             throw AppRepoException.InvalidRepoState(
-                "$pkg: metadata latestVersionCode (${metadata.latestRelease().versionCode.code}) " +
+                "$pkg: metadata latestVersionCode (${latestRelease.versionCode.code}) " +
                         "doesn't match the actual most recent release's version code in the releases array"
             )
         }
 
         val latestApk = AndroidApk.buildFromApkAndVerifySignature(apks.last())
-        if (metadata.latestRelease().versionCode != latestApk.versionCode) {
+        if (latestRelease.versionCode != latestApk.versionCode) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: latest APK versionCode in manifest mismatches with filename"
             )
@@ -265,7 +269,7 @@ private class AppRepoManagerImpl(
         val latestApkDigest = Base64String.encodeFromBytes(
             latestApk.apkFile.digest(MessageDigest.getInstance("SHA-256"))
         )
-        val latestRelease = metadata.latestRelease()
+
         if (latestRelease.apkSha256 != latestApkDigest) {
             throw AppRepoException.InvalidRepoState(
                 "$pkg: sha256 checksum from latest apk file doesn't match the checksum in the metadata"
@@ -273,7 +277,7 @@ private class AppRepoManagerImpl(
         }
         val iconFile = fileManager.getAppIconFile(latestApk.packageName)
         val icon = try {
-            latestApk.getIcon(Density.MEDIUM)
+            latestApk.getIcon(Density.HIGH)
         } catch (e: IOException) {
             null
         }
@@ -292,9 +296,9 @@ private class AppRepoManagerImpl(
         val baseDeltaVersionsFromDirFiles: List<VersionCode> = versionsToDeltaMap
             .map { (versionPair, file)  ->
                 val (baseVersion, targetVersion) = versionPair
-                if (targetVersion != metadata.latestRelease().versionCode) {
+                if (targetVersion != latestRelease.versionCode) {
                     throw AppRepoException.InvalidRepoState(
-                        "$pkg: delta file ${file.name} doesn't target latest version ${metadata.latestRelease().versionCode}"
+                        "$pkg: delta file ${file.name} doesn't target latest version ${latestRelease.versionCode}"
                     )
                 }
 
@@ -320,7 +324,7 @@ private class AppRepoManagerImpl(
         val baseDeltaVersionsFromMetadata = baseDeltaVersionsToFileMapFromMetadata.mapTo(sortedSetOf()) { it.key }
         if (baseDeltaVersionsFromMetadata.isNotEmpty()) {
             val baseVersionCodesFromApksInDir = versionCodesFromApksInDir
-                .subSet(baseDeltaVersionsFromMetadata.first(), metadata.latestRelease().versionCode)
+                .subSet(baseDeltaVersionsFromMetadata.first(), latestRelease.versionCode)
 
             if (baseDeltaVersionsFromMetadata != baseVersionCodesFromApksInDir) {
                 throwExceptionWithMissingIntersectionElements(
@@ -387,7 +391,7 @@ private class AppRepoManagerImpl(
                             "$pkg: mismatch between metadata release version name and version from manifest ($apkFile)"
                         )
                     }
-                    if (parsedApk.versionCode > metadata.latestRelease().versionCode) {
+                    if (parsedApk.versionCode > latestRelease.versionCode) {
                         throw AppRepoException.InvalidRepoState(
                             "$pkg: APK ($apkFile) exceeds the latest version code from metadata"
                         )
@@ -404,12 +408,12 @@ private class AppRepoManagerImpl(
                         val deltaFile = fileManager.getDeltaFileForApp(
                             metadata.packageName,
                             parsedApk.versionCode,
-                            metadata.latestRelease().versionCode
+                            latestRelease.versionCode
                         )
                         if (!deltaFile.exists()) {
                             throw AppRepoException.InvalidRepoState(
                                 "$pkg: missing a delta file from ${parsedApk.versionCode} " +
-                                        "to ${metadata.latestRelease().versionCode}"
+                                        "to ${latestRelease.versionCode}"
                             )
                         }
                         val deltaInfo = baseDeltaVersionsToFileMapFromMetadata[parsedApk.versionCode]

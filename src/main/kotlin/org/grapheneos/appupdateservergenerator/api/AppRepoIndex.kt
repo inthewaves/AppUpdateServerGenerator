@@ -50,12 +50,14 @@ data class AppRepoIndex private constructor(
          * The format is
          *
          *     packageName versionCode lastUpdateTimestamp
+         *
+         * The [versionCode] written may be 0 if the app has no releases (not expected to happen)
          */
         private fun createLine(
             packageName: PackageName,
-            versionCode: VersionCode,
+            versionCode: VersionCode?,
             lastUpdateTimestamp: UnixTimestamp
-        ) = "${packageName.pkg} ${versionCode.code} ${lastUpdateTimestamp.seconds}"
+        ) = "${packageName.pkg} ${versionCode?.code ?: 0} ${lastUpdateTimestamp.seconds}"
 
         /**
          * Regenerates the app repo index by using the [AppMetadata] being fed through the [writerBlock]'s [SendChannel].
@@ -74,11 +76,13 @@ data class AppRepoIndex private constructor(
                 appIndex.bufferedWriter().use { writer ->
                     writer.appendLine(updateTimestamp.seconds.toString())
                     for (metadata in channel) {
-                        writer.appendLine(createLine(
-                            metadata.packageName,
-                            metadata.latestRelease().versionCode,
-                            metadata.lastUpdateTimestamp
-                        ))
+                        writer.appendLine(
+                            createLine(
+                                metadata.packageName,
+                                metadata.latestReleaseOrNull()?.versionCode,
+                                metadata.lastUpdateTimestamp
+                            )
+                        )
                     }
                 }
                 openSSLInvoker.signFileAndPrependSignatureToFile(privateKey, appIndex)
