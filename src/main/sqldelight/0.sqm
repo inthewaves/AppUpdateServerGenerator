@@ -6,7 +6,7 @@ import org.grapheneos.appupdateservergenerator.model.VersionCode;
 /** Represents an app in the database */
 CREATE TABLE App (
     packageName TEXT AS PackageName NOT NULL PRIMARY KEY,
-    label TEXT NOT NULL,
+    label TEXT,
     lastUpdateTimestamp INTEGER AS UnixTimestamp NOT NULL
 );
 CREATE INDEX Index_App_packageName_label ON App(packageName, label);

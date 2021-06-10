@@ -938,7 +938,7 @@ private class AppRepoManagerImpl(
     ): String? {
         val textToEdit = buildString {
             val existingReleaseNotes: String?
-            val label: String
+            val label: String?
             val packageName: PackageName
             val versionName: String
             val versionCode: VersionCode
@@ -960,9 +960,12 @@ private class AppRepoManagerImpl(
                     existingReleaseNotes = null
                 }
             }
-
-            val pkgAndVersion = HTML_COMMENT_FORMAT
-                .format("$label ($packageName), version $versionName (${versionCode.code}).")
+            val infoString = if (label != null) {
+                "$label ($packageName), version $versionName (${versionCode.code})."
+            } else {
+                "$packageName (no label), version $versionName (${versionCode.code})."
+            }
+            val pkgAndVersion = HTML_COMMENT_FORMAT.format(infoString)
             if (appInfo is Either.Left && existingReleaseNotes != null) {
                 val (app, _) = appInfo.value
                 append(existingReleaseNotes)

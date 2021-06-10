@@ -31,7 +31,7 @@ import java.util.zip.ZipFile
  */
 data class AndroidApk private constructor(
     val apkFile: File,
-    val label: String,
+    val label: String?,
     val resourceTableChunk: ResourceTableChunk,
     val packageName: PackageName,
     val versionCode: VersionCode,
@@ -394,8 +394,7 @@ data class AndroidApk private constructor(
         var verifyResult: ApkVerifyResult? = null,
     ) {
         private val isBuildable: Boolean
-            get() = label != null &&
-                    resourceTableChunk != null &&
+            get() = resourceTableChunk != null &&
                     packageName != null &&
                     versionCode != null &&
                     versionName != null &&
@@ -411,7 +410,7 @@ data class AndroidApk private constructor(
             return if (isBuildable) {
                 AndroidApk(
                     apkFile = apkFile,
-                    label = label!!,
+                    label = label,
                     resourceTableChunk = resourceTableChunk!!,
                     packageName = packageName!!,
                     versionCode = versionCode!!,

@@ -49,7 +49,7 @@ data class AppMetadata(
      * Clients **must** verify this against the repository index timestamp.
      */
     val repoIndexTimestamp: UnixTimestamp,
-    val label: String,
+    val label: String?,
     val iconSha256: Base64String?,
     /** The last time this app has been updated. */
     val lastUpdateTimestamp: UnixTimestamp,
