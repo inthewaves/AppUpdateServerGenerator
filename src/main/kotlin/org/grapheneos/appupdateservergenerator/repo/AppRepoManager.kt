@@ -654,7 +654,7 @@ private class AppRepoManagerImpl(
 
                             if (certDigestFromStaticLibApk != staticLibrary.certDigests.toHashSet()) {
                                 errorsAndWarnings.sendError(
-                                    "trying to insert ${apk.packageName} ${apk.versionCode}, " +
+                                    "trying to insert ${apk.packageName} (versionCode ${apk.versionCode.code}), " +
                                             "and it depends on $staticLibrary; however, " +
                                             "the static library has certificate digests ${staticLibrary.certDigests} " +
                                             "but the located static library in the app / parameters has certificate " +
@@ -690,8 +690,9 @@ private class AppRepoManagerImpl(
                                 } else {
                                     errorsAndWarnings.sendWarning(
                                         "${apk.packageName} (versionCode ${apk.versionCode.code}) has a " +
-                                                "uses-library dependency on $library, but was unable to find the library" +
-                                                "in either the repository or in the given packages for insertion"
+                                                "uses-library dependency on $library, but was unable to find the " +
+                                                "library in either the repository or in the given packages for " +
+                                                "insertion"
                                     )
                                 }
                             }
@@ -748,8 +749,9 @@ private class AppRepoManagerImpl(
                             if (!areThereAnyApksThatSatisfyPackageDependency) {
                                 errorsAndWarnings.sendWarning(
                                     "${apk.packageName} (versionCode ${apk.versionCode.code}) has a " +
-                                            "uses-package dependency on $packageDep, but was unable to find a suitable" +
-                                            "package in either the repository or in the given packages for insertion"
+                                            "uses-package dependency on $packageDep, but was unable to find a " +
+                                            "suitable package in either the repository or in the given packages " +
+                                            "for insertion"
                                 )
                             }
                         }
@@ -766,7 +768,9 @@ private class AppRepoManagerImpl(
         warnings.forEach { println("warning: ${it.message}") }
         errors.forEach { println("error: ${it.message}") }
         if (errors.isNotEmpty()) {
-            throw AppRepoException.InsertFailed("errors encountered when inserting")
+            throw AppRepoException.InsertFailed(
+                "${errors.size} ${if (errors.size == 1) "error" else "errors"} encountered when inserting"
+            )
         }
         errorsAndWarnings.cancel()
     }
