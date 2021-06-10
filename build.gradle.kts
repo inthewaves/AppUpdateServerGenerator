@@ -77,6 +77,7 @@ tasks.test {
 
 tasks.withType<KotlinCompile> {
     kotlinOptions {
+        languageVersion = "1.5"
         jvmTarget = "11"
         freeCompilerArgs += listOf("-Xopt-in=kotlin.RequiresOptIn", "-Xopt-in=kotlin.ExperimentalUnsignedTypes")
     }

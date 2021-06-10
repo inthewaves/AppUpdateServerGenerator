@@ -11,7 +11,7 @@ import org.grapheneos.appupdateservergenerator.api.BulkAppMetadata
 import org.grapheneos.appupdateservergenerator.crypto.OpenSSLInvoker
 import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.db.AppDao
-import org.grapheneos.appupdateservergenerator.db.Database
+import org.grapheneos.appupdateservergenerator.db.DbWrapper
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.Density
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
@@ -22,11 +22,12 @@ import java.io.IOException
  * Manages deletion and generation + signing of metadata files and icons.
  */
 class StaticFileManager(
-    private val database: Database,
     private val appDao: AppDao,
     private val fileManager: FileManager,
     private val openSSLInvoker: OpenSSLInvoker,
 ) {
+    private val dbWrapper = DbWrapper.getInstance(fileManager)
+
     private val filesNamesToDelete: Set<String> = setOf(
         FileManager.APP_ICON_FILENAME,
         FileManager.APP_METADATA_FILENAME,
@@ -90,13 +91,14 @@ class StaticFileManager(
         }
 
         try {
-            database.transaction {
+            dbWrapper.transaction { database ->
                 database.appQueries.selectAll().executeAsSequence { apps ->
                     apps.forEach { app ->
                         // TODO: add this to some configuration
                         val iconMinimumDensity = Density.HIGH
 
                         val (metadata, icon) = appDao.createSerializableAppMetadataAndGetIcon(
+                            database,
                             app,
                             updateTimestamp,
                             fileManager,

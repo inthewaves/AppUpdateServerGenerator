@@ -9,8 +9,10 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.actor
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.channels.onFailure
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
@@ -24,7 +26,6 @@ import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.db.App
 import org.grapheneos.appupdateservergenerator.db.AppDao
 import org.grapheneos.appupdateservergenerator.db.AppRelease
-import org.grapheneos.appupdateservergenerator.db.Database
 import org.grapheneos.appupdateservergenerator.db.DbWrapper
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
@@ -91,9 +92,9 @@ interface AppRepoManager {
 
     suspend fun printAllPackages()
 
-    fun doesPackageExist(pkg: PackageName): Boolean
+    suspend fun doesPackageExist(pkg: PackageName): Boolean
 
-    fun getLatestRelease(pkg: PackageName): AppRelease?
+    suspend fun getLatestRelease(pkg: PackageName): AppRelease?
 
     /**
      * Edits the release notes for the given [pkg] and then regenerates all metadata, singing it using the
@@ -134,11 +135,11 @@ private class AppRepoManagerImpl(
     private val executorService: ExecutorService = Executors.newFixedThreadPool(numJobs)
     private val repoDispatcher = executorService.asCoroutineDispatcher()
 
-    private val database: Database = DbWrapper.getDbInstance(fileManager)
-    private val appDao = AppDao(database)
+    private val dbWrapper: DbWrapper = DbWrapper.getInstance(fileManager)
+    private val appDao = AppDao(fileManager)
 
-    private val staticFilesManager = StaticFileManager(database, appDao, fileManager, openSSLInvoker)
-    private val deltaGenerationManager = DeltaGenerationManager(fileManager, database)
+    private val staticFilesManager = StaticFileManager(appDao, fileManager, openSSLInvoker)
+    private val deltaGenerationManager = DeltaGenerationManager(fileManager)
 
     /**
      * @see AppRepoManager.validateRepo
@@ -517,53 +518,113 @@ private class AppRepoManagerImpl(
 
         var numAppsNotInserted = 0L
         coroutineScope {
-            // Actors are coroutines, so this coroutine scope waits until delta generation is finished
-            val deltaGenChannel: SendChannel<DeltaGenerationManager.GenerationRequest> =
-                deltaGenerationManager.run { launchDeltaGenerationActor() }
+            // Actors are coroutines, so after this block is done, this
+            // coroutine scope waits until the delta generation actor is finished.
+            val deltaGenChannel: SendChannel<DeltaGenerationManager.GenerationRequest> = deltaGenerationManager.run {
+                launchDeltaGenerationActor()
+            }
             try {
                 var numApksInserted = 0L
-                packageApkGroupsToInsert.forEach { apkInsertionGroup ->
-                    val nowInsertingString = "Now inserting ${apkInsertionGroup.highestVersionApk!!.label} " +
-                            "(${apkInsertionGroup.packageName})"
-                    val versionCodeString = "Version codes: ${apkInsertionGroup.sortedApks.map { it.versionCode.code }}"
-                    val width = max(versionCodeString.length, nowInsertingString.length)
-                    println(
-                        """
-                        ${"=".repeat(width)}
-                        $nowInsertingString
-                        $versionCodeString
-                        ${"=".repeat(width)}
-                    """.trimIndent()
-                    )
 
-                    try {
-                        insertApkGroupForSinglePackage(
-                            apksToInsert = apkInsertionGroup,
-                            timestampForMetadata = timestampForMetadata,
-                            promptForReleaseNotes = promptForReleaseNotes,
+                // Run this entire insertion as a transaction so that failures are rolled back.
+                dbWrapper.transaction { db ->
+                    val newDirectories by lazy { mutableListOf<AppDir>() }
+                    afterRollback {
+                        println("rolling back due to error: deleting new dirs for ${newDirectories.map { it.packageName }}")
+                        newDirectories.forEach { it.dir.deleteRecursively() }
+                    }
+
+                    for (apkGroupToInsert in packageApkGroupsToInsert) {
+                        if (apkGroupToInsert.sortedApks.isEmpty()) {
+                            // Should not happen.
+                            error("trying to insert APKs with no packages")
+                        }
+
+                        val nowInsertingString = "Now inserting ${apkGroupToInsert.highestVersionApk!!.label} " +
+                                "(${apkGroupToInsert.packageName})"
+                        val versionCodeString = "Version codes: ${apkGroupToInsert.sortedApks.map { it.versionCode.code }}"
+                        val width = max(versionCodeString.length, nowInsertingString.length)
+                        val equalSigns = "=".repeat(width)
+                        println(
+                            """
+                                $equalSigns
+                                $nowInsertingString
+                                $versionCodeString
+                                $equalSigns
+                            """.trimIndent()
                         )
 
-                        deltaGenChannel.send(DeltaGenerationManager.GenerationRequest.ForPackage(
-                            apkInsertionGroup.packageName
-                        ))
-                        numApksInserted += apkInsertionGroup.size
-                    } catch (e: AppRepoException.MoreRecentVersionInRepo) {
-                        println("warning: skipping insertion of ${apkInsertionGroup.packageName}:")
-                        println(e.message)
-                        numAppsNotInserted++
+                        val maxVersionApk = apkGroupToInsert.highestVersionApk!!
+                        val appDir = fileManager.getDirForApp(apkGroupToInsert.packageName)
+                        if (!appDir.dir.exists()) {
+                            if (!appDir.dir.mkdirs()) {
+                                throw AppRepoException.InsertFailed("can't make directory $appDir")
+                            } else {
+                                newDirectories.add(appDir)
+                            }
+                        }
+
+                        val latestRelease: AppRelease? = appDao.getLatestRelease(db, apkGroupToInsert.packageName)
+                        if (latestRelease == null) {
+                            println("${maxVersionApk.label} (${apkGroupToInsert.packageName}) is a new app")
+                        } else {
+                            val smallestVersionCodeApk = apkGroupToInsert.lowestVersionApk!!
+                            if (smallestVersionCodeApk.versionCode <= latestRelease.versionCode) {
+                                println(
+                                    "warning: skipping insertion of ${apkGroupToInsert.packageName}: " +
+                                            "trying to insert ${smallestVersionCodeApk.packageName} with version code " +
+                                            "${smallestVersionCodeApk.versionCode.code} when the " +
+                                            "repo has latest version ${latestRelease.versionName} " +
+                                            "(versionCode ${latestRelease.versionCode.code})"
+                                )
+                                numAppsNotInserted++
+                                continue
+                            }
+                            println(
+                                "previous version in repo: ${latestRelease.versionName} " +
+                                        "(versionCode ${latestRelease.versionCode.code})"
+                            )
+                        }
+
+                        val sortedPreviousApks = runBlocking(repoDispatcher) {
+                            PackageApkGroup.fromDir(appDir, ascendingOrder = true)
+                        }
+                        validateApkSigningCertChain(apkGroupToInsert.sortedApks union sortedPreviousApks.sortedApks)
+
+                        val releaseNotesForMostRecentVersion: String? = if (promptForReleaseNotes) {
+                            runBlocking(repoDispatcher) {
+                                promptUserForReleaseNotes(maxVersionApk.asEitherRight())
+                                    ?.takeIf { it.isNotBlank() }
+                            }
+                        } else {
+                            null
+                        }
+
+                        // This will handle copying the APKs.
+                        appDao.upsertApks(db, apkGroupToInsert, releaseNotesForMostRecentVersion, timestampForMetadata)
+
+                        deltaGenChannel.trySend(
+                            DeltaGenerationManager.GenerationRequest.ForPackage(apkGroupToInsert.packageName)
+                        ).onFailure {
+                            // Channel.UNLIMITED is being used. Not going to be dealing with buffers.
+                            // Only reason this would happen is if the delta gen actor failed entirely.
+                            println("warning: unable to generate deltas for ${apkGroupToInsert.packageName}")
+                        }
+                        numApksInserted += apkGroupToInsert.size
                     }
                 }
 
                 println()
                 println("finished inserting ${packageApkGroupsToInsert.size - numAppsNotInserted} apps ($numApksInserted APKs)")
             } finally {
-                DbWrapper.executeWalCheckpointTruncate(fileManager)
+                dbWrapper.executeWalCheckpointTruncate()
                 deltaGenChannel.send(DeltaGenerationManager.GenerationRequest.StartPrinting)
                 deltaGenChannel.close()
             }
+            // Execution might stop here until delta generation finishes.
         }
         // Delta generation is finished
-        DbWrapper.executeWalCheckpointTruncate(fileManager)
+        dbWrapper.executeWalCheckpointTruncate()
 
         if (numAppsNotInserted != packageApkGroupsToInsert.size.toLong()) {
             staticFilesManager.regenerateMetadataAndIcons(signingPrivateKey, timestampForMetadata)
@@ -730,7 +791,7 @@ private class AppRepoManagerImpl(
                                         val version = apk.versionCode
                                         val certDigests = apk.verifyResult.result.signerCertificates
                                             .asSequence()
-                                            .map { it.encoded.digest("SHA256").encodeToHexString() }
+                                            .map { it.encoded.digest("SHA-256").encodeToHexString() }
                                             .toSet()
                                         version to certDigests
                                     }
@@ -772,7 +833,6 @@ private class AppRepoManagerImpl(
                 "${errors.size} ${if (errors.size == 1) "error" else "errors"} encountered when inserting"
             )
         }
-        errorsAndWarnings.cancel()
     }
 
     /**
@@ -800,56 +860,8 @@ private class AppRepoManagerImpl(
         }
     }
 
-    override fun getLatestRelease(pkg: PackageName): AppRelease? = appDao.getLatestRelease(pkg)
-
-    /**
-     * Inserts one or more APKs for a single package into the repository. This involves copying the APK files.
-     */
-    private suspend fun insertApkGroupForSinglePackage(
-        apksToInsert: PackageApkGroup.AscendingOrder,
-        timestampForMetadata: UnixTimestamp,
-        promptForReleaseNotes: Boolean,
-    ): Unit = withContext(repoDispatcher) {
-        if (apksToInsert.sortedApks.isEmpty()) {
-            return@withContext
-        }
-        val maxVersionApk = apksToInsert.highestVersionApk!!
-        val appDir = fileManager.getDirForApp(apksToInsert.packageName)
-        if (!appDir.dir.exists()) {
-            if (!appDir.dir.mkdirs()) {
-                throw AppRepoException.InsertFailed("can't make directory $appDir")
-            }
-        }
-
-        val latestRelease: AppRelease? = appDao.getLatestRelease(apksToInsert.packageName)
-        if (latestRelease == null) {
-            println("${maxVersionApk.label} (${apksToInsert.packageName}) is a new app")
-        } else {
-            val smallestVersionCodeApk = apksToInsert.lowestVersionApk!!
-            if (smallestVersionCodeApk.versionCode <= latestRelease.versionCode) {
-                throw AppRepoException.MoreRecentVersionInRepo(
-                    "trying to insert ${smallestVersionCodeApk.packageName} with version code " +
-                            "${smallestVersionCodeApk.versionCode.code} when the " +
-                            "repo has latest version ${latestRelease.versionName} " +
-                            "(versionCode ${latestRelease.versionCode.code})"
-                )
-            }
-            println("previous version in repo: ${latestRelease.versionName} " +
-                    "(versionCode ${latestRelease.versionCode.code})")
-        }
-
-        val sortedPreviousApks = PackageApkGroup.fromDir(appDir, ascendingOrder = true)
-        validateApkSigningCertChain(apksToInsert.sortedApks union sortedPreviousApks.sortedApks)
-
-        val releaseNotesForMostRecentVersion: String? = if (promptForReleaseNotes) {
-            promptUserForReleaseNotes(maxVersionApk.asEitherRight())
-                ?.takeIf { it.isNotBlank() }
-        } else {
-            null
-        }
-
-        // This will handle copying the APKs.
-        appDao.upsertApks(appDir, apksToInsert, releaseNotesForMostRecentVersion, timestampForMetadata, fileManager)
+    override suspend fun getLatestRelease(pkg: PackageName): AppRelease? = dbWrapper.useDatabase{ db ->
+        appDao.getLatestRelease(db, pkg)
     }
 
     /**
@@ -864,10 +876,10 @@ private class AppRepoManagerImpl(
         }
 
         val apksSortedAscendingOrder: SortedSet<AndroidApk> =
-            if (apks !is SortedSet<AndroidApk> || apks.comparator() != AndroidApk.ascendingVersionCodeComparator) {
-                apks.toSortedSet(AndroidApk.ascendingVersionCodeComparator)
-            } else {
+            if (apks is SortedSet<AndroidApk> && apks.comparator() == AndroidApk.ascendingVersionCodeComparator) {
                 apks
+            } else {
+                apks.toSortedSet(AndroidApk.ascendingVersionCodeComparator)
             }
 
         var previousApk: AndroidApk? = null
@@ -891,13 +903,15 @@ private class AppRepoManagerImpl(
     }
 
     override suspend fun printAllPackages() {
-        print(buildString {
-            appDao.forEachAppName { appendLine(it) }
-        })
+        dbWrapper.useDatabase { db ->
+            print(buildString {
+                appDao.forEachAppName(db) { appendLine(it) }
+            })
+        }
     }
 
-    override fun doesPackageExist(pkg: PackageName): Boolean {
-        return appDao.doesAppExist(pkg)
+    override suspend fun doesPackageExist(pkg: PackageName): Boolean {
+        return dbWrapper.useDatabase { db -> appDao.doesAppExist(db, pkg) }
     }
 
     override suspend fun editReleaseNotesForPackage(
@@ -908,13 +922,13 @@ private class AppRepoManagerImpl(
     ) {
         validatePublicKeyInRepo(signingPrivateKey)
 
-        val appToReleasePair = database.transactionWithResult<Pair<App, AppRelease>> {
-            val app = appDao.getApp(pkg) ?: throw AppRepoException.EditFailed("$pkg: unable to find $pkg")
+        val appToReleasePair = dbWrapper.transactionWithResult<Pair<App, AppRelease>> { db ->
+            val app = appDao.getApp(db, pkg) ?: throw AppRepoException.EditFailed("$pkg: unable to find $pkg")
 
             val release = if (versionCode == null) {
-                appDao.getLatestRelease(pkg)
+                appDao.getLatestRelease(db, pkg)
             } else {
-                appDao.getRelease(pkg, versionCode)
+                appDao.getRelease(db, pkg, versionCode)
             } ?: throw AppRepoException.EditFailed("$pkg: unable to find release $versionCode")
 
             app to release
@@ -932,7 +946,9 @@ private class AppRepoManagerImpl(
         }
 
         val newTimestamp = UnixTimestamp.now()
-        appDao.updateReleaseNotes(pkg, appToReleasePair.second.versionCode, newReleaseNotes, newTimestamp)
+        dbWrapper.useDatabase { db ->
+            appDao.updateReleaseNotes(db, pkg, appToReleasePair.second.versionCode, newReleaseNotes, newTimestamp)
+        }
 
         staticFilesManager.regenerateMetadataAndIcons(signingPrivateKey, newTimestamp)
     }

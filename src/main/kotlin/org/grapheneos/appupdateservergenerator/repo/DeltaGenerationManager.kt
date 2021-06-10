@@ -19,7 +19,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.yield
-import org.grapheneos.appupdateservergenerator.db.Database
 import org.grapheneos.appupdateservergenerator.db.DbWrapper
 import org.grapheneos.appupdateservergenerator.db.DeltaInfo
 import org.grapheneos.appupdateservergenerator.db.DeltaInfoDao
@@ -41,7 +40,6 @@ import kotlin.system.measureTimeMillis
 
 class DeltaGenerationManager(
     private val fileManager: FileManager,
-    database: Database
 ) {
     companion object {
         private const val DEFAULT_MAX_PREVIOUS_VERSION_DELTAS = 5
@@ -56,13 +54,13 @@ class DeltaGenerationManager(
 
     /**
      * A [Mutex] to control asynchronous printing so that print messages don't leak into the editor when the user is
-     * prompted to edit some text such as release notes. Callers can use this to prevent print messages from showing
-     * in cases where it's inappropriate (e.g., showing an editor in the terminal).
+     * prompted to edit some text such as release notes.
      */
     val asyncPrintMutex = Mutex()
     private val deltaGenerationSemaphore = Semaphore(permits = MAX_CONCURRENT_DELTA_GENERATION)
 
-    private val deltaInfoDao = DeltaInfoDao(database, fileManager)
+    private val dbWrapper = DbWrapper.getInstance(fileManager)
+    private val deltaInfoDao = DeltaInfoDao(fileManager)
 
     sealed interface GenerationRequest {
         @JvmInline
@@ -97,13 +95,21 @@ class DeltaGenerationManager(
             val isWindows = System.getProperty("os.name").lowercase().contains("windows")
             if (!isWindows) {
                 launch {
+                    var numFailures = 0
                     while (isActive) {
                         delay(2000L)
                         ProcessBuilder("bash", "-c", "tput cols 2> /dev/tty").start().apply {
                             val colWidth = inputStream.use { it.readBytes() }.decodeToString().trim().toIntOrNull()
                             waitFor(1, TimeUnit.SECONDS)
-                            colWidth ?: return@apply
-                            terminalWidth.set(colWidth)
+                            if (colWidth == null) {
+                                numFailures++
+                            } else {
+                                terminalWidth.set(colWidth)
+                            }
+                        }
+
+                        if (numFailures >= 10) {
+                            break
                         }
                     }
                 }
@@ -213,8 +219,8 @@ class DeltaGenerationManager(
         return printJob to printRequestChannel
     }
 
-    fun CoroutineScope.launchDeltaGenerationActor(): SendChannel<GenerationRequest> =
-        actor(capacity = Channel.UNLIMITED) {
+    fun CoroutineScope.launchDeltaGenerationActor(): SendChannel<GenerationRequest> {
+        return actor(capacity = Channel.UNLIMITED) {
             val failedDeltaAppsMutex = Mutex()
             val failedDeltaApps = ArrayList<AppDir>()
             val anyDeltasGenerated = AtomicBoolean(false)
@@ -228,15 +234,18 @@ class DeltaGenerationManager(
                         launch {
                             try {
                                 val apks = PackageApkGroup.fromDirDescending(appDir)
-                                val deltaInfo: List<DeltaInfo> = regenerateDeltas(
+                                val deltaInfos: List<DeltaInfo> = regenerateDeltas(
                                     apks,
                                     originalFreeSpace = originalFreeSpace,
                                     printMessageChannel = printRequestChannel
                                 )
-                                if (deltaInfo.isNotEmpty()) anyDeltasGenerated.set(true)
-                                deltaInfoDao.insertDeltaInfos(deltaInfo)
+                                if (deltaInfos.isNotEmpty()) {
+                                    anyDeltasGenerated.set(true)
+                                    dbWrapper.transaction { db -> deltaInfoDao.insertDeltaInfos(db, deltaInfos) }
+                                }
+
                                 // Delta generation might take a while, so take advantage of possible idle time.
-                                DbWrapper.executeWalCheckpointTruncate(fileManager)
+                                dbWrapper.executeWalCheckpointTruncate()
                             } catch (e: Throwable) {
                                 printRequestChannel.trySend(PrintRequest.NewLines(
                                     arrayOf(
@@ -265,11 +274,12 @@ class DeltaGenerationManager(
                 if (failedDeltaApps.isEmpty()) {
                     println("delta generation successful")
                 } else {
-                    println("delta generation complete, but some failed to generate:  " +
+                    println("delta generation complete, but some failed to generate: " +
                             "${failedDeltaApps.map { it.packageName }}")
                 }
             }
         }
+    }
 
     private val estimatedTotalSpaceUsageForCurrentDeltas = AtomicLong(0L)
     /**
@@ -285,10 +295,13 @@ class DeltaGenerationManager(
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS,
         printMessageChannel: SendChannel<PrintRequest>?
     ): List<DeltaInfo> = coroutineScope {
-        deltaInfoDao.deleteDeltasForApp(apks.packageName, printMessageChannel)
         if (apks.size <= 1) {
             return@coroutineScope emptyList<DeltaInfo>()
         }
+
+        //dbWrapper.transaction {
+        //    deltaInfoDao.deleteDeltasForApp(it, apks.packageName, printMessageChannel)
+        //}
 
         val newestApk = apks.highestVersionApk!!
         val numberOfDeltasToGenerate = Integer.min(apks.size - 1, maxPreviousVersions)
