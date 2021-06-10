@@ -60,7 +60,7 @@ class AppDao(private val database: Database) {
                 }
 
         val icon: AndroidApk.AppIcon? = allReleases.ifEmpty { null }?.last()?.apkFile?.getIcon(iconMinimumDensity)
-        return@transactionWithResult app.toSerializableModel(repoIndexTimestamp, allReleases, icon) to icon
+        return@transactionWithResult app.toSerializableModel(repoIndexTimestamp, icon, allReleases) to icon
     }
 
     fun doesAppExist(packageName: PackageName): Boolean {

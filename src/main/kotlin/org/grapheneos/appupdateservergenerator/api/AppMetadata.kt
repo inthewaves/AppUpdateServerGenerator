@@ -61,9 +61,10 @@ data class AppMetadata(
      * of this class.
      */
     @Serializable
-    data class ReleaseInfo(
+    data class ReleaseInfo private constructor(
         /**
-         * The associated AndroidApk file. If this is null (because it was
+         * The associated [AndroidApk]. This is not serialized (@[Transient]).
+         * If this is null, then this instance of the [ReleaseInfo] class created from deserialization.
          */
         @Transient
         val apkFile: AndroidApk? = null,
@@ -155,6 +156,37 @@ data class AppMetadata(
          */
         val releaseNotes: String? = null
     ) : Comparable<ReleaseInfo> {
+        constructor(
+            apkFile: AndroidApk,
+            versionCode: VersionCode,
+            versionName: String,
+            minSdkVersion: Int,
+            releaseTimestamp: UnixTimestamp,
+            deltaInfo: Set<DeltaInfo>,
+            releaseNotes: String?
+        ) : this(
+            apkFile = apkFile,
+            versionCode = versionCode,
+            versionName = versionName,
+            minSdkVersion = minSdkVersion,
+            releaseTimestamp = releaseTimestamp,
+            certDigests = apkFile.verifyResult.result.signerCertificates.map {
+                it.encoded.digest("SHA-256").encodeToHexString()
+            },
+            apkSha256 = apkFile.apkFile.digest("SHA-256").encodeToBase64String(),
+            v4SigSha256 = (apkFile.verifyResult as? ApkVerifyResult.V4)
+                ?.v4SignatureFile
+                ?.digest("SHA-256")
+                ?.encodeToBase64String(),
+            usesLibraries = apkFile.usesLibraries.ifEmpty { null },
+            usesNativeLibraries = apkFile.usesNativeLibraries.ifEmpty { null },
+            usesStaticLibraries = apkFile.usesStaticLibraries.ifEmpty { null },
+            usesPackages = apkFile.usesPackages.ifEmpty { null },
+            deltaInfo = deltaInfo.ifEmpty { null },
+            releaseNotes = releaseNotes?.ifBlank { null }?.let(MarkdownProcessor::markdownToCompressedHtml)
+        )
+
+
         override fun compareTo(other: ReleaseInfo): Int = versionCode.compareTo(other.versionCode)
 
         /**
@@ -254,8 +286,8 @@ data class AppMetadata(
 
 fun App.toSerializableModel(
     repositoryIndexTimestamp: UnixTimestamp,
+    icon: AndroidApk.AppIcon?,
     releases: Set<AppMetadata.ReleaseInfo>,
-    icon: AndroidApk.AppIcon?
 ) = AppMetadata(
     packageName = packageName,
     repoIndexTimestamp = repositoryIndexTimestamp,
@@ -278,7 +310,7 @@ fun AppRelease.toSerializableModelAndVerify(
     deltaInfo: Set<AppMetadata.ReleaseInfo.DeltaInfo>,
     fileManager: FileManager
 ): AppMetadata.ReleaseInfo {
-    // This implicitly verifies the APK details on disk.
+    // This verifies the APK details on disk.
     val apk = AndroidApk.buildFromApkAndVerifySignature(fileManager.getVersionedApk(packageName, versionCode))
     val appReleaseFromApk = apk.toAppReleaseDbModel(releaseTimestamp, releaseNotes)
     if (this != appReleaseFromApk) {
@@ -294,17 +326,8 @@ fun AppRelease.toSerializableModelAndVerify(
         versionName = versionName,
         minSdkVersion = minSdkVersion,
         releaseTimestamp = releaseTimestamp,
-        certDigests = apk.verifyResult.result.signerCertificates.map {
-            it.encoded.digest("SHA-256").encodeToHexString()
-        },
-        apkSha256 = apkSha256,
-        v4SigSha256 = v4SigSha256,
-        usesLibraries = apk.usesLibraries.ifEmpty { null },
-        usesNativeLibraries = apk.usesNativeLibraries.ifEmpty { null },
-        usesStaticLibraries = apk.usesStaticLibraries.ifEmpty { null },
-        usesPackages = apk.usesPackages.ifEmpty { null },
-        deltaInfo = deltaInfo.ifEmpty { null },
-        releaseNotes = releaseNotes?.ifBlank { null }?.let(MarkdownProcessor::markdownToCompressedHtml)
+        deltaInfo = deltaInfo,
+        releaseNotes = releaseNotes
     )
 }
 
