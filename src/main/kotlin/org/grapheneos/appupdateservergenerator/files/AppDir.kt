@@ -10,13 +10,14 @@ import java.io.IOException
 /**
  * Represents a directory in which an app's APKs and latest version metadata are stored.
  *
+ * @throws IOException if the given [dir] exists but is not a directory
  * @see FileManager.getDirForApp
  */
 @JvmInline
 value class AppDir(val dir: File) {
     init {
         if (dir.exists()) {
-            require(dir.isDirectory)
+            if (!dir.isDirectory) throw IOException("trying to create AppDir $dir but it exists and is not a directory")
         }
     }
 

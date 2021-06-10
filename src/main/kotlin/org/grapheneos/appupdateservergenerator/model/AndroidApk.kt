@@ -9,6 +9,7 @@ import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceIdentifier
 import com.google.devrel.gmscore.tools.apk.arsc.BinaryResourceValue
 import com.google.devrel.gmscore.tools.apk.arsc.ResourceTableChunk
 import kotlinx.serialization.Serializable
+import org.grapheneos.appupdateservergenerator.apkparsing.BinaryResAndConfig
 import org.grapheneos.appupdateservergenerator.apkparsing.BinaryResourceConfigBuilder
 import org.grapheneos.appupdateservergenerator.apkparsing.XmlUtils
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveReference
@@ -310,7 +311,13 @@ data class AndroidApk private constructor(
         }
     }
 
-    fun getIcon(minimumDensity: Density): ByteArray {
+    class AppIcon(val pkg: PackageName, val bytes: ByteArray, val density: Density)
+
+    private var _icon: AppIcon? = null
+    @Synchronized
+    fun getIcon(minimumDensity: Density): AppIcon {
+        if (_icon != null && _icon?.density!! >= minimumDensity) return _icon!!
+
         ZipFile(apkFile).use { apkZipFile ->
             val manifestBytes = apkZipFile.getInputStream(apkZipFile.getEntry("AndroidManifest.xml")).use {
                 it.readBytes()
@@ -321,14 +328,14 @@ data class AndroidApk private constructor(
                 throw IOException("unable to find icon resource ID", e)
             } ?: throw IOException("unable to find icon resource ID")
 
-            val icon: BinaryResourceValue = resourceTableChunk.resolveReference(
+            val icon: BinaryResAndConfig = resourceTableChunk.resolveReference(
                 iconResId,
                 config = BinaryResourceConfigBuilder
                     .createDummyConfig()
                     .copy(density = minimumDensity.approximateDpi)
                     .toBinaryResConfig(),
                 // Specifically eliminate vector drawables. Maybe just filter out anydpi?
-                extraConfigFilter = { _, value ->
+                extraConfigFilter = { value, _  ->
                     if (value.type() == BinaryResourceValue.Type.REFERENCE) {
                         // Let references pass through to be resolved again.
                         return@resolveReference true
@@ -355,17 +362,19 @@ data class AndroidApk private constructor(
             ) ?: throw IOException("unable to find icon resource ID")
             System.gc()
 
-            if (icon.type() != BinaryResourceValue.Type.STRING) {
+            if (icon.value.type() != BinaryResourceValue.Type.STRING) {
                 throw IOException("icon resource ID isn't a string")
             }
             val iconPath = try {
-                resourceTableChunk.stringPool.getString(icon.data())
+                resourceTableChunk.stringPool.getString(icon.value.data())
             } catch (e: IndexOutOfBoundsException) {
                 throw IOException("can't find path in string pool", e)
             }
             val iconEntry = apkZipFile.getEntry(iconPath) ?: throw IOException("unable to find icon path")
 
-            return apkZipFile.getInputStream(iconEntry).use { it.readBytes() }
+            val iconBytes = apkZipFile.getInputStream(iconEntry).use { it.readBytes() }
+            return AppIcon(packageName, iconBytes, Density.fromDpi(icon.config.density()) ?: minimumDensity)
+                .also { _icon = it  }
         }
     }
 

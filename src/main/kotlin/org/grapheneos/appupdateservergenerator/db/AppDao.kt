@@ -6,7 +6,9 @@ import org.grapheneos.appupdateservergenerator.api.toSerializableModel
 import org.grapheneos.appupdateservergenerator.api.toSerializableModelAndVerify
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
+import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
+import org.grapheneos.appupdateservergenerator.model.Density
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
@@ -37,11 +39,12 @@ class AppDao(private val database: Database) {
 
     fun getApp(packageName: PackageName): App? = database.appQueries.select(packageName).executeAsOneOrNull()
 
-    fun createSerializableAppMetadata(
+    fun createSerializableAppMetadataAndGetIcon(
         app: App,
         repoIndexTimestamp: UnixTimestamp,
-        fileManager: FileManager
-    ): AppMetadata = database.transactionWithResult {
+        fileManager: FileManager,
+        iconMinimumDensity: Density
+    ): Pair<AppMetadata, AndroidApk.AppIcon?> = database.transactionWithResult {
         val allReleases: TreeSet<AppMetadata.ReleaseInfo> =
             database.appReleaseQueries.selectAllByApp(app.packageName)
                 .executeAsSequence { releasesSequence ->
@@ -56,7 +59,8 @@ class AppDao(private val database: Database) {
                     }
                 }
 
-        return@transactionWithResult app.toSerializableModel(repoIndexTimestamp, allReleases)
+        val icon: AndroidApk.AppIcon? = allReleases.ifEmpty { null }?.last()?.apkFile?.getIcon(iconMinimumDensity)
+        return@transactionWithResult app.toSerializableModel(repoIndexTimestamp, allReleases, icon) to icon
     }
 
     fun doesAppExist(packageName: PackageName): Boolean {
@@ -70,7 +74,6 @@ class AppDao(private val database: Database) {
     fun upsertApks(
         appDir: AppDir,
         apksToInsert: PackageApkGroup,
-        icon: ByteArray?,
         releaseNotesForMostRecentVersion: String?,
         updateTimestamp: UnixTimestamp,
         fileManager: FileManager
@@ -83,14 +86,15 @@ class AppDao(private val database: Database) {
             }
         }
 
+        val mostRecentApk = apksToInsert.highestVersionApk!!
+
         database.transaction {
-            val mostRecentApk = apksToInsert.highestVersionApk!!
             database.appQueries.upsert(
                 packageName = mostRecentApk.packageName,
                 label = mostRecentApk.label,
-                icon = icon,
                 lastUpdateTimestamp = updateTimestamp
             )
+
             apksToInsert.sortedApks.forEach { apkToInsert ->
                 val apkFileLocationInRepo = fileManager.getVersionedApk(apkToInsert.packageName, apkToInsert.versionCode)
                 apkToInsert.apkFile.copyTo(apkFileLocationInRepo)

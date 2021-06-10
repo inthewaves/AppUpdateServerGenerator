@@ -279,7 +279,7 @@ private class AppRepoManagerImpl(
         }
         if (icon != null) {
             val iconFileBytes = iconFile.readBytes()
-            if (!iconFileBytes.contentEquals(icon)) {
+            if (!iconFileBytes.contentEquals(icon.bytes)) {
                 throw AppRepoException.InvalidRepoState(
                     "$pkg: icon from $latestApk doesn't match current icon in repo $iconFile"
                 )
@@ -840,16 +840,8 @@ private class AppRepoManagerImpl(
             null
         }
 
-        val icon = try {
-            maxVersionApk.getIcon(Density.HIGH)
-        } catch (e: IOException) {
-            println("warning: unable to extract icon for ${maxVersionApk.packageName}, ${maxVersionApk.versionCode}: " +
-                    "${e.message}")
-            null
-        }
-
         // This will handle copying the APKs.
-        appDao.upsertApks(appDir, apksToInsert, icon, releaseNotesForMostRecentVersion, timestampForMetadata, fileManager)
+        appDao.upsertApks(appDir, apksToInsert, releaseNotesForMostRecentVersion, timestampForMetadata, fileManager)
     }
 
     /**

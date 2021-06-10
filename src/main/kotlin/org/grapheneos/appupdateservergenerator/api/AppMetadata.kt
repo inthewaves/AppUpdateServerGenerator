@@ -6,6 +6,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.Transient
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -60,6 +61,11 @@ data class AppMetadata(
      */
     @Serializable
     data class ReleaseInfo(
+        /**
+         * The associated AndroidApk file. If this is null (because it was
+         */
+        @Transient
+        val apkFile: AndroidApk? = null,
         val versionCode: VersionCode,
         val versionName: String,
         val minSdkVersion: Int,
@@ -231,12 +237,13 @@ data class AppMetadata(
 
 fun App.toSerializableModel(
     repositoryIndexTimestamp: UnixTimestamp,
-    releases: Set<AppMetadata.ReleaseInfo>
+    releases: Set<AppMetadata.ReleaseInfo>,
+    icon: AndroidApk.AppIcon?
 ) = AppMetadata(
     packageName = packageName,
     repoIndexTimestamp = repositoryIndexTimestamp,
     label = label,
-    iconSha256 = icon?.digest("SHA-256")?.encodeToBase64String(),
+    iconSha256 = icon?.bytes?.digest("SHA-256")?.encodeToBase64String(),
     lastUpdateTimestamp = lastUpdateTimestamp,
     releases = releases
 )
@@ -265,6 +272,7 @@ fun AppRelease.toSerializableModelAndVerify(
     }
 
     return AppMetadata.ReleaseInfo(
+        apkFile = apk,
         versionCode = versionCode,
         versionName = versionName,
         minSdkVersion = minSdkVersion,

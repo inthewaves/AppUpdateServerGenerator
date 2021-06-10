@@ -2,7 +2,6 @@
 -- CREATE TABLE App (
 --     packageName TEXT AS PackageName NOT NULL PRIMARY KEY,
 --     label TEXT NOT NULL,
---     icon BLOB,
 --     lastUpdateTimestamp INTEGER AS UnixTimestamp NOT NULL
 -- );
 -- CREATE INDEX Index_App_packageName_label ON App(packageName, label);
@@ -23,10 +22,9 @@ SELECT COUNT(packageName) FROM App WHERE packageName = ?;
  * Inserts or updates the [App] in the database.
  */
 upsert:
-INSERT INTO App(packageName, label, icon, lastUpdateTimestamp)
-VALUES(?, ?, ?, ?)
+INSERT INTO App(packageName, label, lastUpdateTimestamp)
+VALUES(?, ?, ?)
 ON CONFLICT(packageName) DO
     UPDATE SET
         label = excluded.label,
-        icon = excluded.icon,
         lastUpdateTimestamp = excluded.lastUpdateTimestamp;

@@ -11,8 +11,10 @@ import org.grapheneos.appupdateservergenerator.apkparsing.androidfw.match
 /** See https://android.googlesource.com/platform/frameworks/base/+/e2ddd9d277876ee33e8526a792d0bc9538de6dfc/tools/aapt2/dump/DumpManifest.cpp#213 */
 private const val MAX_REFERENCE_RESOLVE_ITERATIONS = 40
 
-typealias BinaryResourcePredicate =
-        (ResourceTableChunk.(config: BinaryResourceConfiguration, resValue: BinaryResourceValue) -> Boolean)
+typealias BinaryResAndConfigPredicate =
+        (ResourceTableChunk.(resValue: BinaryResourceValue, config: BinaryResourceConfiguration) -> Boolean)
+
+class BinaryResAndConfig(val value: BinaryResourceValue, val config: BinaryResourceConfiguration)
 
 /**
  * Retrieves a resource assigned to the specified resource id if one exists.
@@ -31,8 +33,8 @@ typealias BinaryResourcePredicate =
 fun ResourceTableChunk.findValueById(
     resId: BinaryResourceIdentifier,
     match: BinaryResourceConfiguration = BinaryResourceConfigBuilder.createDummyConfig().toBinaryResConfig(),
-    extraFilter: BinaryResourcePredicate? = null
-): BinaryResourceValue? = packages.find { it.id == resId.packageId() }
+    extraFilter: BinaryResAndConfigPredicate? = null
+): BinaryResAndConfig? = packages.find { it.id == resId.packageId() }
     ?.getTypeChunks(resId.typeId())
     ?.asSequence()
     ?.filter {
@@ -61,16 +63,16 @@ fun ResourceTableChunk.findValueById(
             }
         }
 
-        if (extraFilter != null && !extraFilter(currentConfig, currentEntry.value()!!)) {
+        if (extraFilter != null && !extraFilter(currentEntry.value()!!, currentConfig)) {
             return@fold bestValue // continue
         }
 
         // The new best value for this iteration
         return@fold currentChunk
     }
-    ?.entries
-    ?.get(resId.entryId())
-    ?.value()
+    ?.let {
+        BinaryResAndConfig(it.entries[resId.entryId()]!!.value(), it.configuration)
+    }
 
 /**
  * Attempts to resolve the reference to a non-reference value. The [config] is used to filter out
@@ -83,22 +85,22 @@ fun ResourceTableChunk.findValueById(
 fun ResourceTableChunk.resolveReference(
     resId: BinaryResourceIdentifier,
     config: BinaryResourceConfiguration = BinaryResourceConfigBuilder.createDummyConfig().toBinaryResConfig(),
-    extraConfigFilter: BinaryResourcePredicate? = null
-): BinaryResourceValue? {
+    extraConfigFilter: BinaryResAndConfigPredicate? = null
+): BinaryResAndConfig? {
     var currentResId = resId
     for (i in 0 until MAX_REFERENCE_RESOLVE_ITERATIONS) {
-        val value: BinaryResourceValue? = findValueById(currentResId, config, extraConfigFilter)
-        if (value?.type() == BinaryResourceValue.Type.REFERENCE) {
-            currentResId = BinaryResourceIdentifier.create(value.data())
+        val resAndConfig: BinaryResAndConfig? = findValueById(currentResId, config, extraConfigFilter)
+        if (resAndConfig?.value?.type() == BinaryResourceValue.Type.REFERENCE) {
+            currentResId = BinaryResourceIdentifier.create(resAndConfig.value.data())
         } else {
-            return value
+            return resAndConfig
         }
     }
     return null
 }
 
 fun ResourceTableChunk.resolveString(resId: BinaryResourceIdentifier): String? {
-    val valueToUse: BinaryResourceValue = resolveReference(resId) ?: return null
+    val valueToUse: BinaryResourceValue = resolveReference(resId)?.value ?: return null
     if (valueToUse.type() != BinaryResourceValue.Type.STRING) return null
     return stringPool.getString(valueToUse.data())
 }

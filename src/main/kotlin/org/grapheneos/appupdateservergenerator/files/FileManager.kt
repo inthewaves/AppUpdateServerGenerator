@@ -84,6 +84,9 @@ class FileManager constructor(
     fun getVersionedApkV4Signature(packageName: PackageName, versionCode: VersionCode) =
         File(getDirForApp(packageName).dir, "${versionCode.code}.apk.idsig")
 
+    /**
+     * @throws IOException
+     */
     fun getDirForApp(pkg: PackageName) = AppDir(File(appDirectory, pkg.pkg))
 
     fun getLatestAppMetadata(pkg: PackageName) = File(getDirForApp(pkg).dir, APP_METADATA_FILENAME)

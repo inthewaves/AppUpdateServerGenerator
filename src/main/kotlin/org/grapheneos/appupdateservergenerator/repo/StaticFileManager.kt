@@ -13,6 +13,7 @@ import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.db.AppDao
 import org.grapheneos.appupdateservergenerator.db.Database
 import org.grapheneos.appupdateservergenerator.files.FileManager
+import org.grapheneos.appupdateservergenerator.model.Density
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.util.executeAsSequence
 import java.io.IOException
@@ -54,11 +55,11 @@ class StaticFileManager(
 
     suspend fun regenerateMetadataAndIcons(
         privateKeyFile: PKCS8PrivateKeyFile,
-        updateTimestamp: UnixTimestamp
-    ) = coroutineScope {
+        updateTimestamp: UnixTimestamp,
+    ): Unit = coroutineScope {
         println("regenerating metadata and icons")
         if (!deleteOldMetadata()) {
-            throw AppRepoException.InvalidRepoState("failed to delete old metadata files")
+            throw AppRepoException.InvalidRepoState("failed to delete old metadata / icon files")
         }
 
         val metadataChannel = actor<AppMetadata>(capacity = Channel.UNLIMITED) {
@@ -92,17 +93,28 @@ class StaticFileManager(
             database.transaction {
                 database.appQueries.selectAll().executeAsSequence { apps ->
                     apps.forEach { app ->
-                        val metadata = appDao.createSerializableAppMetadata(app, updateTimestamp, fileManager)
+                        // TODO: add this to some configuration
+                        val iconMinimumDensity = Density.HIGH
+
+                        val (metadata, icon) = appDao.createSerializableAppMetadataAndGetIcon(
+                            app,
+                            updateTimestamp,
+                            fileManager,
+                            iconMinimumDensity = iconMinimumDensity
+                        )
 
                         metadataChannel
                             .trySendBlocking(metadata)
                             .onFailure { throw IOException("failed to write ${app.packageName} into bulk metadata") }
 
-                        if (app.icon != null) {
+                        if (icon != null) {
                             fileManager.getAppIconFile(app.packageName)
                                 .outputStream()
                                 .buffered()
-                                .use { it.write(app.icon) }
+                                .use { it.write(icon.bytes) }
+                        } else {
+                            println("warning: unable to extract icon for ${metadata.packageName}, " +
+                                    "${metadata.latestRelease()} for minimum density $iconMinimumDensity")
                         }
                     }
                 }
