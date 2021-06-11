@@ -15,7 +15,6 @@ import org.grapheneos.appupdateservergenerator.crypto.PKCS8PrivateKeyFile
 import org.grapheneos.appupdateservergenerator.crypto.SignatureHeaderInputStream
 import org.grapheneos.appupdateservergenerator.db.App
 import org.grapheneos.appupdateservergenerator.db.AppRelease
-import org.grapheneos.appupdateservergenerator.db.DeltaInfo
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
@@ -343,5 +342,3 @@ fun AndroidApk.toAppReleaseDbModel(releaseTimestamp: UnixTimestamp, releaseNotes
         ?.encodeToBase64String(),
     releaseNotes = releaseNotes
 )
-
-fun DeltaInfo.toSerializableModel() = AppMetadata.ReleaseInfo.DeltaInfo(baseVersion, sha256Checksum)

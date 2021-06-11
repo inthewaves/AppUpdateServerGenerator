@@ -4,6 +4,7 @@ import org.grapheneos.appupdateservergenerator.api.AppMetadata
 import org.grapheneos.appupdateservergenerator.api.toAppReleaseDbModel
 import org.grapheneos.appupdateservergenerator.api.toSerializableModel
 import org.grapheneos.appupdateservergenerator.api.toSerializableModelAndVerify
+import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.model.AndroidApk
 import org.grapheneos.appupdateservergenerator.model.ApkVerifyResult
@@ -12,9 +13,13 @@ import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
 import org.grapheneos.appupdateservergenerator.model.UnixTimestamp
 import org.grapheneos.appupdateservergenerator.model.VersionCode
+import org.grapheneos.appupdateservergenerator.model.encodeToBase64String
 import org.grapheneos.appupdateservergenerator.repo.AppRepoException
+import org.grapheneos.appupdateservergenerator.util.digest
 import org.grapheneos.appupdateservergenerator.util.executeAsSequence
 import java.io.File
+import java.security.MessageDigest
+import java.util.SortedSet
 import java.util.TreeSet
 
 class AppDao(private val fileManager: FileManager) {
@@ -44,18 +49,24 @@ class AppDao(private val fileManager: FileManager) {
         database: Database,
         app: App,
         repoIndexTimestamp: UnixTimestamp,
-        fileManager: FileManager,
         iconMinimumDensity: Density
     ): Pair<AppMetadata, AndroidApk.AppIcon?> = database.transactionWithResult {
+        val sha256MessageDigest = MessageDigest.getInstance("SHA-256")
+
         val allReleases: TreeSet<AppMetadata.ReleaseInfo> =
             database.appReleaseQueries.selectAllByApp(app.packageName)
                 .executeAsSequence { releasesSequence ->
                     releasesSequence.mapTo(TreeSet()) { release ->
-                        val deltaInfo: TreeSet<AppMetadata.ReleaseInfo.DeltaInfo> = database.deltaInfoQueries
-                            .selectAllForTargetVersion(release.packageName, release.versionCode)
-                            .executeAsSequence { deltaInfos ->
-                                deltaInfos.mapTo(TreeSet()) { it.toSerializableModel() }
-                            }
+                        val deltaInfo: SortedSet<AppMetadata.ReleaseInfo.DeltaInfo> =
+                            AppDir.DeltaFile.allFromAppDir(fileManager.getDirForApp(app.packageName))
+                                .filter { it.targetVersion == release.versionCode }
+                                .map {
+                                    AppMetadata.ReleaseInfo.DeltaInfo(
+                                        it.baseVersion,
+                                        it.delta.digest(sha256MessageDigest).encodeToBase64String()
+                                    )
+                                }
+                                .toSortedSet()
 
                         return@mapTo release.toSerializableModelAndVerify(deltaInfo, fileManager)
                     }

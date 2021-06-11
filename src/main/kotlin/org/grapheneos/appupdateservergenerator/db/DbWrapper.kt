@@ -178,13 +178,11 @@ class DbWrapper private constructor(fileManager: FileManager) {
 
         private val appAdapter: App.Adapter
         private val appReleaseAdapter: AppRelease.Adapter
-        private val deltaInfoAdapter: DeltaInfo.Adapter
 
         private fun createDatabaseInstance(driver: JdbcDriver) = Database(
             driver = driver,
             AppAdapter = appAdapter,
             AppReleaseAdapter = appReleaseAdapter,
-            DeltaInfoAdapter = deltaInfoAdapter,
         )
 
         private fun getDatabaseUrl(fileManager: FileManager) = "jdbc:sqlite:${fileManager.databaseFile.absolutePath}"
@@ -235,12 +233,6 @@ class DbWrapper private constructor(fileManager: FileManager) {
                 releaseTimestampAdapter = unixTimestampAdapter,
                 apkSha256Adapter = base64StringAdapter,
                 v4SigSha256Adapter = base64StringAdapter,
-                packageNameAdapter = packageNameAdapter
-            )
-            deltaInfoAdapter = DeltaInfo.Adapter(
-                baseVersionAdapter = versionCodeAdapter,
-                targetVersionAdapter = versionCodeAdapter,
-                sha256ChecksumAdapter = base64StringAdapter,
                 packageNameAdapter = packageNameAdapter
             )
         }

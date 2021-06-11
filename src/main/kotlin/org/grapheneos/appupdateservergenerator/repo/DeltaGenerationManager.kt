@@ -20,15 +20,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.yield
 import org.grapheneos.appupdateservergenerator.db.DbWrapper
-import org.grapheneos.appupdateservergenerator.db.DeltaInfo
-import org.grapheneos.appupdateservergenerator.db.DeltaInfoDao
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
-import org.grapheneos.appupdateservergenerator.model.Base64String
 import org.grapheneos.appupdateservergenerator.model.PackageApkGroup
 import org.grapheneos.appupdateservergenerator.model.PackageName
+import org.grapheneos.appupdateservergenerator.model.VersionCode
 import org.grapheneos.appupdateservergenerator.util.ArchivePatcherUtil
-import org.grapheneos.appupdateservergenerator.util.digest
+import java.io.File
 import java.io.IOException
 import java.text.DecimalFormat
 import java.util.concurrent.TimeUnit
@@ -60,7 +58,6 @@ class DeltaGenerationManager(
     private val deltaGenerationSemaphore = Semaphore(permits = MAX_CONCURRENT_DELTA_GENERATION)
 
     private val dbWrapper = DbWrapper.getInstance(fileManager)
-    private val deltaInfoDao = DeltaInfoDao(fileManager)
 
     sealed interface GenerationRequest {
         @JvmInline
@@ -75,8 +72,12 @@ class DeltaGenerationManager(
         @JvmInline
         value class NewLine(val string: String) : PrintRequest
         @JvmInline
-        value class NewLines(val strings: Array<String>) : PrintRequest
+        value class NewLines(val strings: Array<out String>) : PrintRequest
     }
+
+    fun SendChannel<PrintRequest>.trySendNewLine(line: String) = trySend(PrintRequest.NewLine(line))
+
+    fun SendChannel<PrintRequest>.trySendNewLines(vararg lines: String) = trySend(PrintRequest.NewLines(lines))
 
     private fun CoroutineScope.launchPrintJobAndChannel(): Pair<Job, Channel<PrintRequest>> {
         val printRequestChannel = Channel<PrintRequest>(capacity = Channel.UNLIMITED)
@@ -97,7 +98,6 @@ class DeltaGenerationManager(
                 launch {
                     var numFailures = 0
                     while (isActive) {
-                        delay(2000L)
                         ProcessBuilder("bash", "-c", "tput cols 2> /dev/tty").start().apply {
                             val colWidth = inputStream.use { it.readBytes() }.decodeToString().trim().toIntOrNull()
                             waitFor(1, TimeUnit.SECONDS)
@@ -107,6 +107,7 @@ class DeltaGenerationManager(
                                 terminalWidth.set(colWidth)
                             }
                         }
+                        delay(2000L)
 
                         if (numFailures >= 10) {
                             break
@@ -115,7 +116,7 @@ class DeltaGenerationManager(
                 }
             }
 
-            fun printSameLine(stringToPrint: String, carriageReturn: Boolean) {
+            fun printOnSameLine(stringToPrint: String, carriageReturn: Boolean) {
                 val extraSpaceNeeded = lastProgressMessage.length - stringToPrint.length
                 val lineToPrint = buildString {
                     if (carriageReturn) {
@@ -151,7 +152,7 @@ class DeltaGenerationManager(
                 ""
             }
             fun printProgress(carriageReturn: Boolean) {
-                printSameLine(createProgressLine(), carriageReturn)
+                printOnSameLine(createProgressLine(), carriageReturn)
             }
             fun printNewLine(printMessage: String) {
                 val firstLine = printMessage.lineSequence().first()
@@ -176,7 +177,7 @@ class DeltaGenerationManager(
                     asyncPrintMutex.withLock {
                         if (numberOfDeltasGenerated == totalNumberOfDeltasToGenerate) return@withLock
                         if (numDots > progressAnimationMaxDots) numDots = 1
-                        printSameLine(
+                        printOnSameLine(
                             createProgressLine() + " "
                                     + progressAnimationDot.repeat(numDots).padEnd(progressAnimationMaxDotSize),
                             carriageReturn = true,
@@ -219,6 +220,12 @@ class DeltaGenerationManager(
         return printJob to printRequestChannel
     }
 
+    private data class DeltaInfo(
+        val packageName: PackageName,
+        val baseVersion: VersionCode,
+        val targetVersion: VersionCode
+    )
+
     fun CoroutineScope.launchDeltaGenerationActor(): SendChannel<GenerationRequest> {
         return actor(capacity = Channel.UNLIMITED) {
             val failedDeltaAppsMutex = Mutex()
@@ -237,15 +244,11 @@ class DeltaGenerationManager(
                                 val deltaInfos: List<DeltaInfo> = regenerateDeltas(
                                     apks,
                                     originalFreeSpace = originalFreeSpace,
-                                    printMessageChannel = printRequestChannel
+                                    printChannel = printRequestChannel
                                 )
                                 if (deltaInfos.isNotEmpty()) {
                                     anyDeltasGenerated.set(true)
-                                    dbWrapper.transaction { db -> deltaInfoDao.insertDeltaInfos(db, deltaInfos) }
                                 }
-
-                                // Delta generation might take a while, so take advantage of possible idle time.
-                                dbWrapper.executeWalCheckpointTruncate()
                             } catch (e: Throwable) {
                                 printRequestChannel.trySend(PrintRequest.NewLines(
                                     arrayOf(
@@ -293,122 +296,144 @@ class DeltaGenerationManager(
         apks: PackageApkGroup.DescendingOrder,
         originalFreeSpace: Long,
         maxPreviousVersions: Int = DEFAULT_MAX_PREVIOUS_VERSION_DELTAS,
-        printMessageChannel: SendChannel<PrintRequest>?
+        printChannel: SendChannel<PrintRequest>?
     ): List<DeltaInfo> = coroutineScope {
         if (apks.size <= 1) {
             return@coroutineScope emptyList<DeltaInfo>()
         }
 
-        //dbWrapper.transaction {
-        //    deltaInfoDao.deleteDeltasForApp(it, apks.packageName, printMessageChannel)
-        //}
-
         val newestApk = apks.highestVersionApk!!
         val numberOfDeltasToGenerate = Integer.min(apks.size - 1, maxPreviousVersions)
-        printMessageChannel?.trySend(PrintRequest.NewPackage(apks.packageName, numberOfDeltasToGenerate))
+        printChannel?.trySend(PrintRequest.NewPackage(apks.packageName, numberOfDeltasToGenerate))
         yield()
 
         var deltaGenTime = 0L
-        // Drop the first APK, because that's the most recent one (DescendingOrder) and hence the target
-        apks.sortedApks.asSequence().drop(1)
-            .take(numberOfDeltasToGenerate)
-            .mapTo(ArrayList(numberOfDeltasToGenerate)) { previousApk ->
-                async {
-                    val estimatedSizeUsageForDeltas =
-                        (1.05 * ArchivePatcherUtil.estimateTempSpaceNeededForGeneration(previousApk, newestApk)).toLong()
+        val deltasInProgressMutex = Mutex()
+        val deltasInProgress = mutableSetOf<File>()
+        return@coroutineScope try {
+            apks.sortedApks.asSequence()
+                .filter { it.versionCode != newestApk.versionCode }
+                .take(numberOfDeltasToGenerate)
+                .mapTo(ArrayList(numberOfDeltasToGenerate)) { previousApk ->
                     val outputDeltaFile = fileManager.getDeltaFileForApp(
                         apks.packageName,
                         previousApk.versionCode,
                         newestApk.versionCode
                     )
-
-                    var numDefersDueToFreeSpace = 0L
-                    while (isActive) {
-                        deltaGenerationSemaphore.withPermit {
-                            var estimatedSpaceUsage: Long? = null
-                            try {
-                                estimatedSpaceUsage = estimatedTotalSpaceUsageForCurrentDeltas
-                                    .addAndGet(estimatedSizeUsageForDeltas)
-                                if (
-                                    estimatedSpaceUsage > originalFreeSpace - TEMP_DIR_FREE_SPACE_SAFETY_BYTES ||
-                                    fileManager.systemTempDir.freeSpace < TEMP_DIR_FREE_SPACE_SAFETY_BYTES
-                                ) {
-                                    if (numDefersDueToFreeSpace < MAX_DEFERRALS_PER_APK_WHEN_NO_FREE_SPACE) {
-                                        printMessageChannel?.trySend(PrintRequest.NewLines(
-                                            arrayOf(
+                    deltasInProgressMutex.withLock { deltasInProgress.add(outputDeltaFile) }
+                    val estimatedSizeUsageForDeltas =
+                        (1.05 * ArchivePatcherUtil.estimateTempSpaceNeededForGeneration(previousApk, newestApk)).toLong()
+                    async {
+                        var numDefersDueToFreeSpace = 0L
+                        while (isActive) {
+                            deltaGenerationSemaphore.withPermit {
+                                // Determine whether generating this delta will exceed the space in the temp dir.
+                                // If it will make the temp dir run out of space, then defer the delta generation
+                                // repeatedly (up to a limit) and release the semaphore to let another request have a
+                                // go at it.
+                                var estimatedTotalSpaceUsage: Long? = null
+                                try {
+                                    estimatedTotalSpaceUsage = estimatedTotalSpaceUsageForCurrentDeltas
+                                        .addAndGet(estimatedSizeUsageForDeltas)
+                                    if (
+                                        estimatedTotalSpaceUsage > originalFreeSpace - TEMP_DIR_FREE_SPACE_SAFETY_BYTES ||
+                                        fileManager.systemTempDir.freeSpace < TEMP_DIR_FREE_SPACE_SAFETY_BYTES
+                                    ) {
+                                        if (numDefersDueToFreeSpace < MAX_DEFERRALS_PER_APK_WHEN_NO_FREE_SPACE) {
+                                            printChannel?.trySendNewLines(
                                                 "warning: there might not be free space left",
                                                 " deferring ${outputDeltaFile.name} (${apks.packageName}) " +
                                                         "(times deferred: $numDefersDueToFreeSpace)"
                                             )
-                                        ))
-                                        numDefersDueToFreeSpace++
-                                        return@withPermit
+                                            numDefersDueToFreeSpace++
+                                            // This releases the semaphore, and then this coroutine will be
+                                            // delayed after the withPermit block.
+                                            return@withPermit
+                                        }
+
+                                        printChannel?.trySendNewLine(
+                                            "warning: there might not be free space left for " +
+                                                    "${outputDeltaFile.name} (${apks.packageName}), " +
+                                                    "but maximum deferrals reached " +
+                                                    "($MAX_DEFERRALS_PER_APK_WHEN_NO_FREE_SPACE)"
+                                        )
                                     }
-
-                                    printMessageChannel?.trySend(PrintRequest.NewLine(
-                                        "warning: there might not be free space left for " +
-                                                "${outputDeltaFile.name} (${apks.packageName}), " +
-                                                "but maximum deferrals reached " +
-                                                "($MAX_DEFERRALS_PER_APK_WHEN_NO_FREE_SPACE)"
-                                    ))
-                                }
-                                printMessageChannel?.trySend(PrintRequest.NewLine(
-                                    "generating ${outputDeltaFile.name} (${apks.packageName})"
-                                ))
-
-                                yield()
-                                printMessageChannel?.trySend(PrintRequest.ProgressPrint)
-                                deltaGenTime += measureTimeMillis {
-                                    ArchivePatcherUtil.generateDelta(
-                                        previousApk.apkFile,
-                                        newestApk.apkFile,
-                                        outputDeltaFile,
-                                        outputGzip = true
+                                    printChannel?.trySendNewLine(
+                                        "generating ${outputDeltaFile.name} (${apks.packageName})"
                                     )
-                                }
-                            } finally {
-                                if (estimatedSpaceUsage != null) {
-                                    estimatedTotalSpaceUsageForCurrentDeltas.addAndGet(-estimatedSizeUsageForDeltas)
-                                }
-                            }
 
-                            val digest = outputDeltaFile.digest("SHA-256")
-                            printMessageChannel?.apply {
-                                val formattedSizeInMib = deltaSizeDecimalFormat.format(
-                                    outputDeltaFile.length().toDouble() / (0x1 shl 20)
-                                )
-                                trySend(
-                                    PrintRequest.NewLine(
+                                    yield()
+                                    printChannel?.trySend(PrintRequest.ProgressPrint)
+                                    deltaGenTime += measureTimeMillis {
+                                        ArchivePatcherUtil.generateDelta(
+                                            previousApk.apkFile,
+                                            newestApk.apkFile,
+                                            outputDeltaFile,
+                                            outputGzip = true
+                                        )
+                                    }
+                                    deltasInProgressMutex.withLock { deltasInProgress.remove(outputDeltaFile) }
+                                } finally {
+                                    if (estimatedTotalSpaceUsage != null) {
+                                        estimatedTotalSpaceUsageForCurrentDeltas.addAndGet(-estimatedSizeUsageForDeltas)
+                                    }
+                                }
+
+                                printChannel?.apply {
+                                    val formattedSizeInMib = deltaSizeDecimalFormat.format(
+                                        outputDeltaFile.length().toDouble() / (0x1 shl 20)
+                                    )
+                                    trySendNewLine(
                                         "finished ${outputDeltaFile.name} (${apks.packageName}) " +
                                                 "($formattedSizeInMib MiB) --- took $deltaGenTime ms"
                                     )
+                                    trySend(PrintRequest.DeltaFinished(apks.packageName, success = true))
+                                }
+
+                                // break out of the while loop
+                                return@async DeltaInfo(
+                                    previousApk.packageName,
+                                    previousApk.versionCode,
+                                    newestApk.versionCode,
                                 )
-                                trySend(PrintRequest.DeltaFinished(apks.packageName, success = true))
                             }
 
-                            // break out of the while loop
-                            return@async DeltaInfo(
-                                previousApk.packageName,
-                                previousApk.versionCode,
-                                newestApk.versionCode,
-                                Base64String.encodeFromBytes(digest)
-                            )
+                            if (deltaGenerationSemaphore.availablePermits != MAX_CONCURRENT_DELTA_GENERATION) {
+                                delay(DELTA_GEN_DEFERRAL_DELAY_MILLIS)
+                            }
                         }
-
-                        if (deltaGenerationSemaphore.availablePermits != MAX_CONCURRENT_DELTA_GENERATION) {
-                            delay(DELTA_GEN_DEFERRAL_DELAY_MILLIS)
-                        }
+                        ensureActive()
+                        error("unreachable --- loop finished implies isActive is false implies ensureActive() throws")
                     }
-                    ensureActive()
-                    error("unreachable --- loop finished implies isActive is false implies ensureActive() throws")
+                }
+                .awaitAll()
+                .also { deltaAvailableVersions ->
+                    printChannel?.trySendNewLine(
+                        "finished ${deltaAvailableVersions.size} deltas for ${apks.packageName}. " +
+                                "Version codes with deltas available: ${deltaAvailableVersions.map { it.baseVersion.code }}"
+                    )
+                    printChannel?.trySendNewLine("deleting old deltas for ${apks.packageName}")
+                    fileManager.getDirForApp(apks.packageName).allDeltasAsSequence()
+                        .filter { it.targetVersion != newestApk.versionCode }
+                        .forEach { it.delta.delete() }
+                }
+        } catch (e: Throwable) {
+            deltasInProgressMutex.withLock {
+                deltasInProgress.forEach { unfinishedDeltaFile ->
+                    printChannel?.trySendNewLine(
+                        "deleting $unfinishedDeltaFile for ${apks.packageName} due to failure"
+                    )
+                    try {
+                        unfinishedDeltaFile.delete()
+                    } catch (error: SecurityException) {
+                        printChannel?.trySendNewLine(
+                            "failed to delete $unfinishedDeltaFile for ${apks.packageName} after failure"
+                        )
+                        e.addSuppressed(error)
+                    }
                 }
             }
-            .awaitAll()
-            .also { deltaAvailableVersions ->
-                printMessageChannel?.trySend(PrintRequest.NewLine(
-                    "generated ${deltaAvailableVersions.size} deltas for ${apks.packageName}. " +
-                            "Version codes with deltas available: ${deltaAvailableVersions.map { it.baseVersion.code }}"
-                ))
-            }
+            throw e
+        }
     }
 }

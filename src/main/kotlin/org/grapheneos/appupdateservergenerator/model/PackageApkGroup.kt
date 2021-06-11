@@ -95,10 +95,7 @@ sealed class PackageApkGroup private constructor(
          */
         suspend fun createListFromFilesAscending(apkFilePaths: Iterable<File>): List<AscendingOrder> {
             @Suppress("UNCHECKED_CAST")
-            return createListFromFiles(
-                apkFilePaths = apkFilePaths,
-                ascendingOrder = true
-            ) as List<AscendingOrder>
+            return createListFromFiles(apkFilePaths = apkFilePaths, ascendingOrder = true) as List<AscendingOrder>
         }
 
         private suspend fun createListFromFiles(
@@ -111,7 +108,7 @@ sealed class PackageApkGroup private constructor(
                 AndroidApk.descendingVersionCodeComparator
             }
 
-            apkFilePaths
+            return@coroutineScope apkFilePaths
                 .map { apkFile ->
                     if (!apkFile.exists() || !apkFile.canRead()) {
                         throw IOException("unable to read APK file $apkFile")
@@ -127,12 +124,8 @@ sealed class PackageApkGroup private constructor(
                     initialValueSelector = { _, _ -> TreeSet(comparator) },
                     operation = { _, accumulator, element -> accumulator.apply { add(element) } }
                 )
-                .run {
-                    if (ascendingOrder) {
-                        map { AscendingOrder(it.key, it.value) }
-                    } else {
-                        map { DescendingOrder(it.key, it.value) }
-                    }
+                .map {
+                    if (ascendingOrder) AscendingOrder(it.key, it.value) else DescendingOrder(it.key, it.value)
                 }
         }
 
@@ -140,10 +133,7 @@ sealed class PackageApkGroup private constructor(
          * Constructs a [PackageApkGroup.AscendingOrder] list from a given [appDir].
          */
         suspend fun fromDirDescending(appDir: AppDir): DescendingOrder {
-            return fromDir(
-                appDir,
-                ascendingOrder = false
-            ) as DescendingOrder
+            return fromDir(appDir, ascendingOrder = false) as DescendingOrder
         }
 
         /**
@@ -152,10 +142,7 @@ sealed class PackageApkGroup private constructor(
          *
          * @throws IOException if an I/O error occurs
          */
-        suspend fun fromDir(
-            appDir: AppDir,
-            ascendingOrder: Boolean
-        ): PackageApkGroup = coroutineScope {
+        suspend fun fromDir(appDir: AppDir, ascendingOrder: Boolean): PackageApkGroup = coroutineScope {
             val comparator = if (ascendingOrder) {
                 AndroidApk.ascendingVersionCodeComparator
             } else {
@@ -167,7 +154,7 @@ sealed class PackageApkGroup private constructor(
                 .mapTo(TreeSet(comparator)) { it.await() }
 
             val packageName = if (set.isEmpty()) appDir.packageName else set.first().packageName
-            if (ascendingOrder) {
+            return@coroutineScope if (ascendingOrder) {
                 AscendingOrder(packageName, set)
             } else {
                 DescendingOrder(packageName, set)

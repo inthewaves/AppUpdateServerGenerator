@@ -34,6 +34,7 @@ class FileManager constructor(
         private const val DELTA_FILE_FORMAT = "delta-%d-to-%d.gz"
         val DELTA_REGEX = Regex("^delta-([0-9]*)-to-([0-9]*).gz$")
         val APK_REGEX = Regex("""^[0-9]*\.apk$""")
+
     }
 
     /**

@@ -101,7 +101,6 @@ class StaticFileManager(
                             database,
                             app,
                             updateTimestamp,
-                            fileManager,
                             iconMinimumDensity = iconMinimumDensity
                         )
 
