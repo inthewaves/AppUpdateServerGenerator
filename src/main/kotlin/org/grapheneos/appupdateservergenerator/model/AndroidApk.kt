@@ -15,10 +15,10 @@ import org.grapheneos.appupdateservergenerator.apkparsing.XmlUtils
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveReference
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveString
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.Companion.buildFromApkAndVerifySignature
-import org.grapheneos.appupdateservergenerator.model.AndroidApk.Library
-import org.grapheneos.appupdateservergenerator.model.AndroidApk.NativeLibrary
-import org.grapheneos.appupdateservergenerator.model.AndroidApk.PackageDependency
-import org.grapheneos.appupdateservergenerator.model.AndroidApk.StaticLibrary
+import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesLibrary
+import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesNativeLibrary
+import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesPackage
+import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesStaticLibrary
 import org.grapheneos.appupdateservergenerator.util.implies
 import java.io.File
 import java.io.IOException
@@ -58,13 +58,13 @@ data class AndroidApk private constructor(
      * - [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2182)
      * - [Android Developers documentation on uses-library](https://developer.android.com/guide/topics/manifest/uses-library-element)
      *
-     * @see Library
+     * @see UsesLibrary
      */
-    val usesLibraries: List<Library>,
+    val usesLibraries: List<UsesLibrary>,
     /**
-     * @see NativeLibrary
+     * @see UsesNativeLibrary
      */
-    val usesNativeLibraries: List<NativeLibrary>,
+    val usesNativeLibraries: List<UsesNativeLibrary>,
     /**
      * Specifies a shared **static** library that this package requires to be statically
      * linked against. Specifying this tag tells the system to include this library's code
@@ -80,9 +80,9 @@ data class AndroidApk private constructor(
      *
      * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2209)
      *
-     * @see StaticLibrary
+     * @see UsesStaticLibrary
      */
-    val usesStaticLibraries: List<StaticLibrary>,
+    val usesStaticLibraries: List<UsesStaticLibrary>,
     /**
      * Specifies some kind of dependency on another package. It does not have any impact
      * on the app's execution on the device, but provides information about dependencies
@@ -90,9 +90,9 @@ data class AndroidApk private constructor(
      * this is primarily for installers to know what other apps need to be installed along
      * with this one.
      *
-     * @see PackageDependency
+     * @see UsesPackage
      */
-    val usesPackages: List<PackageDependency>,
+    val usesPackages: List<UsesPackage>,
     val verifyResult: ApkVerifyResult,
 ) {
 
@@ -106,7 +106,7 @@ data class AndroidApk private constructor(
      * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2182)
      */
     @Serializable
-    data class Library(
+    data class UsesLibrary(
         /** Required name of the library you use. */
         val name: PackageName,
         /**
@@ -128,9 +128,9 @@ data class AndroidApk private constructor(
             var name: String? = null,
             var required: Boolean = true // default is true
         ) {
-            fun buildIfPossible(): Library? {
+            fun buildIfPossible(): UsesLibrary? {
                 return if (name != null) {
-                    Library(PackageName(name!!), required)
+                    UsesLibrary(PackageName(name!!), required)
                 } else {
                     null
                 }
@@ -160,7 +160,7 @@ data class AndroidApk private constructor(
      * [Android Developers documentation](https://developer.android.com/guide/topics/manifest/uses-native-library-element)
      */
     @Serializable
-    data class NativeLibrary(
+    data class UsesNativeLibrary(
         /**
          * The name of the library file. See
          * [Adding additional native libraries](https://source.android.com/devices/tech/config/namespaces_libraries#adding-additional-native-libraries)
@@ -183,9 +183,9 @@ data class AndroidApk private constructor(
             var name: String? = null,
             var required: Boolean = true // defaults to true
         ) {
-            fun buildIfPossible(): NativeLibrary? {
+            fun buildIfPossible(): UsesNativeLibrary? {
                 return if (name != null) {
-                    NativeLibrary(name!!, required)
+                    UsesNativeLibrary(name!!, required)
                 } else {
                     null
                 }
@@ -234,7 +234,7 @@ data class AndroidApk private constructor(
      * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2209)
      */
     @Serializable
-    data class StaticLibrary(
+    data class UsesStaticLibrary(
         /** Required name of the library you use. */
         val name: PackageName,
         /** Specify which version of the shared library should be statically linked */
@@ -247,9 +247,9 @@ data class AndroidApk private constructor(
             var version: VersionCode? = null,
             override var certDigests: MutableList<HexString>? = null
         ) : CertDigestBuilder {
-            fun buildIfPossible(): StaticLibrary? {
+            fun buildIfPossible(): UsesStaticLibrary? {
                 return if (name != null && version != null && certDigests != null) {
-                    StaticLibrary(PackageName(name!!), version!!, certDigests!!)
+                    UsesStaticLibrary(PackageName(name!!), version!!, certDigests!!)
                 } else {
                     null
                 }
@@ -269,7 +269,7 @@ data class AndroidApk private constructor(
      * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2238)
      */
     @Serializable
-    data class PackageDependency(
+    data class UsesPackage(
         /**
          * Required type of association with the package, for example "android.package.ad_service"
          * if it provides an advertising service.  This should use the standard scoped naming
@@ -291,7 +291,7 @@ data class AndroidApk private constructor(
             var versionMajor: Int? = null,
             override var certDigests: MutableList<HexString>? = null
         ) : CertDigestBuilder {
-            fun buildIfPossible(): PackageDependency? {
+            fun buildIfPossible(): UsesPackage? {
                 return if (packageType != null && name != null) {
                     val versionCode = if (version != null) {
                         if (versionMajor != null) {
@@ -303,7 +303,7 @@ data class AndroidApk private constructor(
                         null
                     }
 
-                    PackageDependency(packageType!!, name!!, versionCode, certDigests)
+                    UsesPackage(packageType!!, name!!, versionCode, certDigests)
                 } else {
                     null
                 }
@@ -387,10 +387,10 @@ data class AndroidApk private constructor(
         var versionName: String? = null,
         var minSdkVersion: Int? = null,
         var debuggable: Boolean? = null,
-        var usesLibraries: List<Library>? = null,
-        var usesNativeLibraries: List<NativeLibrary>? = null,
-        var usesStaticLibraries: List<StaticLibrary>? = null,
-        var usesPackages: List<PackageDependency>? = null,
+        var usesLibraries: List<UsesLibrary>? = null,
+        var usesNativeLibraries: List<UsesNativeLibrary>? = null,
+        var usesStaticLibraries: List<UsesStaticLibrary>? = null,
+        var usesPackages: List<UsesPackage>? = null,
         var verifyResult: ApkVerifyResult? = null,
     ) {
         private val isBuildable: Boolean
@@ -511,10 +511,10 @@ data class AndroidApk private constructor(
                 androidManifestBytes.rewind()
 
                 val dependencies = getLibrariesAndDependenciesInBinaryAndroidManifest(androidManifestBytes)
-                builder.usesStaticLibraries = dependencies.staticLibs
+                builder.usesStaticLibraries = dependencies.usesStaticLibs
                 builder.usesLibraries = dependencies.libs
                 builder.usesPackages = dependencies.packageDeps
-                builder.usesNativeLibraries = dependencies.nativeLibs
+                builder.usesNativeLibraries = dependencies.usesNativeLibs
             } catch (e: ApkFormatException) {
                 throw IOException("failed to parse APK details: ${e.message}", e)
             } catch (e: NullPointerException) {
@@ -694,20 +694,20 @@ data class AndroidApk private constructor(
         }
 
         private data class Dependencies(
-            val staticLibs: List<StaticLibrary>,
-            val libs: List<Library>,
-            val packageDeps: List<PackageDependency>,
-            val nativeLibs: List<NativeLibrary>,
+            val usesStaticLibs: List<UsesStaticLibrary>,
+            val libs: List<UsesLibrary>,
+            val packageDeps: List<UsesPackage>,
+            val usesNativeLibs: List<UsesNativeLibrary>,
         )
 
         private fun getLibrariesAndDependenciesInBinaryAndroidManifest(
             androidManifestContents: ByteBuffer,
         ): Dependencies {
             try {
-                val staticLibraries = mutableListOf<StaticLibrary>()
-                val libraries = mutableListOf<Library>()
-                val packageDependencies = mutableListOf<PackageDependency>()
-                val nativeLibraries = mutableListOf<NativeLibrary>()
+                val staticLibraries = mutableListOf<UsesStaticLibrary>()
+                val libraries = mutableListOf<UsesLibrary>()
+                val packageDependencies = mutableListOf<UsesPackage>()
+                val nativeLibraries = mutableListOf<UsesNativeLibrary>()
 
                 parseForElement(
                     androidManifestContents,
@@ -725,7 +725,7 @@ data class AndroidApk private constructor(
                     ) { elementName ->
                         when (elementName) {
                             "uses-static-library" -> {
-                                val staticLibraryBuilder = StaticLibrary.Builder()
+                                val staticLibraryBuilder = UsesStaticLibrary.Builder()
                                 for (i in 0 until attributeCount) {
                                     when (getAttributeNameResourceId(i)) {
                                         NAME_ATTR_ID -> when (val type = getAttributeValueType(i)) {
@@ -810,7 +810,7 @@ data class AndroidApk private constructor(
                                 staticLibraries.add(staticLib)
                             }
                             "uses-native-library" -> {
-                                val nativeLibBuilder = NativeLibrary.Builder()
+                                val nativeLibBuilder = UsesNativeLibrary.Builder()
                                 for (i in 0 until attributeCount) {
                                     when (getAttributeNameResourceId(i)) {
                                         NAME_ATTR_ID -> {
@@ -859,7 +859,7 @@ data class AndroidApk private constructor(
                                 nativeLibraries.add(nativeLib)
                             }
                             "uses-library" -> {
-                                val libraryBuilder = Library.Builder()
+                                val libraryBuilder = UsesLibrary.Builder()
                                 for (i in 0 until attributeCount) {
                                     when (getAttributeNameResourceId(i)) {
                                         NAME_ATTR_ID -> {
@@ -908,7 +908,7 @@ data class AndroidApk private constructor(
                                 libraries.add(library)
                             }
                             "uses-package" -> {
-                                val packageDependencyBuilder = PackageDependency.Builder()
+                                val packageDependencyBuilder = UsesPackage.Builder()
 
                                 for (i in 0 until attributeCount) {
                                     when (val attrId = getAttributeNameResourceId(i)) {

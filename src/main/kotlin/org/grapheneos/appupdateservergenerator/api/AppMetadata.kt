@@ -93,9 +93,9 @@ data class AppMetadata(
          *
          * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2182)
          *
-         * @see AndroidApk.Library
+         * @see AndroidApk.UsesLibrary
          */
-        val usesLibraries: List<AndroidApk.Library>? = null,
+        val usesLibraries: List<AndroidApk.UsesLibrary>? = null,
         /**
          * Specifies a vendor-provided shared native library that the application must be linked against. This element tells
          * the system to make the native library accessible for the package.
@@ -115,9 +115,9 @@ data class AppMetadata(
          *
          * [Android Developers documentation](https://developer.android.com/guide/topics/manifest/uses-native-library-element)
          *
-         * @see AndroidApk.NativeLibrary
+         * @see AndroidApk.UsesNativeLibrary
          */
-        val usesNativeLibraries: List<AndroidApk.NativeLibrary>? = null,
+        val usesNativeLibraries: List<AndroidApk.UsesNativeLibrary>? = null,
         /**
          * Specifies a shared **static** library that this package requires to be statically
          * linked against. Specifying this tag tells the system to include this library's code
@@ -133,9 +133,9 @@ data class AppMetadata(
          *
          * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2209)
          *
-         * @see AndroidApk.StaticLibrary
+         * @see AndroidApk.UsesStaticLibrary
          */
-        val usesStaticLibraries: List<AndroidApk.StaticLibrary>? = null,
+        val usesStaticLibraries: List<AndroidApk.UsesStaticLibrary>? = null,
         /**
          * Specifies some kind of dependency on another package. It does not have any impact
          * on the app's execution on the device, but provides information about dependencies
@@ -143,9 +143,9 @@ data class AppMetadata(
          * this is primarily for installers to know what other apps need to be installed along
          * with this one.
          *
-         * @see AndroidApk.PackageDependency
+         * @see AndroidApk.UsesPackage
          */
-        val usesPackages: List<AndroidApk.PackageDependency>? = null,
+        val usesPackages: List<AndroidApk.UsesPackage>? = null,
         /** Set containing previous releases that have a delta available for this version. */
         val deltaInfo: Set<DeltaInfo>? = null,
         /**
