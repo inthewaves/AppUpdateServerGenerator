@@ -59,7 +59,8 @@ dependencies {
     implementation("com.squareup.sqldelight:sqlite-driver:1.5.0")
     // transitive dependency of com.squareup.sqldelight:sqlite-driver anyway, included for config options
     implementation("org.xerial:sqlite-jdbc:3.34.0")
-    implementation("org.bouncycastle:bcprov-jdk15on:1.68")
+    // to make verifying APKs with RSASSA-PSS signatures work
+    implementation("org.bouncycastle:bcprov-jdk15on:1.69")
 
     val jacksonVersion = "2.12.3"
     testImplementation("com.fasterxml.jackson.core:jackson-databind:$jacksonVersion")
