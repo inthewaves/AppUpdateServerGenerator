@@ -145,6 +145,7 @@ private class AppRepoManagerImpl(
      * @see AppRepoManager.validateRepo
      */
     override suspend fun validateRepo(): Unit = withContext(repoDispatcher) {
+        // TODO: rewrite this
         val packageDirs = fileManager.appDirectory.listFiles(FileFilter { it.isDirectory })
             ?.sortedBy { it.name }
             ?: throw IOException("unable to get directories")
@@ -159,11 +160,13 @@ private class AppRepoManagerImpl(
         openSSLInvoker.verifyFileWithSignatureHeader(fileManager.bulkAppMetadata, publicKey)
 
         val metadataFromDirs = AppMetadata.getAllAppMetadataFromDisk(fileManager)
-        val packagesFromDirectoryListing = packageDirs.mapTo(sortedSetOf()) { it.name }
+        val packagesFromDirectoryListing = packageDirs.mapTo(sortedSetOf()) { PackageName(it.name) }
         val packagesFromAllMetadataOnDisk = metadataFromDirs.mapTo(sortedSetOf()) { it.packageName }
         if (packagesFromDirectoryListing != packagesFromAllMetadataOnDisk) {
             val problemDirectories = packagesFromDirectoryListing symmetricDifference packagesFromAllMetadataOnDisk
-            throw AppRepoException.InvalidRepoState("some directories are not valid app directories: $problemDirectories")
+            throw AppRepoException.InvalidRepoState(
+                "some directories in ${fileManager.appDirectory} are not valid app directories: $problemDirectories"
+            )
         }
 
         val existingIndex = AppRepoIndex.readFromExistingIndexFile(fileManager)
@@ -220,6 +223,8 @@ private class AppRepoManagerImpl(
         }.trimEnd('\n')
         throw AppRepoException.InvalidRepoState(errorMessage)
     }
+
+    private val deltaApplicationSemaphore by lazy { Semaphore(MAX_CONCURRENT_DELTA_APPLIES_FOR_VERIFICATION) }
 
     private suspend fun validateAppDir(
         appDir: AppDir,
@@ -339,7 +344,6 @@ private class AppRepoManagerImpl(
 
         /** Accepts a triple of the form (baseFile, deltaFile, expectedFile) */
         val deltaVerificationChannel = actor<Triple<AndroidApk, File, AndroidApk>> {
-            val deltaApplicationSemaphore = Semaphore(MAX_CONCURRENT_DELTA_APPLIES_FOR_VERIFICATION)
             coroutineScope {
                 for ((baseFile, deltaFile, expectedFile) in channel) {
                     launch {

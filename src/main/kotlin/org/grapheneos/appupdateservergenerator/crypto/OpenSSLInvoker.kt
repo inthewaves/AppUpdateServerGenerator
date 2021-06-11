@@ -139,16 +139,20 @@ class OpenSSLInvoker(apkSignerPath: Path = Path.of("openssl")) : Invoker(executa
             }
 
     /**
+     * Verifies a file with a signature header as described by [SignatureHeaderInputStream]
+     *
      * @throws GeneralSecurityException
      * @throws IOException
      */
     fun verifyFileWithSignatureHeader(file: File, publicKeyFile: File) {
         TempFile.create("verifyFileWithSignatureHeader").useFile { tempFileToVerify ->
+            file.copyTo(tempFileToVerify, overwrite = true)
+            val base64Signature = tempFileToVerify.removeFirstLine()
+                ?.split(' ')
+                ?.last() // the first string is the length of the signature
+                ?.let(Base64String.Companion::fromBase64)
+                ?: throw GeneralSecurityException("missing signature header")
             TempFile.create("signature").useFile { tempSignatureFile ->
-                file.copyTo(tempFileToVerify, overwrite = true)
-                val base64Signature = Base64String.fromBase64(
-                    tempFileToVerify.removeFirstLine() ?: throw GeneralSecurityException("missing signature header")
-                )
                 tempSignatureFile.outputStream().buffered().use { it.write(base64Signature.bytes) }
 
                 val verifyProcess = ProcessBuilder(
