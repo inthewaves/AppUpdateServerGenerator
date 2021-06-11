@@ -441,7 +441,7 @@ data class AndroidApk private constructor(
     /**
      * Returns whether `this` [AndroidApk] satisfies the given [usesStaticLibrary] requirement.
      */
-    fun isSatisfyUsesStaticLibrary(usesStaticLibrary: UsesStaticLibrary): Boolean {
+    fun isMatchingUsesStaticLibrary(usesStaticLibrary: UsesStaticLibrary): Boolean {
         if (staticLibrary == null) return false
         if (staticLibrary.name != usesStaticLibrary.name || staticLibrary.version != usesStaticLibrary.version) {
             return false
@@ -570,9 +570,11 @@ data class AndroidApk private constructor(
                 builder.label = getLabelInBinaryAndroidManifest(androidManifestBytes, resourceTableChunk)
                 androidManifestBytes.rewind()
 
-                // Use ApkUtils from the apksig library, since it handles edge cases such as missing elements.
-                val packageName = PackageName(ApkUtils.getPackageNameFromBinaryAndroidManifest(androidManifestBytes))
-                builder.packageName = packageName
+                // Use ApkUtils from the apksig library, since it handles edge cases such as missing elements
+                // and resolving codenames for minSdkVersion.
+                // This might be slower than just parsing the APK once, but it's more correct and results in less
+                // code to maintain.
+                builder.packageName = PackageName(ApkUtils.getPackageNameFromBinaryAndroidManifest(androidManifestBytes))
                 androidManifestBytes.rewind()
                 builder.versionCode = VersionCode(ApkUtils.getLongVersionCodeFromBinaryAndroidManifest(androidManifestBytes))
                 androidManifestBytes.rewind()

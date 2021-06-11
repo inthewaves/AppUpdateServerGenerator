@@ -685,47 +685,49 @@ private class AppRepoManagerImpl(
         coroutineScope {
             packageApkGroupsToInsert.forEach { apkGroup ->
                 launch {
-                    apkGroup.sortedApks.forEach { apk ->
-                        if (apk.debuggable) {
+                    apkGroup.sortedApks.forEach { apkToVerify ->
+                        if (apkToVerify.debuggable) {
                             errorsAndWarnings.sendError(
-                                "${apk.apkFile} is marked as debuggable, which is not allowed for security reasons. " +
+                                "${apkToVerify.apkFile} is marked as debuggable, which is not allowed for security reasons. " +
                                         "The Android platform loosens security checks for such APKs."
                             )
                         }
 
                         // Verify that the static libraries are present in the repo, because static libraries are
                         // strictly required for an app to run.
-                        apk.usesStaticLibraries.forEach useStaticLibrariesCheck@{ usesStaticLib ->
+                        apkToVerify.usesStaticLibraries.forEach useStaticLibrariesCheck@{ usesStaticLib ->
                             println(
-                                "verifying ${apk.packageName}'s (versionCode ${apk.versionCode.code}) " +
+                                "verifying ${apkToVerify.packageName}'s (versionCode ${apkToVerify.versionCode.code}) " +
                                         "dependency: $usesStaticLib'"
                             )
 
                             // We have to search through all of the APKs, since the static library name and version
                             // can be different from the APK's package and version.
                             //
-                            // Get the possible APKs from the repo (we can do it precisely because we have the
-                            // information in the database), and additionally consider all the input APKs as
-                            // possibilities for providing this static library dependency.
+                            // First, get the possible APKs from the repo (we can do it precisely because we have the
+                            // information in the database).
                             val possibleStaticLibApksFromRepo: Sequence<AndroidApk> =
                                 dbWrapper.transactionWithResult<List<SelectByStaticLibrary>> { db ->
                                     db.appReleaseQueries
                                         .selectByStaticLibrary(usesStaticLib.name, usesStaticLib.version)
                                         .executeAsList()
                                 }.asSequence()
-                                    .map {
+                                    .map { (packageThatHasTheStaticLib, apkVersionCode) ->
                                         AndroidApk.buildFromApkAndVerifySignature(
-                                            fileManager.getVersionedApk(it.packageName, it.versionCode)
+                                            fileManager.getVersionedApk(packageThatHasTheStaticLib, apkVersionCode)
                                         )
                                     }
+                            // Also, consider all the input APKs as possibilities for providing this static library
+                            // dependency. We cannot filter by name
                             val possibleStaticLibApksFromInput: Sequence<AndroidApk> = packageApkGroupsToInsert
                                 .asSequence()
                                 .flatMap { it.sortedApks }
+                                .filter { it.staticLibrary != null && it.staticLibrary.name == usesStaticLib.name }
 
                             val warnings = mutableListOf<String>()
                             (possibleStaticLibApksFromRepo + possibleStaticLibApksFromInput)
                                 .forEach { apk ->
-                                    if (apk.isSatisfyUsesStaticLibrary(usesStaticLib)) {
+                                    if (apk.isMatchingUsesStaticLibrary(usesStaticLib)) {
                                         // We found a satisfying static library, so it passes.
                                         // Don't bother reporting the warnings.
                                         return@useStaticLibrariesCheck
@@ -733,46 +735,60 @@ private class AppRepoManagerImpl(
                                         apk.staticLibrary != null &&
                                         apk.staticLibrary.name == usesStaticLib.name
                                     ) {
-                                        // Report these as warnings. An error is only reported once we have
-                                        // gone through all possible candidates that can provide this shared library
+                                        // Report these as warnings, since we found static libraries with same name but
+                                        // mismatched properties. We'll only show these warnings if we can't find an APK
+                                        // that provides this static library.
                                         if (apk.staticLibrary.version != usesStaticLib.version) {
                                             warnings.add(
                                                 "the APK ${apk.apkFile} provides static library " +
-                                                        "${apk.staticLibrary}, but version is different"
+                                                        "${apk.staticLibrary.name}," +
+                                                        "\n  but it provides version ${apk.staticLibrary.version.code} " +
+                                                        "while ${apkToVerify.packageName} requires version " +
+                                                        "${usesStaticLib.version.code}"
                                             )
                                         }
                                         if (apk.signingCertSha256Digests != usesStaticLib.certDigests) {
                                             warnings.add(
                                                 "the APK ${apk.apkFile} provides static library " +
-                                                        "${apk.staticLibrary}, but the certDigests differ. " +
-                                                        "cert digests of the APK: " +
-                                                        "${apk.signingCertSha256Digests}"
+                                                        "${apk.staticLibrary.name}, but the certDigests differ. " +
+                                                        "\n  cert digests of the static library APK: " +
+                                                        "${apk.signingCertSha256Digests.map { it.hex }}"
                                             )
                                         }
                                     }
                                 }
 
                             // If we're here, we went through all possible APKs that can provide the static library
-                            // and didn't find any. Report the warnings first, and then the error.
-                            warnings.forEach { errorsAndWarnings.sendWarning(it) }
-                            errorsAndWarnings.sendError(
-                                "trying to insert ${apk.packageName} (versionCode ${apk.versionCode.code}), " +
-                                        "and it depends on $usesStaticLib; however, " +
-                                        "unable to find a suitable app in either the repo or the APK arguments " +
-                                        "providing the static library"
-                            )
+                            // and didn't find any.
+                            val errorString = buildString {
+                                append("trying to insert ${apkToVerify.packageName} (versionCode ${apkToVerify.versionCode.code}), ")
+                                append("but it depends on static library ${usesStaticLib.name}, with version ")
+                                appendLine("${usesStaticLib.version.code}, ")
+                                append("and cert digests ")
+                                appendLine(usesStaticLib.certDigests.map { it.hex })
+                                append("however, unable to find a suitable APK in either the repo or the given ")
+                                append("arguments providing the static library")
+                                if (warnings.isNotEmpty()) {
+                                    appendLine()
+                                    warnings.forEach { warning ->
+                                        append("- ")
+                                        appendLine(warning)
+                                    }
+                                }
+                            }
+                            errorsAndWarnings.sendError(errorString)
                         }
 
                         // Verify that the uses-library tag is satisfied.
-                        apk.usesLibraries.forEach { library ->
+                        apkToVerify.usesLibraries.forEach { library ->
                             if (library.required) {
                                 println(
-                                    "verifying ${apk.packageName}'s (versionCode ${apk.versionCode.code})" +
+                                    "verifying ${apkToVerify.packageName}'s (versionCode ${apkToVerify.versionCode.code})" +
                                             "hard dependency on $library'"
                                 )
                             } else {
                                 println(
-                                    "verifying ${apk.packageName} (versionCode ${apk.versionCode.code})'s " +
+                                    "verifying ${apkToVerify.packageName} (versionCode ${apkToVerify.versionCode.code})'s " +
                                             "soft dependency on $library'"
                                 )
                             }
@@ -783,14 +799,14 @@ private class AppRepoManagerImpl(
                                 if (library.required) {
                                     // TODO: evaluate whether we should error or warning
                                     errorsAndWarnings.sendWarning(
-                                        "trying to insert ${apk.packageName} ${apk.versionCode}, " +
+                                        "trying to insert ${apkToVerify.packageName} ${apkToVerify.versionCode}, " +
                                                 "and it depends on $library; however, " +
                                                 "the library cannot be found in either " +
                                                 "the supplied APKs or in the existing repo files"
                                     )
                                 } else {
                                     errorsAndWarnings.sendWarning(
-                                        "${apk.packageName} (versionCode ${apk.versionCode.code}) has a " +
+                                        "${apkToVerify.packageName} (versionCode ${apkToVerify.versionCode.code}) has a " +
                                                 "uses-library dependency on $library, but was unable to find the " +
                                                 "library in either the repository or in the given packages for " +
                                                 "insertion"
@@ -799,9 +815,9 @@ private class AppRepoManagerImpl(
                             }
                         }
 
-                        apk.usesPackages.forEach usesPackagesCheck@{ packageDep ->
+                        apkToVerify.usesPackages.forEach usesPackagesCheck@{ packageDep ->
                             println(
-                                "verifying ${apk.packageName}'s (versionCode ${apk.versionCode.code}) " +
+                                "verifying ${apkToVerify.packageName}'s (versionCode ${apkToVerify.versionCode.code}) " +
                                         "uses-package dependency on $packageDep'"
                             )
 
@@ -849,7 +865,7 @@ private class AppRepoManagerImpl(
 
                             if (!areThereAnyApksThatSatisfyPackageDependency) {
                                 errorsAndWarnings.sendWarning(
-                                    "${apk.packageName} (versionCode ${apk.versionCode.code}) has a " +
+                                    "${apkToVerify.packageName} (versionCode ${apkToVerify.versionCode.code}) has a " +
                                             "uses-package dependency on $packageDep, but was unable to find a " +
                                             "suitable package in either the repository or in the given packages " +
                                             "for insertion"
