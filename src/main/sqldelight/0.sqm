@@ -26,12 +26,25 @@ CREATE TABLE AppRelease (
     /** A sha256 checksum of the APK Signature Scheme v4 signature. If this is null, the APK wasn't
 signed using the v4 scheme; otherwise, clients should expect to find the `.apk.idsig` file next to the APK. */
     v4SigSha256 TEXT AS Base64String,
+    /** If the APK has a `static-library` tag, this is its `android:name` attribute. */
+    staticLibraryName TEXT,
+    /** If the APK has a `static-library` tag, this is its `android:version` and android:versionMajor attributes combined. */
+    staticLibraryVersion INTEGER AS VersionCode,
     /** Optional release notes for this release. This can be in Markdown (flavor configured in
-[org.grapheneos.appupdateservergenerator.api.MarkdownProcessor]) or HTML. Contents will be compressed
-during metadata generation, but contents in the database are left as is. */
+[org.grapheneos.appupdateservergenerator.api.MarkdownProcessor]) or HTML. Contents will be
+compressed during metadata generation, but contents in the database are left as is. */
     releaseNotes TEXT,
     PRIMARY KEY(packageName, versionCode)
 );
 CREATE INDEX AppRelease_covering ON AppRelease(
-    packageName, versionCode, versionName, minSdkVersion, releaseTimestamp, apkSha256, releaseNotes
+    packageName,
+    versionCode,
+    versionName,
+    minSdkVersion,
+    releaseTimestamp,
+    apkSha256,
+    v4SigSha256,
+    staticLibraryName,
+    staticLibraryVersion,
+    releaseNotes
 );

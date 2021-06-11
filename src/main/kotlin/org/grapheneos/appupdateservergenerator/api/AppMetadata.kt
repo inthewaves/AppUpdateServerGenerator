@@ -94,7 +94,7 @@ data class AppMetadata(
          *
          * @see AndroidApk.StaticLibrary
          */
-        val staticLibrary: AndroidApk.StaticLibrary?,
+        val staticLibrary: AndroidApk.StaticLibrary? = null,
         /**
          * `uses-libraries` specifies a shared library that this package requires to be linked against.
          * Specifying this flag tells the system to include this library's code in your class loader.
@@ -325,8 +325,8 @@ fun AppRelease.toSerializableModelAndVerify(
     val appReleaseFromApk = apk.toAppReleaseDbModel(releaseTimestamp, releaseNotes)
     if (this != appReleaseFromApk) {
         println(
-            "warning: app release info in the database for $versionCode doesn't match the one " +
-                    "generated from ${apk.apkFile} for $packageName"
+            "warning: for $packageName, app release info in the database for $versionCode doesn't match the one " +
+                    "generated from ${apk.apkFile} "
         )
     }
 
@@ -351,5 +351,7 @@ fun AndroidApk.toAppReleaseDbModel(releaseTimestamp: UnixTimestamp, releaseNotes
     v4SigSha256 = (verifyResult as? ApkVerifyResult.V4)?.v4SignatureFile
         ?.digest("SHA-256")
         ?.encodeToBase64String(),
+    staticLibraryName = staticLibrary?.name,
+    staticLibraryVersion = staticLibrary?.version,
     releaseNotes = releaseNotes
 )

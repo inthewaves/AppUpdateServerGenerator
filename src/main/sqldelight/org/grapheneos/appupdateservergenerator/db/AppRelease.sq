@@ -41,5 +41,8 @@ UPDATE AppRelease SET releaseNotes = ?, releaseTimestamp = ? WHERE packageName =
 selectByAppAndVersion:
 SELECT * FROM AppRelease WHERE packageName = ? AND versionCode = ?;
 
+selectByStaticLibrary:
+SELECT packageName, versionCode FROM AppRelease WHERE staticLibraryName = ? AND staticLibraryVersion = ?;
+
 insert:
 INSERT INTO AppRelease VALUES ?;

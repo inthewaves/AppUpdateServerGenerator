@@ -128,16 +128,15 @@ class AppDao(private val fileManager: FileManager) {
                     println("copied $originalV4SigFile to $v4SigInRepo")
                 }
 
-                database.appReleaseQueries.insert(
-                    apkToInsert.toAppReleaseDbModel(
-                        releaseTimestamp = releaseTimestamp,
-                        releaseNotes = if (apkToInsert.versionCode == mostRecentApk.versionCode) {
-                            releaseNotesForMostRecentVersion
-                        } else {
-                            null
-                        }
-                    )
+                val release = apkToInsert.toAppReleaseDbModel(
+                    releaseTimestamp = releaseTimestamp,
+                    releaseNotes = if (apkToInsert.versionCode == mostRecentApk.versionCode) {
+                        releaseNotesForMostRecentVersion
+                    } else {
+                        null
+                    }
                 )
+                database.appReleaseQueries.insert(release)
             }
         }
     }

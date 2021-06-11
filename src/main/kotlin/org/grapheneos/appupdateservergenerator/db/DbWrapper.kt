@@ -233,7 +233,8 @@ class DbWrapper private constructor(fileManager: FileManager) {
                 releaseTimestampAdapter = unixTimestampAdapter,
                 apkSha256Adapter = base64StringAdapter,
                 v4SigSha256Adapter = base64StringAdapter,
-                packageNameAdapter = packageNameAdapter
+                packageNameAdapter = packageNameAdapter,
+                staticLibraryVersionAdapter = versionCodeAdapter
             )
         }
     }

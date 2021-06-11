@@ -21,6 +21,7 @@ import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesLibrary
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesNativeLibrary
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesPackage
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesStaticLibrary
+import org.grapheneos.appupdateservergenerator.util.digest
 import org.grapheneos.appupdateservergenerator.util.implies
 import java.io.File
 import java.io.IOException
@@ -104,6 +105,13 @@ data class AndroidApk private constructor(
     val usesPackages: List<UsesPackage>,
     val verifyResult: ApkVerifyResult,
 ) {
+    val signingCertSha256Digests: Set<HexString> by lazy {
+        verifyResult.result.signerCertificates
+            .mapTo(mutableSetOf()) {
+                it.encoded.digest("SHA-256").encodeToHexString()
+            }
+    }
+
 
     /**
      * The `static-library` tag declares that this apk is providing itself
@@ -234,7 +242,7 @@ data class AndroidApk private constructor(
     }
 
     interface CertDigestBuilder {
-        var certDigests: MutableList<HexString>?
+        var certDigests: MutableSet<HexString>?
         /**
          * @throws ApkFormatException
          */
@@ -243,14 +251,14 @@ data class AndroidApk private constructor(
             // emitted by the certtool making it easy for developers to copy/paste.
             // https://android.googlesource.com/platform/frameworks/base/+/1c0577193b6060ecea4d516a732db12d1b99e297/core/java/android/content/pm/parsing/ParsingPackageUtils.java#2133
             val certSha256Digest = try {
-                // Note: This handles lowercasing for us.
+                // Note: fromHex handles lowercasing for us.
                 HexString.fromHex(digest.replace(":", ""))
             } catch (e: IllegalArgumentException) {
                 throw ApkFormatException("Bad uses-static-library declaration: bad certDigest $digest", e)
             }
 
             if (certDigests == null) {
-                certDigests = mutableListOf(certSha256Digest)
+                certDigests = mutableSetOf(certSha256Digest)
             } else {
                 certDigests!!.add(certSha256Digest)
             }
@@ -278,20 +286,20 @@ data class AndroidApk private constructor(
     @Serializable
     data class UsesStaticLibrary(
         /** Required name of the library you use. */
-        val name: PackageName,
+        val name: String,
         /** Specify which version of the shared library should be statically linked */
         val version: VersionCode,
         /** The SHA-256 digest(s) of the library signing certificate(s). */
-        val certDigests: List<HexString>
+        val certDigests: Set<HexString>
     ) {
         data class Builder(
             var name: String? = null,
             var version: VersionCode? = null,
-            override var certDigests: MutableList<HexString>? = null
+            override var certDigests: MutableSet<HexString>? = null
         ) : CertDigestBuilder {
             fun buildIfPossible(): UsesStaticLibrary? {
                 return if (name != null && version != null && certDigests != null) {
-                    UsesStaticLibrary(PackageName(name!!), version!!, certDigests!!)
+                    UsesStaticLibrary(name!!, version!!, certDigests!!)
                 } else {
                     null
                 }
@@ -324,14 +332,14 @@ data class AndroidApk private constructor(
         /** Optional minimum version of the package that satisfies the dependency. */
         val minimumVersion: VersionCode?,
         /** Optional SHA-256 digest(s) of the package signing certificate(s). */
-        val certDigests: List<HexString>?
+        val certDigests: Set<HexString>?
     ) {
         data class Builder(
             var packageType: String? = null,
             var name: PackageName? = null,
             var version: Int? = null,
             var versionMajor: Int? = null,
-            override var certDigests: MutableList<HexString>? = null
+            override var certDigests: MutableSet<HexString>? = null
         ) : CertDigestBuilder {
             fun buildIfPossible(): UsesPackage? {
                 return if (packageType != null && name != null) {
@@ -418,6 +426,18 @@ data class AndroidApk private constructor(
             return AppIcon(packageName, iconBytes, Density.fromDpi(icon.config.density()) ?: minimumDensity)
                 .also { _icon = it  }
         }
+    }
+
+    /**
+     * Returns whether `this` [AndroidApk] satisfies the given [usesStaticLibrary] requirement.
+     */
+    fun isSatisfyUsesStaticLibrary(usesStaticLibrary: UsesStaticLibrary): Boolean {
+        if (staticLibrary == null) return false
+        if (staticLibrary.name != usesStaticLibrary.name || staticLibrary.version != usesStaticLibrary.version) {
+            return false
+        }
+
+        return signingCertSha256Digests == usesStaticLibrary.certDigests
     }
 
     data class Builder(
@@ -878,7 +898,7 @@ data class AndroidApk private constructor(
                                                     val libraryName = getAttributeStringValue(i)
 
                                                     // Can depend only on one version of the same library
-                                                    if (usesStaticLibs.find { it.name.pkg == libraryName } != null) {
+                                                    if (usesStaticLibs.find { it.name == libraryName } != null) {
                                                         throw ApkFormatException(
                                                             "Depending on multiple versions of static library $libraryName"
                                                         )
@@ -991,7 +1011,8 @@ data class AndroidApk private constructor(
                                                     }
                                                     else -> {
                                                         throw ApkFormatException(
-                                                            "Bad uses-native-library declaration: bad required attribute"
+                                                            "Bad uses-native-library declaration: " +
+                                                                    "bad required attribute --- had type $type"
                                                         )
                                                     }
                                                 }

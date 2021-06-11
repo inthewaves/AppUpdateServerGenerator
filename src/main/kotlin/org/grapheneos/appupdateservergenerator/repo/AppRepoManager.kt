@@ -27,6 +27,7 @@ import org.grapheneos.appupdateservergenerator.db.App
 import org.grapheneos.appupdateservergenerator.db.AppDao
 import org.grapheneos.appupdateservergenerator.db.AppRelease
 import org.grapheneos.appupdateservergenerator.db.DbWrapper
+import org.grapheneos.appupdateservergenerator.db.SelectByStaticLibrary
 import org.grapheneos.appupdateservergenerator.files.AppDir
 import org.grapheneos.appupdateservergenerator.files.FileManager
 import org.grapheneos.appupdateservergenerator.files.TempFile
@@ -679,6 +680,8 @@ private class AppRepoManagerImpl(
                 }
         }
 
+
+
         coroutineScope {
             packageApkGroupsToInsert.forEach { apkGroup ->
                 launch {
@@ -692,47 +695,79 @@ private class AppRepoManagerImpl(
 
                         // Verify that the static libraries are present in the repo, because static libraries are
                         // strictly required for an app to run.
-                        apk.usesStaticLibraries.forEach useStaticLibraries@{ staticLibrary ->
+                        apk.usesStaticLibraries.forEach useStaticLibrariesCheck@{ usesStaticLib ->
                             println(
-                                "verifying ${apk.packageName} (versionCode ${apk.versionCode.code})'s " +
-                                        "dependency on $staticLibrary'"
+                                "verifying ${apk.packageName}'s (versionCode ${apk.versionCode.code}) " +
+                                        "dependency: $usesStaticLib'"
                             )
-                            val staticLibraryApk: AndroidApk =
-                                findApkInRepo(staticLibrary.name, staticLibrary.version)
-                                    ?: findApkInGivenPackagesToInsert(staticLibrary.name, staticLibrary.version)
-                                    ?: errorsAndWarnings.send(
-                                        VerificationMessage.Error(
-                                            "trying to insert ${apk.packageName} ${apk.versionCode}, " +
-                                                    "and it depends on $staticLibrary; however, " +
-                                                    "the static library cannot be found in either " +
-                                                    "the supplied APKs or in the existing repo files"
+
+                            // We have to search through all of the APKs, since the static library name and version
+                            // can be different from the APK's package and version.
+                            //
+                            // Get the possible APKs from the repo (we can do it precisely because we have the
+                            // information in the database), and additionally consider all the input APKs as
+                            // possibilities for providing this static library dependency.
+                            val possibleStaticLibApksFromRepo: Sequence<AndroidApk> =
+                                dbWrapper.transactionWithResult<List<SelectByStaticLibrary>> { db ->
+                                    db.appReleaseQueries
+                                        .selectByStaticLibrary(usesStaticLib.name, usesStaticLib.version)
+                                        .executeAsList()
+                                }.asSequence()
+                                    .map {
+                                        AndroidApk.buildFromApkAndVerifySignature(
+                                            fileManager.getVersionedApk(it.packageName, it.versionCode)
                                         )
-                                    ).let {
-                                        return@useStaticLibraries
                                     }
-
-                            val certDigestFromStaticLibApk: Set<HexString> = staticLibraryApk.verifyResult.result
-                                .signerCertificates
+                            val possibleStaticLibApksFromInput: Sequence<AndroidApk> = packageApkGroupsToInsert
                                 .asSequence()
-                                .map { it.encoded.digest("SHA-256").encodeToHexString() }
-                                .toSet()
+                                .flatMap { it.sortedApks }
 
-                            if (certDigestFromStaticLibApk != staticLibrary.certDigests.toHashSet()) {
-                                errorsAndWarnings.sendError(
-                                    "trying to insert ${apk.packageName} (versionCode ${apk.versionCode.code}), " +
-                                            "and it depends on $staticLibrary; however, " +
-                                            "the static library has certificate digests ${staticLibrary.certDigests} " +
-                                            "but the located static library in the app / parameters has certificate " +
-                                            "digests $certDigestFromStaticLibApk"
-                                )
-                            }
+                            val warnings = mutableListOf<String>()
+                            (possibleStaticLibApksFromRepo + possibleStaticLibApksFromInput)
+                                .forEach { apk ->
+                                    if (apk.isSatisfyUsesStaticLibrary(usesStaticLib)) {
+                                        // We found a satisfying static library, so it passes.
+                                        // Don't bother reporting the warnings.
+                                        return@useStaticLibrariesCheck
+                                    } else if (
+                                        apk.staticLibrary != null &&
+                                        apk.staticLibrary.name == usesStaticLib.name
+                                    ) {
+                                        // Report these as warnings. An error is only reported once we have
+                                        // gone through all possible candidates that can provide this shared library
+                                        if (apk.staticLibrary.version != usesStaticLib.version) {
+                                            warnings.add(
+                                                "the APK ${apk.apkFile} provides static library " +
+                                                        "${apk.staticLibrary}, but version is different"
+                                            )
+                                        }
+                                        if (apk.signingCertSha256Digests != usesStaticLib.certDigests) {
+                                            warnings.add(
+                                                "the APK ${apk.apkFile} provides static library " +
+                                                        "${apk.staticLibrary}, but the certDigests differ. " +
+                                                        "cert digests of the APK: " +
+                                                        "${apk.signingCertSha256Digests}"
+                                            )
+                                        }
+                                    }
+                                }
+
+                            // If we're here, we went through all possible APKs that can provide the static library
+                            // and didn't find any. Report the warnings first, and then the error.
+                            warnings.forEach { errorsAndWarnings.sendWarning(it) }
+                            errorsAndWarnings.sendError(
+                                "trying to insert ${apk.packageName} (versionCode ${apk.versionCode.code}), " +
+                                        "and it depends on $usesStaticLib; however, " +
+                                        "unable to find a suitable app in either the repo or the APK arguments " +
+                                        "providing the static library"
+                            )
                         }
 
                         // Verify that the uses-library tag is satisfied.
                         apk.usesLibraries.forEach { library ->
                             if (library.required) {
                                 println(
-                                    "verifying ${apk.packageName} (versionCode ${apk.versionCode.code})'s " +
+                                    "verifying ${apk.packageName}'s (versionCode ${apk.versionCode.code})" +
                                             "hard dependency on $library'"
                                 )
                             } else {
@@ -765,7 +800,7 @@ private class AppRepoManagerImpl(
 
                         apk.usesPackages.forEach usesPackagesCheck@{ packageDep ->
                             println(
-                                "verifying ${apk.packageName} (versionCode ${apk.versionCode.code})'s " +
+                                "verifying ${apk.packageName}'s (versionCode ${apk.versionCode.code}) " +
                                         "uses-package dependency on $packageDep'"
                             )
 
