@@ -52,8 +52,11 @@ value class VersionCode(val code: Long) : Comparable<VersionCode> {
         /**
          * https://android.googlesource.com/platform/frameworks/base/+/1c0577193b6060ecea4d516a732db12d1b99e297/core/java/android/content/pm/PackageInfo.java#87
          */
-        fun fromMajorMinor(major: Int, minor: Int) =
-            VersionCode((major.toLong() shl 32) or (minor.toLong() and 0xffffffffL))
+        fun composeLongVersionCode(versionMajor: Int, versionMinor: Int): Long =
+            (versionMajor.toLong() shl 32) or (versionMinor.toLong() and 0xffffffffL)
+
+        fun fromMajorMinor(major: Int, minor: Int) = VersionCode(composeLongVersionCode(major, minor))
+
         fun fromMinor(minor: Int) = VersionCode(minor.toLong() and 0xffffffffL)
     }
 }

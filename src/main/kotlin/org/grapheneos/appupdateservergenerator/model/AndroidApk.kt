@@ -11,10 +11,12 @@ import com.google.devrel.gmscore.tools.apk.arsc.ResourceTableChunk
 import kotlinx.serialization.Serializable
 import org.grapheneos.appupdateservergenerator.apkparsing.BinaryResAndConfig
 import org.grapheneos.appupdateservergenerator.apkparsing.BinaryResourceConfigBuilder
+import org.grapheneos.appupdateservergenerator.apkparsing.ParsingPackageUtils
 import org.grapheneos.appupdateservergenerator.apkparsing.XmlUtils
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveReference
 import org.grapheneos.appupdateservergenerator.apkparsing.resolveString
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.Companion.buildFromApkAndVerifySignature
+import org.grapheneos.appupdateservergenerator.model.AndroidApk.StaticLibrary
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesLibrary
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesNativeLibrary
 import org.grapheneos.appupdateservergenerator.model.AndroidApk.UsesPackage
@@ -49,6 +51,13 @@ data class AndroidApk private constructor(
      * @see ApkSigner.Builder.setDebuggableApkPermitted
      */
     val debuggable: Boolean,
+    /**
+     * Represents a `static-library` tag in the manifest. This is optional; it will be non-null iff the app's manifest
+     * declares a valid `static-library` tag.
+     *
+     * @see StaticLibrary
+     */
+    val staticLibrary: StaticLibrary?,
     /**
      * `uses-library` specifies a shared library that this package requires to be linked against.
      * Specifying this flag tells the system to include this library's code in your class loader.
@@ -95,6 +104,37 @@ data class AndroidApk private constructor(
     val usesPackages: List<UsesPackage>,
     val verifyResult: ApkVerifyResult,
 ) {
+
+    /**
+     * The `static-library` tag declares that this apk is providing itself
+     * as a static shared library for other applications to use. Any app can declare such
+     * a library and there can be only one static shared library per package. These libraries
+     * are updatable, multiple versions can be installed at the same time, and an app links
+     * against a specific version simulating static linking while allowing code sharing.
+     * Other apks can link to it with the `uses-static-library`)
+     * tag.
+     *
+     * @see UsesStaticLibrary
+     */
+    @Serializable
+    data class StaticLibrary(
+        val name: String,
+        val version: VersionCode
+    ) {
+        data class Builder(
+            var name: String? = null,
+            var version: Int? = null,
+            var versionMajor: Int = 0,
+        ) {
+            fun buildIfPossible(): StaticLibrary? {
+                return if (name != null && version != null) {
+                    StaticLibrary(name!!, VersionCode.fromMajorMinor(versionMajor, version!!))
+                } else {
+                    null
+                }
+            }
+        }
+    }
 
     /**
      * `uses-libraries` specifies a shared library that thi spackage requires to be linked against.
@@ -232,6 +272,8 @@ data class AndroidApk private constructor(
      * This appears as a child tag of the AndroidManifest `application` tag.
      *
      * [Source declaration](https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/res/res/values/attrs_manifest.xml#2209)
+     *
+     * @see StaticLibrary
      */
     @Serializable
     data class UsesStaticLibrary(
@@ -387,6 +429,7 @@ data class AndroidApk private constructor(
         var versionName: String? = null,
         var minSdkVersion: Int? = null,
         var debuggable: Boolean? = null,
+        var staticLibrary: StaticLibrary? = null,
         var usesLibraries: List<UsesLibrary>? = null,
         var usesNativeLibraries: List<UsesNativeLibrary>? = null,
         var usesStaticLibraries: List<UsesStaticLibrary>? = null,
@@ -417,6 +460,7 @@ data class AndroidApk private constructor(
                     versionName = versionName!!,
                     minSdkVersion = minSdkVersion!!,
                     debuggable = debuggable!!,
+                    staticLibrary = staticLibrary /* optional */,
                     usesLibraries = usesLibraries!!,
                     usesNativeLibraries = usesNativeLibraries!!,
                     usesStaticLibraries = usesStaticLibraries!!,
@@ -430,6 +474,11 @@ data class AndroidApk private constructor(
     }
 
     companion object {
+        /*
+        Values from
+        https://android.googlesource.com/platform/frameworks/base/+/7b02279e0ab3000f1d353992e9059db5d5b3cbfd/core/res/res/values/public.xml
+        */
+
         /** Android resource ID of the `android:label` attribute in AndroidManifest.xml. */
         private const val LABEL_ATTR_ID = 0x01010001
         /** Android resource ID of the `android:name` attribute in AndroidManifest.xml. */
@@ -444,6 +493,8 @@ data class AndroidApk private constructor(
         private const val REQUIRED_ATTR_ID = 0x0101028e
         /** Android resource ID of the `android:packageType` attribute in AndroidManifest.xml. */
         private const val PACKAGE_TYPE_ATTR_ID = 0x01010587
+        /** Android resource ID of the `android:sharedUserId` attribute in AndroidManifest.xml. */
+        private const val SHARED_USER_ID_ATTR_ID = 0x0101000b
 
         /** Android resource ID of the `android:versionName` attribute in AndroidManifest.xml. */
         private const val VERSION_NAME_ATTR = 0x0101021c
@@ -510,11 +561,12 @@ data class AndroidApk private constructor(
                 builder.debuggable = ApkUtils.getDebuggableFromBinaryAndroidManifest(androidManifestBytes)
                 androidManifestBytes.rewind()
 
-                val dependencies = getLibrariesAndDependenciesInBinaryAndroidManifest(androidManifestBytes)
+                val dependencies = getDependenciesAndExtraInfoInBinaryAndroidManifest(androidManifestBytes)
                 builder.usesStaticLibraries = dependencies.usesStaticLibs
                 builder.usesLibraries = dependencies.libs
                 builder.usesPackages = dependencies.packageDeps
                 builder.usesNativeLibraries = dependencies.usesNativeLibs
+                builder.staticLibrary = dependencies.staticLibrary
             } catch (e: ApkFormatException) {
                 throw IOException("failed to parse APK details: ${e.message}", e)
             } catch (e: NullPointerException) {
@@ -581,6 +633,7 @@ data class AndroidApk private constructor(
                 "parseForInnerElements called when not at the start of an outer element."
             }
 
+            val elementNamesToCheck = elementNames.toHashSet()
             val outerDepth = depth
             var eventType = next()
             while (
@@ -594,7 +647,7 @@ data class AndroidApk private constructor(
 
                 if (
                     eventType == AndroidBinXmlParser.EVENT_START_ELEMENT &&
-                    name in elementNames &&
+                    name in elementNamesToCheck &&
                     depth == targetDepth &&
                     (mustHaveEmptyNamespace implies namespace.isEmpty())
                 ) {
@@ -693,179 +746,145 @@ data class AndroidApk private constructor(
             )
         }
 
-        private data class Dependencies(
+        private data class DependenciesAndExtraInfo(
             val usesStaticLibs: List<UsesStaticLibrary>,
             val libs: List<UsesLibrary>,
             val packageDeps: List<UsesPackage>,
             val usesNativeLibs: List<UsesNativeLibrary>,
+            val staticLibrary: StaticLibrary?
         )
 
-        private fun getLibrariesAndDependenciesInBinaryAndroidManifest(
-            androidManifestContents: ByteBuffer,
-        ): Dependencies {
+        private fun getDependenciesAndExtraInfoInBinaryAndroidManifest(
+            androidManifestContents: ByteBuffer
+        ): DependenciesAndExtraInfo {
             try {
-                val staticLibraries = mutableListOf<UsesStaticLibrary>()
-                val libraries = mutableListOf<UsesLibrary>()
-                val packageDependencies = mutableListOf<UsesPackage>()
-                val nativeLibraries = mutableListOf<UsesNativeLibrary>()
+                var staticLibrary: StaticLibrary? = null
+                val usesStaticLibs = mutableListOf<UsesStaticLibrary>()
+                val usesLibs = mutableListOf<UsesLibrary>()
+                val usesPackage = mutableListOf<UsesPackage>()
+                val usesNativeLibraries = mutableListOf<UsesNativeLibrary>()
 
                 parseForElement(
                     androidManifestContents,
-                    elementName = "application",
-                    depth = 2,
+                    elementName = "manifest",
+                    depth = 1,
                     mustHaveEmptyNamespace = true
                 ) {
-                    parseForInnerElements(
-                        "uses-static-library",
-                        "uses-native-library",
-                        "uses-library",
-                        "uses-package",
-                        targetDepth = 3,
-                        mustHaveEmptyNamespace = true
-                    ) { elementName ->
-                        when (elementName) {
-                            "uses-static-library" -> {
-                                val staticLibraryBuilder = UsesStaticLibrary.Builder()
-                                for (i in 0 until attributeCount) {
-                                    when (getAttributeNameResourceId(i)) {
-                                        NAME_ATTR_ID -> when (val type = getAttributeValueType(i)) {
-                                            AndroidBinXmlParser.VALUE_TYPE_STRING -> {
-                                                val libraryName = getAttributeStringValue(i)
 
-                                                // Can depend only on one version of the same library
-                                                if (staticLibraries.find { it.name.pkg == libraryName } != null) {
-                                                    throw ApkFormatException(
-                                                        "Depending on multiple versions of static library $libraryName"
-                                                    )
-                                                }
-
-                                                staticLibraryBuilder.name = libraryName
-                                            }
-                                            AndroidBinXmlParser.VALUE_TYPE_REFERENCE -> {
-                                                // Note: don't allow this value to be a reference to a resource that may change.
-                                                // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#2678
-                                                throw ApkFormatException(
-                                                    "Bad uses-static-library declaration name: " +
-                                                            "references for package name are not allowed"
-                                                )
-                                            }
-                                            else -> {
-                                                throw ApkFormatException(
-                                                    "Bad uses-static-library declaration: package name isn't a string" +
-                                                            "but is of type $type"
-                                                )
-                                            }
-                                        }
-                                        VERSION_ATTR_ID -> {
-                                            val version: Int =
-                                                if (getAttributeValueType(i) == AndroidBinXmlParser.VALUE_TYPE_STRING) {
-                                                    XmlUtils.convertValueToInt(getAttributeStringValue(i), -1)
-                                                } else {
-                                                    getAttributeIntValue(i)
-                                                }
-                                            // Since the app cannot run without a static lib - fail if malformed
-                                            // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#2688
-                                            if (version < 0) {
-                                                throw ApkFormatException(
-                                                    "Bad uses-static-library declaration version: $version"
-                                                )
-                                            }
-                                            staticLibraryBuilder.version = VersionCode.fromMinor(version)
-                                        }
-                                        CERT_DIGEST_ATTR_ID -> {
-                                            val type = getAttributeValueType(i)
-                                            if (type != AndroidBinXmlParser.VALUE_TYPE_STRING) {
-                                                throw ApkFormatException(
-                                                    "Bad uses-static-library declaration: bad type for certDigest: " +
-                                                            "expected string but is of type $type"
-                                                )
-                                            }
-                                            staticLibraryBuilder.addCertDigest(getAttributeStringValue(i))
-                                        }
-                                    }
+                    // Parse the sharedUserId so that we can check it if there's a static library.
+                    var sharedUserId: String? = null
+                    for (i in 0 until attributeCount) {
+                        if (getAttributeNameResourceId(i) == SHARED_USER_ID_ATTR_ID) {
+                            val parsedSharedUserId =
+                                if (getAttributeValueType(i) == AndroidBinXmlParser.VALUE_TYPE_STRING) {
+                                    getAttributeStringValue(i).ifEmpty { null }
+                                } else {
+                                    null
                                 }
-
-                                parseForInnerElements(
-                                    "additional-certificate",
-                                    targetDepth = depth + 1,
-                                    mustHaveEmptyNamespace = true
-                                ) {
-                                    for (i in 0 until attributeCount) {
-                                        if (getAttributeNameResourceId(i) == CERT_DIGEST_ATTR_ID) {
-                                            val type = getAttributeValueType(i)
-                                            if (type != AndroidBinXmlParser.VALUE_TYPE_STRING) {
-                                                throw ApkFormatException(
-                                                    "Bad uses-static-library declaration: bad type for certDigest: " +
-                                                            "expected string but is of type $type"
-                                                )
-                                            }
-                                            staticLibraryBuilder.addCertDigest(getAttributeStringValue(i))
-                                        }
-                                    }
-                                }
-
-                                val staticLib = staticLibraryBuilder.buildIfPossible() ?: throw ApkFormatException(
-                                    "Bad uses-static-library declaration: missing attributes. $staticLibraryBuilder"
+                            if (parsedSharedUserId != null) {
+                                // Note: skipping a check that the package name is not "android"
+                                // https://android.googlesource.com/platform/frameworks/base/+/7b02279e0ab3000f1d353992e9059db5d5b3cbfd/core/java/android/content/pm/parsing/ParsingPackageUtils.java#863
+                                val nameResult: Result<Unit?> = ParsingPackageUtils.validateName(
+                                    name = parsedSharedUserId,
+                                    requireSeparator = true,
+                                    requireFilename = true
                                 )
-                                staticLibraries.add(staticLib)
+                                if (nameResult.isFailure) {
+                                    throw ApkFormatException(
+                                        "<manifest> specified bad sharedUserId name \"$parsedSharedUserId\": " +
+                                                "${nameResult.exceptionOrNull()!!.message}"
+                                    )
+                                }
+                                sharedUserId = parsedSharedUserId
                             }
-                            "uses-native-library" -> {
-                                val nativeLibBuilder = UsesNativeLibrary.Builder()
-                                for (i in 0 until attributeCount) {
-                                    when (getAttributeNameResourceId(i)) {
-                                        NAME_ATTR_ID -> {
-                                            when (val type = getAttributeValueType(i)) {
+                        }
+                    }
+
+                    parseForInnerElements(
+                        "application",
+                        targetDepth = 2,
+                        mustHaveEmptyNamespace = true
+                    ) {
+                        parseForInnerElements(
+                            "static-library",
+                            "uses-static-library",
+                            "uses-native-library",
+                            "uses-library",
+                            "uses-package",
+                            targetDepth = 3,
+                            mustHaveEmptyNamespace = true
+                        ) { elementName ->
+                            when (elementName) {
+                                "static-library" -> {
+                                    if (sharedUserId != null) {
+                                        throw ApkFormatException("sharedUserId not allowed in static shared library")
+                                    } else if (staticLibrary != null) {
+                                        throw ApkFormatException("multiple static-shared libs for package")
+                                    }
+
+                                    val staticLibraryBuilder = StaticLibrary.Builder()
+
+                                    for (i in 0 until attributeCount) {
+                                        when (val attrId = getAttributeNameResourceId(i)) {
+                                            NAME_ATTR_ID -> when (val type = getAttributeValueType(i)) {
+                                                // Note: don't allow this value to be a reference to a resource
+                                                // that may change.
+                                                // https://android.googlesource.com/platform/frameworks/base/+/7b02279e0ab3000f1d353992e9059db5d5b3cbfd/core/java/android/content/pm/parsing/ParsingPackageUtils.java#2049
                                                 AndroidBinXmlParser.VALUE_TYPE_STRING -> {
-                                                    nativeLibBuilder.name = getAttributeStringValue(i)
-                                                }
-                                                AndroidBinXmlParser.VALUE_TYPE_REFERENCE -> {
-                                                    // Note: don't allow this value to be a reference to a resource that may change.
-                                                    // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#2678
-                                                    throw ApkFormatException(
-                                                        "Bad uses-native-library declaration name: " +
-                                                                "references for package name are not allowed"
-                                                    )
+                                                    staticLibraryBuilder.name = getAttributeStringValue(i)
                                                 }
                                                 else -> {
                                                     throw ApkFormatException(
-                                                        "Bad uses-native-library declaration: package name isn't a string" +
+                                                        "Bad static-library declaration: package name isn't a string" +
                                                                 "but is of type $type"
                                                     )
                                                 }
                                             }
-                                        }
-                                        REQUIRED_ATTR_ID -> {
-                                            when (val type = getAttributeValueType(i)) {
-                                                AndroidBinXmlParser.VALUE_TYPE_BOOLEAN,
-                                                AndroidBinXmlParser.VALUE_TYPE_STRING,
-                                                AndroidBinXmlParser.VALUE_TYPE_INT -> {
-                                                    val value = getAttributeStringValue(i);
-                                                    nativeLibBuilder.required = "true" == value ||
-                                                            "TRUE" == value ||
-                                                            "1" == value
-                                                }
-                                                else -> {
+                                            VERSION_ATTR_ID, VERSION_MAJOR_ATTR_ID -> {
+                                                val parsedVersion: Int =
+                                                    if (getAttributeValueType(i) == AndroidBinXmlParser.VALUE_TYPE_STRING) {
+                                                        XmlUtils.convertValueToInt(
+                                                            getAttributeStringValue(i),
+                                                            // Let version major default to 0
+                                                            // https://android.googlesource.com/platform/frameworks/base/+/7b02279e0ab3000f1d353992e9059db5d5b3cbfd/core/java/android/content/pm/parsing/ParsingPackageUtils.java#2055
+                                                            if (attrId == VERSION_MAJOR_ATTR_ID) 0 else -1
+                                                        )
+                                                    } else {
+                                                        getAttributeIntValue(i)
+                                                    }
+                                                if (parsedVersion < 0) {
                                                     throw ApkFormatException(
-                                                        "Bad uses-native-library declaration: bad required attribute"
+                                                        "Bad static-library declaration version: $parsedVersion"
                                                     )
+                                                }
+                                                if (attrId == VERSION_ATTR_ID) {
+                                                    staticLibraryBuilder.version = parsedVersion
+                                                } else { // VERSION_MAJOR_ATTR_ID
+                                                    staticLibraryBuilder.versionMajor = parsedVersion
                                                 }
                                             }
                                         }
                                     }
+
+                                    staticLibrary = staticLibraryBuilder.buildIfPossible()
+                                        ?: throw ApkFormatException("Bad static-library declaration: $staticLibraryBuilder")
                                 }
-                                val nativeLib = nativeLibBuilder.buildIfPossible() ?: throw ApkFormatException(
-                                    "Bad uses-native-library declaration: missing attributes. $nativeLibBuilder"
-                                )
-                                nativeLibraries.add(nativeLib)
-                            }
-                            "uses-library" -> {
-                                val libraryBuilder = UsesLibrary.Builder()
-                                for (i in 0 until attributeCount) {
-                                    when (getAttributeNameResourceId(i)) {
-                                        NAME_ATTR_ID -> {
-                                            when (val type = getAttributeValueType(i)) {
+                                "uses-static-library" -> {
+                                    val staticLibraryBuilder = UsesStaticLibrary.Builder()
+                                    for (i in 0 until attributeCount) {
+                                        when (getAttributeNameResourceId(i)) {
+                                            NAME_ATTR_ID -> when (val type = getAttributeValueType(i)) {
                                                 AndroidBinXmlParser.VALUE_TYPE_STRING -> {
-                                                    libraryBuilder.name = getAttributeStringValue(i)
+                                                    val libraryName = getAttributeStringValue(i)
+
+                                                    // Can depend only on one version of the same library
+                                                    if (usesStaticLibs.find { it.name.pkg == libraryName } != null) {
+                                                        throw ApkFormatException(
+                                                            "Depending on multiple versions of static library $libraryName"
+                                                        )
+                                                    }
+
+                                                    staticLibraryBuilder.name = libraryName
                                                 }
                                                 AndroidBinXmlParser.VALUE_TYPE_REFERENCE -> {
                                                     // Note: don't allow this value to be a reference to a resource that may change.
@@ -882,124 +901,262 @@ data class AndroidApk private constructor(
                                                     )
                                                 }
                                             }
+                                            VERSION_ATTR_ID -> {
+                                                val version: Int =
+                                                    if (getAttributeValueType(i) == AndroidBinXmlParser.VALUE_TYPE_STRING) {
+                                                        XmlUtils.convertValueToInt(getAttributeStringValue(i), -1)
+                                                    } else {
+                                                        getAttributeIntValue(i)
+                                                    }
+                                                // Since the app cannot run without a static lib - fail if malformed
+                                                // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#2688
+                                                if (version < 0) {
+                                                    throw ApkFormatException(
+                                                        "Bad uses-static-library declaration version: $version"
+                                                    )
+                                                }
+                                                staticLibraryBuilder.version = VersionCode.fromMinor(version)
+                                            }
+                                            CERT_DIGEST_ATTR_ID -> {
+                                                val type = getAttributeValueType(i)
+                                                if (type != AndroidBinXmlParser.VALUE_TYPE_STRING) {
+                                                    throw ApkFormatException(
+                                                        "Bad uses-static-library declaration: bad type for certDigest: " +
+                                                                "expected string but is of type $type"
+                                                    )
+                                                }
+                                                staticLibraryBuilder.addCertDigest(getAttributeStringValue(i))
+                                            }
                                         }
-                                        REQUIRED_ATTR_ID -> {
-                                            when (getAttributeValueType(i)) {
-                                                AndroidBinXmlParser.VALUE_TYPE_BOOLEAN,
-                                                AndroidBinXmlParser.VALUE_TYPE_STRING,
-                                                AndroidBinXmlParser.VALUE_TYPE_INT -> {
-                                                    val value = getAttributeStringValue(i);
-                                                    libraryBuilder.required = "true" == value ||
-                                                            "TRUE" == value ||
-                                                            "1" == value
+                                    }
+
+                                    parseForInnerElements(
+                                        "additional-certificate",
+                                        targetDepth = depth + 1,
+                                        mustHaveEmptyNamespace = true
+                                    ) {
+                                        for (i in 0 until attributeCount) {
+                                            if (getAttributeNameResourceId(i) == CERT_DIGEST_ATTR_ID) {
+                                                val type = getAttributeValueType(i)
+                                                if (type != AndroidBinXmlParser.VALUE_TYPE_STRING) {
+                                                    throw ApkFormatException(
+                                                        "Bad uses-static-library declaration: bad type for certDigest: " +
+                                                                "expected string but is of type $type"
+                                                    )
+                                                }
+                                                staticLibraryBuilder.addCertDigest(getAttributeStringValue(i))
+                                            }
+                                        }
+                                    }
+
+                                    val staticLib = staticLibraryBuilder.buildIfPossible() ?: throw ApkFormatException(
+                                        "Bad uses-static-library declaration: missing attributes. $staticLibraryBuilder"
+                                    )
+                                    usesStaticLibs.add(staticLib)
+                                }
+                                "uses-native-library" -> {
+                                    val nativeLibBuilder = UsesNativeLibrary.Builder()
+                                    for (i in 0 until attributeCount) {
+                                        when (getAttributeNameResourceId(i)) {
+                                            NAME_ATTR_ID -> {
+                                                when (val type = getAttributeValueType(i)) {
+                                                    AndroidBinXmlParser.VALUE_TYPE_STRING -> {
+                                                        nativeLibBuilder.name = getAttributeStringValue(i)
+                                                    }
+                                                    AndroidBinXmlParser.VALUE_TYPE_REFERENCE -> {
+                                                        // Note: don't allow this value to be a reference to a resource that may change.
+                                                        // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#2678
+                                                        throw ApkFormatException(
+                                                            "Bad uses-native-library declaration name: " +
+                                                                    "references for package name are not allowed"
+                                                        )
+                                                    }
+                                                    else -> {
+                                                        throw ApkFormatException(
+                                                            "Bad uses-native-library declaration: package name isn't a string" +
+                                                                    "but is of type $type"
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            REQUIRED_ATTR_ID -> {
+                                                when (val type = getAttributeValueType(i)) {
+                                                    AndroidBinXmlParser.VALUE_TYPE_BOOLEAN,
+                                                    AndroidBinXmlParser.VALUE_TYPE_STRING,
+                                                    AndroidBinXmlParser.VALUE_TYPE_INT -> {
+                                                        val value = getAttributeStringValue(i);
+                                                        nativeLibBuilder.required = "true" == value ||
+                                                                "TRUE" == value ||
+                                                                "1" == value
+                                                    }
+                                                    else -> {
+                                                        throw ApkFormatException(
+                                                            "Bad uses-native-library declaration: bad required attribute"
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    val nativeLib = nativeLibBuilder.buildIfPossible() ?: throw ApkFormatException(
+                                        "Bad uses-native-library declaration: missing attributes. $nativeLibBuilder"
+                                    )
+                                    usesNativeLibraries.add(nativeLib)
+                                }
+                                "uses-library" -> {
+                                    val libraryBuilder = UsesLibrary.Builder()
+                                    for (i in 0 until attributeCount) {
+                                        when (getAttributeNameResourceId(i)) {
+                                            NAME_ATTR_ID -> {
+                                                when (val type = getAttributeValueType(i)) {
+                                                    AndroidBinXmlParser.VALUE_TYPE_STRING -> {
+                                                        libraryBuilder.name = getAttributeStringValue(i)
+                                                    }
+                                                    AndroidBinXmlParser.VALUE_TYPE_REFERENCE -> {
+                                                        // Note: don't allow this value to be a reference to a resource that may change.
+                                                        // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#2678
+                                                        throw ApkFormatException(
+                                                            "Bad uses-static-library declaration name: " +
+                                                                    "references for package name are not allowed"
+                                                        )
+                                                    }
+                                                    else -> {
+                                                        throw ApkFormatException(
+                                                            "Bad uses-static-library declaration: package name isn't a string" +
+                                                                    "but is of type $type"
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            REQUIRED_ATTR_ID -> {
+                                                when (getAttributeValueType(i)) {
+                                                    AndroidBinXmlParser.VALUE_TYPE_BOOLEAN,
+                                                    AndroidBinXmlParser.VALUE_TYPE_STRING,
+                                                    AndroidBinXmlParser.VALUE_TYPE_INT -> {
+                                                        val value = getAttributeStringValue(i);
+                                                        libraryBuilder.required = "true" == value ||
+                                                                "TRUE" == value ||
+                                                                "1" == value
+                                                    }
+                                                    else -> {
+                                                        throw ApkFormatException(
+                                                            "Bad uses-library declaration: bad required attribute"
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    val library = libraryBuilder.buildIfPossible() ?: throw ApkFormatException(
+                                        "Bad uses-library declaration: missing attributes. $libraryBuilder"
+                                    )
+                                    usesLibs.add(library)
+                                }
+                                "uses-package" -> {
+                                    val packageDependencyBuilder = UsesPackage.Builder()
+
+                                    for (i in 0 until attributeCount) {
+                                        when (val attrId = getAttributeNameResourceId(i)) {
+                                            PACKAGE_TYPE_ATTR_ID -> {
+                                                // References are not allowed.
+                                                if (getAttributeValueType(i) != AndroidBinXmlParser.VALUE_TYPE_STRING) {
+                                                    throw ApkFormatException(
+                                                        "Bad uses-package declaration: packageType attribute isn't " +
+                                                                "a String but is instead ${getAttributeValueType(i)}"
+                                                    )
+                                                }
+                                                packageDependencyBuilder.packageType = getAttributeStringValue(i)
+                                            }
+                                            NAME_ATTR_ID -> when (val type = getAttributeValueType(i)) {
+                                                AndroidBinXmlParser.VALUE_TYPE_STRING -> {
+                                                    packageDependencyBuilder.name =
+                                                        PackageName(getAttributeStringValue(i))
+                                                }
+                                                AndroidBinXmlParser.VALUE_TYPE_REFERENCE -> {
+                                                    // Note: don't allow this value to be a reference to a resource that may change.
+                                                    throw ApkFormatException(
+                                                        "Bad uses-package declaration name: " +
+                                                                "references for package name are not allowed"
+                                                    )
                                                 }
                                                 else -> {
                                                     throw ApkFormatException(
-                                                        "Bad uses-library declaration: bad required attribute"
+                                                        "Bad uses-package declaration: package name isn't a string" +
+                                                                "but is of type $type"
                                                     )
                                                 }
                                             }
-                                        }
-                                    }
-                                }
-                                val library = libraryBuilder.buildIfPossible() ?: throw ApkFormatException(
-                                    "Bad uses-library declaration: missing attributes. $libraryBuilder"
-                                )
-                                libraries.add(library)
-                            }
-                            "uses-package" -> {
-                                val packageDependencyBuilder = UsesPackage.Builder()
-
-                                for (i in 0 until attributeCount) {
-                                    when (val attrId = getAttributeNameResourceId(i)) {
-                                        PACKAGE_TYPE_ATTR_ID -> {
-                                            // References are not allowed.
-                                            if (getAttributeValueType(i) != AndroidBinXmlParser.VALUE_TYPE_STRING) {
-                                                throw ApkFormatException(
-                                                    "Bad uses-package declaration: packageType attribute isn't " +
-                                                            "a String but is instead ${getAttributeValueType(i)}"
-                                                )
-                                            }
-                                            packageDependencyBuilder.packageType = getAttributeStringValue(i)
-                                        }
-                                        NAME_ATTR_ID -> when (val type = getAttributeValueType(i)) {
-                                            AndroidBinXmlParser.VALUE_TYPE_STRING -> {
-                                                packageDependencyBuilder.name =
-                                                    PackageName(getAttributeStringValue(i))
-                                            }
-                                            AndroidBinXmlParser.VALUE_TYPE_REFERENCE -> {
-                                                // Note: don't allow this value to be a reference to a resource that may change.
-                                                throw ApkFormatException(
-                                                    "Bad uses-package declaration name: " +
-                                                            "references for package name are not allowed"
-                                                )
-                                            }
-                                            else -> {
-                                                throw ApkFormatException(
-                                                    "Bad uses-package declaration: package name isn't a string" +
-                                                            "but is of type $type"
-                                                )
-                                            }
-                                        }
-                                        VERSION_ATTR_ID, VERSION_MAJOR_ATTR_ID ->  {
-                                            val parsedVersion: Int =
-                                                if (getAttributeValueType(i) == AndroidBinXmlParser.VALUE_TYPE_STRING) {
-                                                    XmlUtils.convertValueToInt(getAttributeStringValue(i), -1)
-                                                } else {
-                                                    getAttributeIntValue(i)
+                                            VERSION_ATTR_ID, VERSION_MAJOR_ATTR_ID -> {
+                                                val parsedVersion: Int =
+                                                    if (getAttributeValueType(i) == AndroidBinXmlParser.VALUE_TYPE_STRING) {
+                                                        XmlUtils.convertValueToInt(
+                                                            getAttributeStringValue(i),
+                                                            // Let version major be defaulted to 0.
+                                                            if (attrId == VERSION_MAJOR_ATTR_ID) 0 else -1
+                                                        )
+                                                    } else {
+                                                        getAttributeIntValue(i)
+                                                    }
+                                                // PackageParser doesn't enforce this, but we should anyway
+                                                // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#3874
+                                                if (parsedVersion < 0) {
+                                                    throw ApkFormatException("Bad uses-package declaration version: $parsedVersion")
                                                 }
-                                            // PackageParser doesn't enforce this, but we should anyway
-                                            // https://android.googlesource.com/platform/frameworks/base/+/cc0a3a9bef94bd2ad7061a17f0a3297be5d7f270/core/java/android/content/pm/PackageParser.java#3874
-                                            if (parsedVersion < 0) {
-                                                throw ApkFormatException("Bad uses-package declaration version: $parsedVersion")
+                                                if (attrId == VERSION_ATTR_ID) {
+                                                    packageDependencyBuilder.version = parsedVersion
+                                                } else { // VERSION_MAJOR_ATTR_ID
+                                                    packageDependencyBuilder.versionMajor = parsedVersion
+                                                }
                                             }
-                                            if (attrId == VERSION_ATTR_ID) {
-                                                packageDependencyBuilder.version = parsedVersion
-                                            } else { // VERSION_MAJOR_ATTR_ID
-                                                packageDependencyBuilder.versionMajor = parsedVersion
+                                            CERT_DIGEST_ATTR_ID -> {
+                                                val type = getAttributeValueType(i)
+                                                if (type != AndroidBinXmlParser.VALUE_TYPE_STRING) {
+                                                    throw ApkFormatException(
+                                                        "Bad uses-package declaration: bad type for certDigest: " +
+                                                                "expected string but is of type $type"
+                                                    )
+                                                }
+                                                packageDependencyBuilder.addCertDigest(getAttributeStringValue(i))
                                             }
-                                        }
-                                        CERT_DIGEST_ATTR_ID -> {
-                                            val type = getAttributeValueType(i)
-                                            if (type != AndroidBinXmlParser.VALUE_TYPE_STRING) {
-                                                throw ApkFormatException(
-                                                    "Bad uses-package declaration: bad type for certDigest: " +
-                                                            "expected string but is of type $type"
-                                                )
-                                            }
-                                            packageDependencyBuilder.addCertDigest(getAttributeStringValue(i))
                                         }
                                     }
-                                }
 
-                                parseForInnerElements(
-                                    "additional-certificate",
-                                    targetDepth = depth + 1,
-                                    mustHaveEmptyNamespace = true
-                                ) {
-                                    for (i in 0 until attributeCount) {
-                                        if (getAttributeNameResourceId(i) == CERT_DIGEST_ATTR_ID) {
-                                            val type = getAttributeValueType(i)
-                                            if (type != AndroidBinXmlParser.VALUE_TYPE_STRING) {
-                                                throw ApkFormatException(
-                                                    "Bad uses-package declaration: bad type for certDigest: " +
-                                                            "expected string but is of type $type"
-                                                )
+                                    parseForInnerElements(
+                                        "additional-certificate",
+                                        targetDepth = depth + 1,
+                                        mustHaveEmptyNamespace = true
+                                    ) {
+                                        for (i in 0 until attributeCount) {
+                                            if (getAttributeNameResourceId(i) == CERT_DIGEST_ATTR_ID) {
+                                                val type = getAttributeValueType(i)
+                                                if (type != AndroidBinXmlParser.VALUE_TYPE_STRING) {
+                                                    throw ApkFormatException(
+                                                        "Bad uses-package declaration: bad type for certDigest: " +
+                                                                "expected string but is of type $type"
+                                                    )
+                                                }
+                                                packageDependencyBuilder.addCertDigest(getAttributeStringValue(i))
                                             }
-                                            packageDependencyBuilder.addCertDigest(getAttributeStringValue(i))
                                         }
                                     }
+                                    val packageDep =
+                                        packageDependencyBuilder.buildIfPossible() ?: throw ApkFormatException(
+                                            "Bad uses-package declaration: $packageDependencyBuilder"
+                                        )
+                                    usesPackage.add(packageDep)
                                 }
-                                val packageDep = packageDependencyBuilder.buildIfPossible() ?: throw ApkFormatException(
-                                    "Bad uses-package declaration: $packageDependencyBuilder"
-                                )
-                                packageDependencies.add(packageDep)
                             }
                         }
                     }
-                }
 
-                return Dependencies(staticLibraries, libraries, packageDependencies, nativeLibraries)
+                }
+                return DependenciesAndExtraInfo(
+                    usesStaticLibs,
+                    usesLibs,
+                    usesPackage,
+                    usesNativeLibraries,
+                    staticLibrary
+                )
             } catch (e: AndroidBinXmlParser.XmlParserException) {
                 throw ApkFormatException(
                     "Unable to get label from APK: malformed binary resource: " +

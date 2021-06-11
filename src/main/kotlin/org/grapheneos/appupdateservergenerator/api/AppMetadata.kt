@@ -86,6 +86,16 @@ data class AppMetadata(
          */
         val v4SigSha256: Base64String? = null,
         /**
+         * If this is non null, then this apk is providing itself
+         * as a static shared library for other applications to use. Any app can declare such
+         * a library and there can be only one static shared library per package. These libraries
+         * are updatable, multiple versions can be installed at the same time, and an app links
+         * against a specific version simulating static linking while allowing code sharing.
+         *
+         * @see AndroidApk.StaticLibrary
+         */
+        val staticLibrary: AndroidApk.StaticLibrary?,
+        /**
          * `uses-libraries` specifies a shared library that this package requires to be linked against.
          * Specifying this flag tells the system to include this library's code in your class loader.
          *
@@ -177,6 +187,7 @@ data class AppMetadata(
                 ?.v4SignatureFile
                 ?.digest("SHA-256")
                 ?.encodeToBase64String(),
+            staticLibrary = apkFile.staticLibrary,
             usesLibraries = apkFile.usesLibraries.ifEmpty { null },
             usesNativeLibraries = apkFile.usesNativeLibraries.ifEmpty { null },
             usesStaticLibraries = apkFile.usesStaticLibraries.ifEmpty { null },
