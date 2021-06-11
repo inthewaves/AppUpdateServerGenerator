@@ -364,6 +364,13 @@ data class AndroidApk private constructor(
     class AppIcon(val pkg: PackageName, val bytes: ByteArray, val density: Density)
 
     private var _icon: AppIcon? = null
+
+    /**
+     * Attempts to get the application icon from the APK. This assumes the APK has an icon, and it will throw if it
+     * cannot get the icon.
+     *
+     * @throws IOException if the icon cannot be retrieved or an I/O error occurs
+     */
     @Synchronized
     fun getIcon(minimumDensity: Density): AppIcon {
         if (_icon != null && _icon?.density!! >= minimumDensity) return _icon!!
@@ -424,7 +431,10 @@ data class AndroidApk private constructor(
 
             val iconBytes = apkZipFile.getInputStream(iconEntry).use { it.readBytes() }
             return AppIcon(packageName, iconBytes, Density.fromDpi(icon.config.density()) ?: minimumDensity)
-                .also { _icon = it  }
+                .also {
+                    // Cache the icon.
+                    _icon = it
+                }
         }
     }
 

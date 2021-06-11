@@ -781,7 +781,8 @@ private class AppRepoManagerImpl(
                                 ?: findApkInGivenPackagesToInsert(library.name, null)
                             if (libraryApk == null) {
                                 if (library.required) {
-                                    errorsAndWarnings.sendError(
+                                    // TODO: evaluate whether we should error or warning
+                                    errorsAndWarnings.sendWarning(
                                         "trying to insert ${apk.packageName} ${apk.versionCode}, " +
                                                 "and it depends on $library; however, " +
                                                 "the library cannot be found in either " +

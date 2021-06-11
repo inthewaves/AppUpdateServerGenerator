@@ -114,8 +114,12 @@ class StaticFileManager(
                                 .buffered()
                                 .use { it.write(icon.bytes) }
                         } else {
+                            val latestRelease = metadata.latestRelease()
+                            val versionCode = latestRelease.versionCode
+                            val versionName = latestRelease.versionName
                             println("warning: unable to extract icon for ${metadata.packageName}, " +
-                                    "${metadata.latestRelease()} for minimum density $iconMinimumDensity")
+                                    "version $versionName (versionCode ${versionCode.code}) " +
+                                    "for minimum density $iconMinimumDensity")
                         }
                     }
                 }

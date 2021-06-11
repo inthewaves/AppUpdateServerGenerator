@@ -18,6 +18,7 @@ import org.grapheneos.appupdateservergenerator.repo.AppRepoException
 import org.grapheneos.appupdateservergenerator.util.digest
 import org.grapheneos.appupdateservergenerator.util.executeAsSequence
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.SortedSet
 import java.util.TreeSet
@@ -72,7 +73,15 @@ class AppDao(private val fileManager: FileManager) {
                     }
                 }
 
-        val icon: AndroidApk.AppIcon? = allReleases.ifEmpty { null }?.last()?.apkFile?.getIcon(iconMinimumDensity)
+        val icon: AndroidApk.AppIcon? = try {
+            allReleases.ifEmpty { null }
+                ?.last()
+                ?.apkFile
+                ?.getIcon(iconMinimumDensity)
+        } catch (e: IOException) {
+            println("warning: ${app.packageName}: icon extraction failed with message: ${e.message}")
+            null
+        }
         return@transactionWithResult app.toSerializableModel(repoIndexTimestamp, icon, allReleases) to icon
     }
 
