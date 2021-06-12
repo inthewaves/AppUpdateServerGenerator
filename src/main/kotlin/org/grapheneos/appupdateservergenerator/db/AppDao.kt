@@ -63,8 +63,9 @@ class AppDao(private val fileManager: FileManager) {
                                 .filter { it.targetVersion == release.versionCode }
                                 .map {
                                     AppMetadata.ReleaseInfo.DeltaInfo(
-                                        it.baseVersion,
-                                        it.delta.digest(sha256MessageDigest).encodeToBase64String()
+                                        baseVersionCode = it.baseVersion,
+                                        size = it.delta.length(),
+                                        sha256 = it.delta.digest(sha256MessageDigest).encodeToBase64String()
                                     )
                                 }
                                 .toSortedSet()

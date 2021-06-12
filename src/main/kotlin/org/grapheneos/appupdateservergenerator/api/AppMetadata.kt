@@ -63,10 +63,15 @@ data class AppMetadata(
     data class ReleaseInfo private constructor(
         /**
          * The associated [AndroidApk]. This is not serialized (@[Transient]).
-         * If this is null, then this instance of the [ReleaseInfo] class created from deserialization.
+         * If this is null, then this [ReleaseInfo] instance was created from deserialization.
          */
         @Transient
         val apkFile: AndroidApk? = null,
+        /**
+         * The size of the associated [AndroidApk].
+         * If this is null, then this [ReleaseInfo] instance was created from deserialization.
+         */
+        val apkSize: Long? = null,
         val versionCode: VersionCode,
         val versionName: String,
         val minSdkVersion: Int,
@@ -175,6 +180,7 @@ data class AppMetadata(
             releaseNotes: String?
         ) : this(
             apkFile = apkFile,
+            apkSize = apkFile.apkFile.length(),
             versionCode = versionCode,
             versionName = versionName,
             minSdkVersion = minSdkVersion,
@@ -207,7 +213,11 @@ data class AppMetadata(
          * @property sha256 The sha256 checksum of the delta file, encoded in base64.
          */
         @Serializable
-        data class DeltaInfo(val baseVersionCode: VersionCode, val sha256: Base64String) : Comparable<DeltaInfo> {
+        data class DeltaInfo(
+            val baseVersionCode: VersionCode,
+            val size: Long,
+            val sha256: Base64String
+        ) : Comparable<DeltaInfo> {
             override fun compareTo(other: DeltaInfo) = baseVersionCode.compareTo(other.baseVersionCode)
         }
     }
