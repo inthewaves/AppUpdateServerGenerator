@@ -1,8 +1,8 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    kotlin("jvm") version "1.5.10"
-    kotlin("plugin.serialization") version "1.5.0"
+    kotlin("jvm") version "1.5.20"
+    kotlin("plugin.serialization") version "1.5.20"
     id("com.squareup.sqldelight") version "1.5.0"
     application
 }
@@ -39,7 +39,8 @@ dependencies {
 
     val apkParserVersion = "30.1.0-alpha01"
     /*
-    Uncomment this if we want to parse binary XML from APK files
+    Uncomment this if we want to parse binary XML from APK files, or just copy the binary XML parser from that library
+    to avoid all the other dependencies
 
     implementation("com.android.tools.apkparser:apkanalyzer:$apkParserVersion") {
         exclude("com.android.tools.lint")
